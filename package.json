@@ -1,0 +1,71 @@
+{
+  "name": "harmoniq",
+  "version": "1.0.0",
+  "description": "HARMONIQ - Premium High-Fidelity Audio Player for Windows",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "build:electron": "tsc -p tsconfig.electron.json",
+    "start": "npm run build && npm run build:electron && electron .",
+    "electron": "npm run build:electron && electron .",
+    "dist": "npm run build && npm run build:electron && electron-builder --win",
+    "test": "vitest run"
+  },
+  "build": {
+    "appId": "com.harmoniq.player",
+    "productName": "Harmoniq",
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "node_modules/**/*",
+      "package.json"
+    ]
+  },
+  "keywords": [
+    "audio-player",
+    "hi-res",
+    "flac",
+    "dsp",
+    "equalizer",
+    "wasapi",
+    "windows"
+  ],
+  "author": "Harmoniq Audio Systems",
+  "license": "MIT",
+  "dependencies": {
+    "lucide-react": "^1.16.0",
+    "music-metadata": "^7.14.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.6.2",
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8",
+    "postcss": "^8.5.33",
+    "tailwindcss": "^3.4.19",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.1",
+    "vitest": "^2.1.8"
+  }
+}
