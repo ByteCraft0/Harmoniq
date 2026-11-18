@@ -19,6 +19,7 @@ export type AppView =
   | 'artist_detail'
   | 'now_playing'
   | 'equalizer'
+  | 'visualizer'
   | 'inspector'
   | 'playlists'
   | 'lyrics'

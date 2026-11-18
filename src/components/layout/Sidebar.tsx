@@ -92,6 +92,7 @@ export const Sidebar: React.FC = () => {
       title: 'AUDIO STUDIO',
       items: [
         { view: 'equalizer' as AppView, label: 'Equalizer Studio', icon: <Sliders size={16} /> },
+        { view: 'visualizer' as AppView, label: 'Audio Visualizer', icon: <Sparkles size={16} /> },
         { view: 'inspector' as AppView, label: 'Audio Quality Inspector', icon: <Gauge size={16} /> },
         { view: 'lyrics' as AppView, label: 'Synced Lyrics', icon: <FileText size={16} /> },
         { view: 'settings' as AppView, label: 'Settings', icon: <Settings size={16} /> },

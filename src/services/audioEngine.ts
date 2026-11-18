@@ -1,4 +1,4 @@
-import { DSPSettings, EQ_FREQUENCIES, LimiterMetrics } from '../types/dsp';
+import { DSPSettings, EQ_FREQUENCIES, DEFAULT_PARAMETRIC_FILTERS, LimiterMetrics } from '../types/dsp';
 import { TrackMetadata, ReplayGainMode } from '../types/audio';
 
 export type PlaybackStatusCallback = (status: {
@@ -49,6 +49,8 @@ class AudioEngine {
   private preampGainNode: GainNode | null = null;
   private monoNode: GainNode | null = null;
   private eqFilters: BiquadFilterNode[] = [];
+  private parametricFilterNodes: BiquadFilterNode[] = [];
+  private maxParametricNodes = 12;
   private bassBoostFilter: BiquadFilterNode | null = null;
   private trebleFilter: BiquadFilterNode | null = null;
   private pannerNode: StereoPannerNode | null = null;
@@ -70,7 +72,9 @@ class AudioEngine {
   private preservesPitch = true;
   private dspSettings: DSPSettings = {
     enabled: true,
+    eqMode: 'graphic',
     bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    parametricFilters: [...DEFAULT_PARAMETRIC_FILTERS],
     preamp: 0,
     bassBoost: 0,
     treble: 0,
@@ -138,6 +142,20 @@ class AudioEngine {
         this.eqFilters[i].connect(this.eqFilters[i + 1]);
       }
 
+      // 4b. Dynamic Parametric Filter Nodes Chain (up to 12 cascaded biquads)
+      this.parametricFilterNodes = [];
+      for (let i = 0; i < this.maxParametricNodes; i++) {
+        const pFilter = this.audioCtx!.createBiquadFilter();
+        pFilter.type = 'peaking';
+        pFilter.frequency.value = 1000;
+        pFilter.Q.value = 1.0;
+        pFilter.gain.value = 0;
+        this.parametricFilterNodes.push(pFilter);
+      }
+      for (let i = 0; i < this.parametricFilterNodes.length - 1; i++) {
+        this.parametricFilterNodes[i].connect(this.parametricFilterNodes[i + 1]);
+      }
+
       // 5. Bass Boost (Low-shelf filter @ 100Hz)
       this.bassBoostFilter = this.audioCtx.createBiquadFilter();
       this.bassBoostFilter.type = 'lowshelf';
@@ -180,10 +198,11 @@ class AudioEngine {
       this.dspBypassGain = this.audioCtx.createGain();
 
       // Connect DSP chain:
-      // masterMixGain -> Preamp -> EQ[0]...EQ[9] -> BassBoost -> Treble -> Mono -> (Panner) -> Limiter -> dspActiveGain -> Analyser -> Destination
+      // masterMixGain -> Preamp -> EQ[0..9] -> Parametric[0..11] -> BassBoost -> Treble -> Mono -> (Panner) -> Limiter -> dspActiveGain -> Analyser -> Destination
       this.masterMixGain.connect(this.preampGainNode);
       this.preampGainNode.connect(this.eqFilters[0]);
-      this.eqFilters[this.eqFilters.length - 1].connect(this.bassBoostFilter);
+      this.eqFilters[this.eqFilters.length - 1].connect(this.parametricFilterNodes[0]);
+      this.parametricFilterNodes[this.parametricFilterNodes.length - 1].connect(this.bassBoostFilter);
       this.bassBoostFilter.connect(this.trebleFilter);
 
       this.trebleFilter.connect(this.monoNode);
@@ -803,11 +822,42 @@ class AudioEngine {
     // 1. Preamp gain
     this.applyPreamp();
 
-    // 2. 10-band EQ
-    this.eqFilters.forEach((filter, index) => {
-      const gainValue = settings.bands[index] ?? 0;
-      filter.gain.setTargetAtTime(gainValue, now, 0.05);
-    });
+    if (settings.eqMode === 'graphic') {
+      // 2a. 10-Band Graphic EQ Active
+      this.eqFilters.forEach((filter, index) => {
+        const gainValue = settings.bands[index] ?? 0;
+        filter.gain.setTargetAtTime(gainValue, now, 0.05);
+      });
+
+      // Parametric nodes set to transparent unity (0 dB gain)
+      this.parametricFilterNodes.forEach((node) => {
+        node.type = 'peaking';
+        node.gain.setTargetAtTime(0, now, 0.05);
+      });
+    } else {
+      // 2b. Parametric Mode Active: 10-band graphic filters set to 0 dB unity
+      this.eqFilters.forEach((filter) => {
+        filter.gain.setTargetAtTime(0, now, 0.05);
+      });
+
+      // Parametric filters configured
+      const configs = settings.parametricFilters || [];
+      for (let i = 0; i < this.maxParametricNodes; i++) {
+        const node = this.parametricFilterNodes[i];
+        if (!node) continue;
+        const cfg = configs[i];
+        if (cfg && cfg.enabled) {
+          node.type = cfg.type;
+          node.frequency.setTargetAtTime(Math.max(20, Math.min(20000, cfg.frequency)), now, 0.05);
+          node.Q.setTargetAtTime(Math.max(0.1, Math.min(18, cfg.q)), now, 0.05);
+          node.gain.setTargetAtTime(Math.max(-18, Math.min(18, cfg.gain)), now, 0.05);
+        } else {
+          // Bypassed/idle node
+          node.type = 'peaking';
+          node.gain.setTargetAtTime(0, now, 0.05);
+        }
+      }
+    }
 
     // 3. Bass Boost
     if (this.bassBoostFilter) {
@@ -901,6 +951,123 @@ class AudioEngine {
 
   public getAudioContext(): AudioContext | null {
     return this.audioCtx;
+  }
+
+  /**
+   * Computes the combined frequency response curve across the full audible spectrum (20Hz - 20kHz).
+   * Queries actual BiquadFilterNodes using Web Audio API getFrequencyResponse.
+   */
+  public getCombinedFrequencyResponse(frequencies: Float32Array): Float32Array {
+    const len = frequencies.length;
+    const magResponse = new Float32Array(len).fill(1.0);
+    const phaseResponse = new Float32Array(len);
+
+    const tempMag = new Float32Array(len);
+    const tempPhase = new Float32Array(len);
+
+    const preampLinear = Math.pow(10, this.dspSettings.preamp / 20);
+
+    if (!this.dspSettings.enabled) {
+      // Flat 0 dB response when bypassed
+      return new Float32Array(len).fill(0);
+    }
+
+    if (this.dspSettings.eqMode === 'graphic') {
+      // 10-band Graphic EQ response
+      this.eqFilters.forEach((filter) => {
+        filter.getFrequencyResponse(frequencies as any, tempMag as any, tempPhase as any);
+        for (let i = 0; i < len; i++) {
+          magResponse[i] *= tempMag[i];
+        }
+      });
+    } else {
+      // Parametric EQ response
+      const configs = this.dspSettings.parametricFilters || [];
+      configs.forEach((cfg, idx) => {
+        if (!cfg.enabled) return;
+        const node = this.parametricFilterNodes[idx];
+        if (node) {
+          node.getFrequencyResponse(frequencies as any, tempMag as any, tempPhase as any);
+          for (let i = 0; i < len; i++) {
+            magResponse[i] *= tempMag[i];
+          }
+        }
+      });
+    }
+
+    // Tone controls: Bass Boost & Treble
+    if (this.bassBoostFilter) {
+      this.bassBoostFilter.getFrequencyResponse(frequencies as any, tempMag as any, tempPhase as any);
+      for (let i = 0; i < len; i++) {
+        magResponse[i] *= tempMag[i];
+      }
+    }
+    if (this.trebleFilter) {
+      this.trebleFilter.getFrequencyResponse(frequencies as any, tempMag as any, tempPhase as any);
+      for (let i = 0; i < len; i++) {
+        magResponse[i] *= tempMag[i];
+      }
+    }
+
+    // Convert linear composite gain to dB with preamp
+    const dbResponse = new Float32Array(len);
+    for (let i = 0; i < len; i++) {
+      const linear = magResponse[i] * preampLinear;
+      dbResponse[i] = 20 * Math.log10(Math.max(1e-5, linear));
+    }
+
+    return dbResponse;
+  }
+
+  /**
+   * Calculates real-time energy across standard 7 audio frequency bands:
+   * Sub-bass (20-60Hz), Bass (60-250Hz), Low-mid (250-500Hz), Mid (500-2kHz),
+   * Upper-mid (2-4kHz), Presence (4-6kHz), Brilliance (6-20kHz)
+   */
+  public getSubBandEnergies(): {
+    subBass: number;
+    bass: number;
+    lowMid: number;
+    mid: number;
+    upperMid: number;
+    presence: number;
+    brilliance: number;
+  } {
+    if (!this.analyserNode) {
+      return { subBass: 0, bass: 0, lowMid: 0, mid: 0, upperMid: 0, presence: 0, brilliance: 0 };
+    }
+
+    const binCount = this.analyserNode.frequencyBinCount;
+    const freqData = new Uint8Array(binCount);
+    this.analyserNode.getByteFrequencyData(freqData);
+
+    const sampleRate = this.audioCtx?.sampleRate || 44100;
+    const nyquist = sampleRate / 2;
+    const hzPerBin = nyquist / binCount;
+
+    const getAverageEnergyInRange = (lowHz: number, highHz: number): number => {
+      const startBin = Math.max(0, Math.floor(lowHz / hzPerBin));
+      const endBin = Math.min(binCount - 1, Math.ceil(highHz / hzPerBin));
+      if (startBin > endBin) return 0;
+
+      let sum = 0;
+      let count = 0;
+      for (let i = startBin; i <= endBin; i++) {
+        sum += freqData[i];
+        count++;
+      }
+      return count > 0 ? (sum / count) / 255 : 0;
+    };
+
+    return {
+      subBass: getAverageEnergyInRange(20, 60),
+      bass: getAverageEnergyInRange(60, 250),
+      lowMid: getAverageEnergyInRange(250, 500),
+      mid: getAverageEnergyInRange(500, 2000),
+      upperMid: getAverageEnergyInRange(2000, 4000),
+      presence: getAverageEnergyInRange(4000, 6000),
+      brilliance: getAverageEnergyInRange(6000, 20000),
+    };
   }
 
   // Audio Device Selection

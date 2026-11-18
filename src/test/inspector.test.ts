@@ -58,6 +58,8 @@ describe('AudioQualityInspectorService', () => {
     monoMix: false,
     limiterEnabled: true,
     activePresetId: 'flat',
+    eqMode: 'graphic',
+    parametricFilters: [],
   };
 
   const cleanLimiter: LimiterMetrics = {

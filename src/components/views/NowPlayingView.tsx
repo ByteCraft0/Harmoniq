@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { useLibrary } from '../../context/LibraryContext';
 import { AudioVisualizer } from '../visualizer/AudioVisualizer';
+import { CircularAudioVisualizer } from '../visualizer/CircularAudioVisualizer';
+import { AdvancedVisualizer } from '../visualizer/AdvancedVisualizer';
+import { RealTimeFrequencySpectrum } from '../visualizer/RealTimeFrequencySpectrum';
 import { QualityBadge } from '../inspector/QualityBadge';
 import { AudioQualityInspectorService } from '../../services/inspectorService';
 import { LyricsService } from '../../services/lyricsService';
@@ -28,6 +31,10 @@ import {
   Upload,
   CheckCircle2,
   RotateCcw,
+  Sparkles,
+  BarChart3,
+  Activity,
+  Radio,
 } from 'lucide-react';
 
 export const NowPlayingView: React.FC = () => {
@@ -53,7 +60,8 @@ export const NowPlayingView: React.FC = () => {
   const { setActiveView, toggleFavorite } = useLibrary();
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [isAddToPlaylistOpen, setIsAddToPlaylistOpen] = useState(false);
-  const [artworkMode, setArtworkMode] = useState<'ambient' | 'vinyl'>('ambient');
+  const [artworkMode, setArtworkMode] = useState<'ambient' | 'vinyl' | 'circular' | 'visualizer'>('ambient');
+  const [bottomVisualizerMode, setBottomVisualizerMode] = useState<'mini-spectrum' | 'spectrum-7band'>('mini-spectrum');
   const [isUserScrolling, setIsUserScrolling] = useState(false);
 
   const trackIdRef = useRef<string | null>(null);
@@ -203,7 +211,7 @@ export const NowPlayingView: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Artwork Presentation Style Toggle */}
+          {/* Presentation Style Selector (Ambient, Vinyl, Circular, Multi-Style Visualizer) */}
           <div className="flex items-center bg-[#14141B]/80 border border-[#272733] rounded-xl p-0.5 text-xs">
             <button
               onClick={() => setArtworkMode('ambient')}
@@ -229,7 +237,40 @@ export const NowPlayingView: React.FC = () => {
               <Disc3 size={13} />
               <span>Vinyl LP</span>
             </button>
+            <button
+              onClick={() => setArtworkMode('circular')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-all ${
+                artworkMode === 'circular'
+                  ? 'bg-[var(--accent-dynamic)] text-white shadow-sm'
+                  : 'text-[#71717A] hover:text-[#A1A1AA]'
+              }`}
+              title="Circular Radial Visualizer Hub"
+            >
+              <Radio size={13} />
+              <span>Circular</span>
+            </button>
+            <button
+              onClick={() => setArtworkMode('visualizer')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-all ${
+                artworkMode === 'visualizer'
+                  ? 'bg-[var(--accent-dynamic)] text-white shadow-sm'
+                  : 'text-[#71717A] hover:text-[#A1A1AA]'
+              }`}
+              title="Multi-Style Advanced Visualizer"
+            >
+              <Sparkles size={13} />
+              <span>Visualizer</span>
+            </button>
           </div>
+
+          <button
+            onClick={() => setActiveView('visualizer')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B]/80 hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors backdrop-blur-md"
+            title="Open dedicated Full-Screen Visualizer Studio"
+          >
+            <Sparkles size={14} className="text-[var(--accent-dynamic)]" />
+            <span>Visualizer Studio</span>
+          </button>
 
           <button
             onClick={() => setActiveView('equalizer')}
@@ -241,7 +282,7 @@ export const NowPlayingView: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Focus: Artwork (Left) + Interactive Karaoke Lyrics (Right) */}
+      {/* Main Focus: Artwork / Visualizer (Left) + Interactive Karaoke Lyrics (Right) */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8 my-auto items-center z-10 py-3 flex-1 min-h-0">
         {/* Left Column: Artwork Presentation & Live Spectrum */}
         <div className="md:col-span-5 flex flex-col items-center justify-center space-y-4">
@@ -267,7 +308,7 @@ export const NowPlayingView: React.FC = () => {
                 </div>
               )}
             </div>
-          ) : (
+          ) : artworkMode === 'vinyl' ? (
             /* Style B: Vinyl Record 33⅓ RPM Mode */
             <div className="relative w-80 h-72 flex items-center justify-center">
               {/* Vinyl Sleeve / Jacket */}
@@ -332,11 +373,54 @@ export const NowPlayingView: React.FC = () => {
                 </div>
               </div>
             </div>
+          ) : artworkMode === 'circular' ? (
+            /* Style C: Circular Audio Visualizer Hub */
+            <div className="w-80 h-80 flex items-center justify-center">
+              <CircularAudioVisualizer size={320} />
+            </div>
+          ) : (
+            /* Style D: Multi-Style Advanced Audio Visualizer */
+            <div className="w-80 h-72 flex items-center justify-center">
+              <AdvancedVisualizer height={260} showControlsBar={true} />
+            </div>
           )}
 
-          {/* Integrated Live Spectrum Visualizer */}
-          <div className="w-full max-w-xs p-2.5 rounded-xl bg-[#14141B]/80 border border-[#272733] backdrop-blur-md shadow-card">
-            <AudioVisualizer height={40} mode="spectrum" />
+          {/* Integrated Spectrum Analyzer / 7-Band Log Spectrum Bar */}
+          <div className="w-full max-w-sm rounded-xl bg-[#14141B]/80 border border-[#272733] backdrop-blur-md shadow-card p-2 space-y-1">
+            <div className="flex items-center justify-between px-1 text-[10px] text-[#71717A] font-mono-numbers">
+              <span className="flex items-center gap-1 text-[var(--accent-dynamic)] font-bold">
+                <Activity size={11} />
+                <span>Live Audio Spectrum</span>
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setBottomVisualizerMode('mini-spectrum')}
+                  className={`px-1.5 py-0.5 rounded ${
+                    bottomVisualizerMode === 'mini-spectrum'
+                      ? 'bg-[var(--accent-dynamic)] text-white font-bold'
+                      : 'text-[#71717A] hover:text-[#A1A1AA]'
+                  }`}
+                >
+                  Bars
+                </button>
+                <button
+                  onClick={() => setBottomVisualizerMode('spectrum-7band')}
+                  className={`px-1.5 py-0.5 rounded ${
+                    bottomVisualizerMode === 'spectrum-7band'
+                      ? 'bg-[var(--accent-dynamic)] text-white font-bold'
+                      : 'text-[#71717A] hover:text-[#A1A1AA]'
+                  }`}
+                >
+                  7-Band
+                </button>
+              </div>
+            </div>
+
+            {bottomVisualizerMode === 'mini-spectrum' ? (
+              <AudioVisualizer height={40} mode="spectrum" />
+            ) : (
+              <RealTimeFrequencySpectrum height={70} compact={true} />
+            )}
           </div>
         </div>
 

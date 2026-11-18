@@ -14,6 +14,7 @@ import { AlbumDetailsView } from './components/views/AlbumDetailsView';
 import { ArtistDetailsView } from './components/views/ArtistDetailsView';
 import { NowPlayingView } from './components/views/NowPlayingView';
 import { EqualizerStudio } from './components/dsp/EqualizerStudio';
+import { VisualizerView } from './components/views/VisualizerView';
 import { AudioQualityInspector } from './components/inspector/AudioQualityInspector';
 import { PlaylistsView } from './components/views/PlaylistsView';
 import { LyricsView } from './components/views/LyricsView';
@@ -85,6 +86,9 @@ const MainLayout: React.FC = () => {
         case 'KeyE':
           setActiveView('equalizer');
           break;
+        case 'KeyV':
+          setActiveView('visualizer');
+          break;
         case 'KeyI':
           setActiveView('inspector');
           break;
@@ -128,6 +132,8 @@ const MainLayout: React.FC = () => {
         return <NowPlayingView />;
       case 'equalizer':
         return <EqualizerStudio />;
+      case 'visualizer':
+        return <VisualizerView />;
       case 'inspector':
         return <AudioQualityInspector />;
       case 'lyrics':
