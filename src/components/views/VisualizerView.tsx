@@ -4,6 +4,7 @@ import { useLibrary } from '../../context/LibraryContext';
 import { AdvancedVisualizer, VisualizerStyle } from '../visualizer/AdvancedVisualizer';
 import { RealTimeFrequencySpectrum } from '../visualizer/RealTimeFrequencySpectrum';
 import { CircularAudioVisualizer } from '../visualizer/CircularAudioVisualizer';
+import { FullScreenVisualizer } from '../visualizer/FullScreenVisualizer';
 import {
   Sparkles,
   Maximize2,
@@ -27,12 +28,12 @@ export const VisualizerView: React.FC = () => {
     setIsFullscreen((prev) => !prev);
   };
 
+  if (isFullscreen) {
+    return <FullScreenVisualizer onClose={toggleFullscreen} />;
+  }
+
   return (
-    <div
-      className={`h-full w-full overflow-hidden flex flex-col justify-between select-none relative ${
-        isFullscreen ? 'fixed inset-0 z-50 bg-[#09090B]' : 'p-8 max-w-6xl mx-auto'
-      }`}
-    >
+    <div className="h-full w-full overflow-hidden flex flex-col justify-between select-none relative p-8 max-w-6xl mx-auto">
       {/* Top Header / Mode Bar */}
       <div className="flex items-center justify-between z-20 pb-4 border-b border-[#272733] shrink-0">
         <div className="flex items-center gap-3">

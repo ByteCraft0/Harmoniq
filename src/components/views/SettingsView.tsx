@@ -20,6 +20,7 @@ import { AudioQualityAnalyzer } from '../audio/AudioQualityAnalyzer';
 import { BitPerfectController } from '../audio/BitPerfectController';
 import { ChannelConfigurationCard } from '../audio/ChannelConfigurationCard';
 import { ABRepeatControls } from '../audio/ABRepeatControls';
+import { visualizerSettingsService } from '../../services/visualizerSettingsService';
 import {
   Settings,
   FolderPlus,
@@ -75,6 +76,13 @@ export const SettingsView: React.FC = () => {
   const [recordingKey, setRecordingKey] = useState<string>('');
   const [shortcutErrors, setShortcutErrors] = useState<Partial<Record<ShortcutAction, string>>>({});
   const [shortcutSaveSuccess, setShortcutSaveSuccess] = useState<boolean>(false);
+  const [animSettings, setAnimSettings] = useState(visualizerSettingsService.getAnimationSettings());
+
+  useEffect(() => {
+    return visualizerSettingsService.subscribe(() => {
+      setAnimSettings(visualizerSettingsService.getAnimationSettings());
+    });
+  }, []);
 
   type SettingsTab = 'all' | 'devices' | 'quality' | 'bitperfect' | 'playback' | 'channel' | 'system' | 'library';
   const [activeTab, setActiveTab] = useState<SettingsTab>('all');
@@ -520,6 +528,78 @@ export const SettingsView: React.FC = () => {
         {/* 4. A-B Precision Repeat Looper */}
         <div className="pt-2 border-t border-[#1B1B24]">
           <ABRepeatControls compact={false} />
+        </div>
+
+        {/* 5. Customizable Playback Animations & Reduced Motion */}
+        <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-[#F5F3FF]">Reactive Playback Animations</span>
+              <p className="text-[11px] text-[#A1A1AA]">
+                Smooth ambient glow, track change transitions, and reactive UI effects.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={animSettings.animationsEnabled}
+              onChange={(e) =>
+                visualizerSettingsService.updateAnimationSettings({ animationsEnabled: e.target.checked })
+              }
+              className="w-4 h-4 accent-[var(--accent-dynamic)] rounded cursor-pointer"
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-[#1B1B24]">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-[#F5F3FF]">Reduced Motion Mode</span>
+              <p className="text-[11px] text-[#A1A1AA]">
+                Limits rapid motion, disables flashing, and simplifies transforms for accessibility.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={animSettings.reducedMotion}
+              onChange={(e) =>
+                visualizerSettingsService.updateAnimationSettings({ reducedMotion: e.target.checked })
+              }
+              className="w-4 h-4 accent-[var(--accent-dynamic)] rounded cursor-pointer"
+            />
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-[#1B1B24]">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-[#F5F3FF]">Subtle Album Art Crossfade</span>
+              <p className="text-[11px] text-[#A1A1AA]">
+                Smoothly blends between album artwork when switching songs.
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              checked={animSettings.albumArtTransitions}
+              onChange={(e) =>
+                visualizerSettingsService.updateAnimationSettings({ albumArtTransitions: e.target.checked })
+              }
+              className="w-4 h-4 accent-[var(--accent-dynamic)] rounded cursor-pointer"
+            />
+          </div>
+
+          <div>
+            <div className="flex justify-between text-xs mb-1">
+              <span className="text-[#A1A1AA]">Animation Intensity</span>
+              <span className="font-mono text-[#A78BFA]">{animSettings.animationIntensity.toFixed(1)}x</span>
+            </div>
+            <input
+              type="range"
+              min="0.5"
+              max="1.5"
+              step="0.1"
+              value={animSettings.animationIntensity}
+              onChange={(e) =>
+                visualizerSettingsService.updateAnimationSettings({ animationIntensity: parseFloat(e.target.value) })
+              }
+              className="w-full accent-violet-400 h-1 bg-[#272733] rounded-lg cursor-pointer"
+            />
+          </div>
         </div>
       </div>
       )}
