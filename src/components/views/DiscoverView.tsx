@@ -12,6 +12,7 @@ import {
   ArrowRight,
   Music,
 } from 'lucide-react';
+import { MoodDiscoverySection } from '../discovery/MoodDiscoverySection';
 
 export const DiscoverView: React.FC = () => {
   const { tracks, albums, playlists, genres, openAlbumDetail, openPlaylistDetail, setActiveView } = useLibrary();
@@ -36,6 +37,9 @@ export const DiscoverView: React.FC = () => {
           </p>
         </div>
       </div>
+
+      {/* Deterministic Mood-Based Discovery */}
+      <MoodDiscoverySection />
 
       {/* 1. Featured Albums & Audio Masterings */}
       {albums.length > 0 && (

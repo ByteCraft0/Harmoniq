@@ -1,16 +1,20 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
 import { useToast } from '../../context/ToastContext';
 import { SongRow, SongTableHeader } from '../layout/SongRow';
 import { TrackContextMenu, ContextMenuState } from '../layout/TrackContextMenu';
 import { AddToPlaylistModal } from '../layout/AddToPlaylistModal';
+import { SimilarArtistsSection } from '../discovery/SimilarArtistsSection';
+import { discoveryService, ArtistBioInfo } from '../../services/discoveryService';
 import { TrackMetadata } from '../../types/audio';
 import {
   ArrowLeft,
   Play,
   Disc,
   FolderPlus,
+  BookOpen,
+  ExternalLink,
 } from 'lucide-react';
 
 export const ArtistDetailsView: React.FC = () => {
@@ -20,6 +24,18 @@ export const ArtistDetailsView: React.FC = () => {
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [playlistModalTracks, setPlaylistModalTracks] = useState<TrackMetadata[] | null>(null);
+  const [artistBio, setArtistBio] = useState<ArtistBioInfo | null>(null);
+  const [bioLoading, setBioLoading] = useState(false);
+
+  useEffect(() => {
+    if (selectedArtist) {
+      setBioLoading(true);
+      discoveryService.getArtistBio(selectedArtist.name).then((info) => {
+        setArtistBio(info);
+        setBioLoading(false);
+      });
+    }
+  }, [selectedArtist?.name]);
 
   const allTracks = selectedArtist ? selectedArtist.albums.flatMap((a) => a.tracks) : [];
 
@@ -191,6 +207,38 @@ export const ArtistDetailsView: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Artist Biography Card */}
+      {artistBio && (
+        <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpen size={16} className="text-violet-400" />
+              <h3 className="text-sm font-bold text-white tracking-tight">Biography</h3>
+            </div>
+            {artistBio.website && (
+              <a
+                href={artistBio.website}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-1 text-[11px] text-violet-400 hover:text-violet-300 transition-colors"
+              >
+                <span>Read More</span>
+                <ExternalLink size={11} />
+              </a>
+            )}
+          </div>
+          <p className="text-xs text-zinc-300 leading-relaxed max-w-4xl">
+            {artistBio.biography}
+          </p>
+          <div className="text-[10px] text-zinc-500 pt-1 border-t border-white/5 flex items-center justify-between">
+            <span>Source: {artistBio.source}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Related / Similar Artists */}
+      <SimilarArtistsSection currentArtist={selectedArtist} />
 
       <TrackContextMenu
         menu={contextMenu}
