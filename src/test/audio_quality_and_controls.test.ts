@@ -24,6 +24,11 @@ describe('Harmoniq Batch 5 + 6: Audio Quality Management & Advanced Controls', (
     filePath: 'C:/Music/Mahler_96k24b.flac',
     fileSize: 245000000,
     isLossless: true,
+    fileName: 'Mahler_96k24b.flac',
+    dateModified: Date.now(),
+    hasArtwork: false,
+    playCount: 0,
+    isFavorite: false,
   };
 
   const mockTrackFlacCdQuality: TrackMetadata = {
@@ -204,8 +209,8 @@ describe('Harmoniq Batch 5 + 6: Audio Quality Management & Advanced Controls', (
         pointB: 35.8,
       };
 
-      expect(state.pointA).toBeLessThan(state.pointB);
-      const intervalSec = state.pointB - state.pointA;
+      expect(state.pointA!).toBeLessThan(state.pointB!);
+      const intervalSec = state.pointB! - state.pointA!;
       expect(intervalSec).toBeCloseTo(23.3, 1);
     });
 
