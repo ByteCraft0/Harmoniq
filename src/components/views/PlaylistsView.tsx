@@ -8,6 +8,7 @@ import { AddToPlaylistModal } from '../layout/AddToPlaylistModal';
 import { AddSongsToPlaylistModal } from '../layout/AddSongsToPlaylistModal';
 import { TrackMetadata } from '../../types/audio';
 import { Playlist } from '../../types/library';
+import { PlaylistImportExportModal } from '../library/PlaylistImportExportModal';
 import {
   ListMusic,
   Plus,
@@ -50,6 +51,7 @@ export const PlaylistsView: React.FC = () => {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [playlistModalTracks, setPlaylistModalTracks] = useState<TrackMetadata[] | null>(null);
   const [showAddSongsModal, setShowAddSongsModal] = useState(false);
+  const [showIoModal, setShowIoModal] = useState<'import' | 'export' | null>(null);
 
   // Compute active playlist reactively based on view and selection
   let activePlaylist: Playlist | null = null;
@@ -236,16 +238,13 @@ export const PlaylistsView: React.FC = () => {
 
         {/* Import M3U */}
         <div className="pt-3 border-t border-[#272733]">
-          <label className="flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] cursor-pointer transition-colors">
+          <button
+            onClick={() => setShowIoModal('import')}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
+          >
             <Upload size={14} />
-            <span>Import M3U Playlist</span>
-            <input
-              type="file"
-              accept=".m3u,.m3u8"
-              onChange={handleImportFile}
-              className="hidden"
-            />
-          </label>
+            <span>Import M3U / M3U8</span>
+          </button>
         </div>
       </div>
 
@@ -312,8 +311,8 @@ export const PlaylistsView: React.FC = () => {
                       <span>Add Songs</span>
                     </button>
                     <button
-                      onClick={() => exportPlaylistM3u(activePlaylist.id)}
-                      title="Export M3U8"
+                      onClick={() => setShowIoModal('export')}
+                      title="Export M3U / M3U8"
                       className="p-2.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
                     >
                       <Download size={15} />
@@ -483,6 +482,14 @@ export const PlaylistsView: React.FC = () => {
         onClose={() => setShowAddSongsModal(false)}
         playlist={activePlaylist && !activePlaylist.isSmart ? activePlaylist : null}
       />
+
+      {showIoModal && (
+        <PlaylistImportExportModal
+          initialMode={showIoModal}
+          activePlaylist={activePlaylist}
+          onClose={() => setShowIoModal(null)}
+        />
+      )}
     </div>
   );
 };

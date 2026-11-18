@@ -12,7 +12,9 @@ import {
   Play,
   CheckCircle2,
   Upload,
+  Search,
 } from 'lucide-react';
+import { SearchOnlineLyricsModal } from './SearchOnlineLyricsModal';
 
 const formatLineTime = (seconds: number) => {
   if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
@@ -27,6 +29,7 @@ export const LyricsView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [offsetMs, setOffsetMs] = useState(0);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const [showOnlineSearchModal, setShowOnlineSearchModal] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
@@ -205,6 +208,15 @@ export const LyricsView: React.FC = () => {
           )}
 
           <button
+            onClick={() => setShowOnlineSearchModal(true)}
+            title="Search lyrics online"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
+          >
+            <Search size={13} className="text-[#A78BFA]" />
+            <span>Search Online</span>
+          </button>
+
+          <button
             onClick={handlePickLrc}
             title="Load local .lrc file"
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
@@ -309,6 +321,17 @@ export const LyricsView: React.FC = () => {
           <RotateCcw size={12} />
           <span>Resume Auto-Scroll</span>
         </button>
+      )}
+
+      {showOnlineSearchModal && currentTrack && (
+        <SearchOnlineLyricsModal
+          currentTrack={currentTrack}
+          onApplyLyrics={(data) => {
+            setLyricsData(data);
+            setOffsetMs((data.offset || 0) * 1000);
+          }}
+          onClose={() => setShowOnlineSearchModal(false)}
+        />
       )}
     </div>
   );
