@@ -12,10 +12,13 @@ import {
   HardDrive,
   Sliders,
   Check,
+  Layers,
+  Sparkles,
+  Volume2,
 } from 'lucide-react';
 
 export const AudioOutputView: React.FC = () => {
-  const { currentTrack, volume, replayGainMode } = usePlayer();
+  const { currentTrack, volume, replayGainMode, crossfadeDuration, isCrossfadeEnabled } = usePlayer();
   const { settings: dspSettings, limiterMetrics } = useDSP();
 
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -211,6 +214,66 @@ export const AudioOutputView: React.FC = () => {
               </div>
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* Core Playback Architecture & Acoustics Pipeline */}
+      <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
+        <div className="flex items-center justify-between border-b border-[#272733] pb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles size={16} className="text-[#A78BFA]" />
+            <span className="font-bold text-sm text-[#F5F3FF]">Core Playback Engine Pipeline</span>
+          </div>
+          <span className="text-[10px] font-mono-numbers px-2.5 py-0.5 rounded-full bg-[#1B1B24] text-emerald-400 border border-[#272733]">
+            Dual-Deck WebAudio Operational
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="p-3.5 rounded-xl bg-[#09090B] border border-[#272733] space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[#A1A1AA] flex items-center gap-1.5">
+                <Layers size={13} className="text-[#A78BFA]" />
+                <span>Gapless Transition</span>
+              </span>
+              <span className="text-[10px] font-mono-numbers font-bold text-emerald-400">
+                {!isCrossfadeEnabled ? 'ACTIVE (0ms)' : 'STANDBY'}
+              </span>
+            </div>
+            <p className="text-[10px] text-[#71717A]">
+              Preloads next queue track into secondary audio deck buffer.
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#09090B] border border-[#272733] space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[#A1A1AA] flex items-center gap-1.5">
+                <Sliders size={13} className="text-[#A78BFA]" />
+                <span>Crossfade Deck</span>
+              </span>
+              <span className="text-[10px] font-mono-numbers font-bold text-[#A78BFA]">
+                {isCrossfadeEnabled ? `${crossfadeDuration}s Active` : 'Disabled'}
+              </span>
+            </div>
+            <p className="text-[10px] text-[#71717A]">
+              Dual-deck equal-power crossfader (1-12s duration).
+            </p>
+          </div>
+
+          <div className="p-3.5 rounded-xl bg-[#09090B] border border-[#272733] space-y-1">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-[#A1A1AA] flex items-center gap-1.5">
+                <Volume2 size={13} className="text-[#A78BFA]" />
+                <span>ReplayGain Target</span>
+              </span>
+              <span className="text-[10px] font-mono-numbers font-bold text-[#F5F3FF]">
+                {replayGainMode.toUpperCase()}
+              </span>
+            </div>
+            <p className="text-[10px] text-[#71717A]">
+              Internal gain normalization with -0.1 dBFS brickwall peak guard.
+            </p>
+          </div>
         </div>
       </div>
     </div>

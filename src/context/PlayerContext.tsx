@@ -37,6 +37,7 @@ interface PlayerContextType {
   isShuffle: boolean;
   replayGainMode: ReplayGainMode;
   crossfadeDuration: number;
+  isCrossfadeEnabled: boolean;
   queue: TrackMetadata[];
   history: TrackMetadata[];
   sleepTimer: SleepTimerState;
@@ -58,6 +59,7 @@ interface PlayerContextType {
   toggleShuffle: () => void;
   setReplayGainMode: (mode: ReplayGainMode) => void;
   setCrossfadeDuration: (sec: number) => void;
+  setCrossfadeEnabled: (enabled: boolean) => void;
   
   // Queue actions
   addToQueue: (track: TrackMetadata) => void;
@@ -70,6 +72,40 @@ interface PlayerContextType {
   setSleepTimer: (minutes: number, stopAfterCurrentTrack?: boolean) => void;
   cancelSleepTimer: () => void;
   updateCurrentTrackMetadata: (updated: Partial<TrackMetadata>) => void;
+}
+
+function getNextTrackInQueue(
+  curTrack: TrackMetadata | null,
+  curQueue: TrackMetadata[],
+  isShuff: boolean,
+  repMode: RepeatMode,
+  playNextCount: number
+): TrackMetadata | null {
+  if (curQueue.length === 0) return null;
+  if (!curTrack) return curQueue[0];
+
+  const currentIndex = curQueue.findIndex((t) => t.id === curTrack.id);
+  if (currentIndex === -1) return curQueue[0];
+
+  if (repMode === 'one') {
+    return curTrack;
+  }
+
+  if (isShuff && playNextCount <= 0) {
+    if (curQueue.length > 1) {
+      const nextIdx = (currentIndex + 1) % curQueue.length;
+      return curQueue[nextIdx];
+    }
+    return curQueue[0];
+  }
+
+  const nextIndex = currentIndex + 1;
+  if (nextIndex < curQueue.length) {
+    return curQueue[nextIndex];
+  } else if (repMode === 'all') {
+    return curQueue[0];
+  }
+  return null;
 }
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -89,6 +125,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [isShuffle, setIsShuffle] = useState(!!prefs.isShuffle);
   const [replayGainMode, setReplayGainModeState] = useState<ReplayGainMode>(prefs.replayGainMode === 'track' || prefs.replayGainMode === 'album' ? prefs.replayGainMode : 'off');
   const [crossfadeDuration, setCrossfadeState] = useState(typeof prefs.crossfadeDuration === 'number' ? prefs.crossfadeDuration : 0);
+  const [savedCrossfadeSec, setSavedCrossfadeSec] = useState(typeof prefs.crossfadeDuration === 'number' && prefs.crossfadeDuration > 0 ? prefs.crossfadeDuration : 4);
   const [queue, setQueue] = useState<TrackMetadata[]>([]);
   const [history, setHistory] = useState<TrackMetadata[]>([]);
   const [sleepTimer, setSleepTimerState] = useState<SleepTimerState>({
@@ -200,12 +237,46 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
     });
 
+    // Automatic Gapless & Crossfade Deck Transition Subscriber
+    const unsubscribeTransition = audioEngine.subscribeTrackTransition((nextTrack, type) => {
+      setCurrentTrack(nextTrack);
+      currentTrackRef.current = nextTrack;
+      libraryService.recordPlay(nextTrack.id);
+      setHistory((prev) => [nextTrack, ...prev.filter((t) => t.id !== nextTrack.id)].slice(0, 50));
+
+      const subsequent = getNextTrackInQueue(
+        nextTrack,
+        queueRef.current,
+        isShuffleRef.current,
+        repeatModeRef.current,
+        playNextCountRef.current
+      );
+      audioEngine.prepareNextTrack(subsequent);
+    });
+
     return () => {
       unsubscribe();
       unsubscribeError();
+      unsubscribeTransition();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Preload and prepare upcoming track on standby deck whenever queue, track or mode changes
+  useEffect(() => {
+    if (currentTrack) {
+      const next = getNextTrackInQueue(
+        currentTrack,
+        queue,
+        isShuffle,
+        repeatMode,
+        playNextCountRef.current
+      );
+      audioEngine.prepareNextTrack(next);
+    } else {
+      audioEngine.prepareNextTrack(null);
+    }
+  }, [currentTrack?.id, queue, isShuffle, repeatMode]);
 
   onEndedRef.current = () => {
     if (sleepTimerRef.current.stopAfterCurrentTrack) {
@@ -398,8 +469,23 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const setCrossfadeDuration = (sec: number) => {
-    setCrossfadeState(sec);
-    audioEngine.setCrossfadeDuration(sec);
+    const clamped = Math.max(0, Math.min(12, Math.round(sec)));
+    setCrossfadeState(clamped);
+    if (clamped > 0) {
+      setSavedCrossfadeSec(clamped);
+    }
+    audioEngine.setCrossfadeDuration(clamped);
+  };
+
+  const isCrossfadeEnabled = crossfadeDuration > 0;
+
+  const setCrossfadeEnabled = (enabled: boolean) => {
+    if (enabled) {
+      const dur = savedCrossfadeSec > 0 ? savedCrossfadeSec : 4;
+      setCrossfadeDuration(dur);
+    } else {
+      setCrossfadeDuration(0);
+    }
   };
 
   // Queue actions
@@ -645,6 +731,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         isShuffle,
         replayGainMode,
         crossfadeDuration,
+        isCrossfadeEnabled,
         queue,
         history,
         sleepTimer,
@@ -664,6 +751,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         toggleShuffle,
         setReplayGainMode,
         setCrossfadeDuration,
+        setCrossfadeEnabled,
         addToQueue,
         playNext,
         removeFromQueue,

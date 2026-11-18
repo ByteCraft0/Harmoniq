@@ -11,6 +11,21 @@ const execAsync = promisify(exec);
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV === 'development' || (!app.isPackaged && process.env.NODE_ENV !== 'production');
 
+// Supported audio extensions
+const AUDIO_EXTENSIONS = new Set([
+  '.mp3',
+  '.flac',
+  '.wav',
+  '.m4a',
+  '.aac',
+  '.alac',
+  '.ogg',
+  '.opus',
+  '.aiff',
+  '.aif',
+  '.wma',
+]);
+
 // Mini-player window state management
 let isMiniPlayer = false;
 let normalBounds: { x: number; y: number; width: number; height: number } | null = null;
@@ -262,21 +277,6 @@ async function writeAudioTagsToFile(
   }
 }
 
-// Supported audio extensions
-const AUDIO_EXTENSIONS = new Set([
-  '.mp3',
-  '.flac',
-  '.wav',
-  '.m4a',
-  '.aac',
-  '.alac',
-  '.ogg',
-  '.opus',
-  '.aiff',
-  '.aif',
-  '.wma',
-]);
-
 // Protocol scheme for local media streaming
 const MEDIA_PROTOCOL = 'harmoniq-media';
 
@@ -304,7 +304,7 @@ function createMainWindow() {
     frame: false, // Frameless for modern Windows design
     titleBarStyle: 'hidden',
     backgroundColor: '#0b0c10',
-    show: false,
+    show: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -325,8 +325,9 @@ function createMainWindow() {
   });
 
   const distIndex = path.join(__dirname, '../dist/index.html');
-  if (isDev) {
-    // If no dev server is running (e.g. `electron .` after a build), fall back to the built UI once
+  if (process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
+  } else if (isDev && !fs.existsSync(distIndex)) {
     let fellBack = false;
     mainWindow.webContents.on('did-fail-load', (_e, _code, _desc, _url, isMainFrame) => {
       if (isMainFrame && !fellBack && fs.existsSync(distIndex)) {
@@ -341,6 +342,11 @@ function createMainWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow?.show();
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (mainWindow && !mainWindow.isVisible()) {
+      mainWindow.show();
+    }
   });
 
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true));
@@ -774,6 +780,50 @@ function setupIpc() {
   });
 }
 
+function extractReplayGain(metadata: any): { trackGain?: number; trackPeak?: number; albumGain?: number; albumPeak?: number } {
+  let trackGain: number | undefined = metadata.common?.replaygain_track_gain?.dB;
+  let trackPeak: number | undefined = metadata.common?.replaygain_track_peak?.ratio;
+  let albumGain: number | undefined = metadata.common?.replaygain_album_gain?.dB;
+  let albumPeak: number | undefined = metadata.common?.replaygain_album_peak?.ratio;
+
+  const parseDb = (val: any): number | undefined => {
+    if (typeof val === 'number') return isFinite(val) ? val : undefined;
+    if (typeof val === 'string') {
+      const num = parseFloat(val.replace(/dB/i, '').trim());
+      return isFinite(num) ? num : undefined;
+    }
+    return undefined;
+  };
+  const parseRatio = (val: any): number | undefined => {
+    if (typeof val === 'number') return isFinite(val) ? val : undefined;
+    if (typeof val === 'string') {
+      const num = parseFloat(val.trim());
+      return isFinite(num) ? num : undefined;
+    }
+    return undefined;
+  };
+
+  const native = metadata.native || {};
+  for (const tagType of Object.keys(native)) {
+    const tagList = native[tagType];
+    if (!Array.isArray(tagList)) continue;
+    for (const tag of tagList) {
+      const id = (tag.id || '').toUpperCase();
+      if (trackGain === undefined && (id === 'REPLAYGAIN_TRACK_GAIN' || id === 'R128_TRACK_GAIN')) {
+        trackGain = parseDb(tag.value);
+      } else if (trackPeak === undefined && id === 'REPLAYGAIN_TRACK_PEAK') {
+        trackPeak = parseRatio(tag.value);
+      } else if (albumGain === undefined && (id === 'REPLAYGAIN_ALBUM_GAIN' || id === 'R128_ALBUM_GAIN')) {
+        albumGain = parseDb(tag.value);
+      } else if (albumPeak === undefined && id === 'REPLAYGAIN_ALBUM_PEAK') {
+        albumPeak = parseRatio(tag.value);
+      }
+    }
+  }
+
+  return { trackGain, trackPeak, albumGain, albumPeak };
+}
+
 // Parse single audio file with music-metadata
 async function parseSingleAudioFile(filePath: string) {
   try {
@@ -859,12 +909,7 @@ async function parseSingleAudioFile(filePath: string) {
       bitrate,
       channels,
       isLossless,
-      replayGain: {
-        trackGain: metadata.common.replaygain_track_gain?.dB,
-        trackPeak: metadata.common.replaygain_track_peak?.ratio,
-        albumGain: metadata.common.replaygain_album_gain?.dB,
-        albumPeak: metadata.common.replaygain_album_peak?.ratio,
-      },
+      replayGain: extractReplayGain(metadata),
       embeddedLyrics,
       playCount: 0,
       isFavorite: false,
