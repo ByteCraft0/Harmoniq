@@ -60,6 +60,7 @@ describe('AudioQualityInspectorService', () => {
     activePresetId: 'flat',
     eqMode: 'graphic',
     parametricFilters: [],
+    channelMode: 'stereo',
   };
 
   const cleanLimiter: LimiterMetrics = {

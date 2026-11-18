@@ -6,6 +6,7 @@ import {
   DEFAULT_PARAMETRIC_FILTERS,
   ParametricFilterConfig,
   LimiterMetrics,
+  ChannelMode,
 } from '../types/dsp';
 import { audioEngine } from '../services/audioEngine';
 
@@ -22,6 +23,8 @@ interface DSPContextType {
   setBassBoost: (gainDb: number) => void;
   setTreble: (gainDb: number) => void;
   setBalance: (balance: number) => void;
+  resetBalance: () => void;
+  setChannelMode: (mode: ChannelMode) => void;
   toggleMonoMix: () => void;
   toggleDSPEnabled: () => void;
   toggleLimiter: () => void;
@@ -58,6 +61,7 @@ const DEFAULT_SETTINGS: DSPSettings = {
   treble: 0,
   balance: 0,
   monoMix: false,
+  channelMode: 'stereo',
   limiterEnabled: true,
   activePresetId: 'flat',
 };
@@ -107,6 +111,11 @@ function sanitizeSettings(raw: any): DSPSettings {
     treble: num(raw.treble, -6, 12, 0),
     balance: num(raw.balance, -1, 1, 0),
     monoMix: !!raw.monoMix,
+    channelMode: ['stereo', 'mono', 'left_only', 'right_only'].includes(raw.channelMode)
+      ? raw.channelMode
+      : raw.monoMix
+      ? 'mono'
+      : 'stereo',
     limiterEnabled: typeof raw.limiterEnabled === 'boolean' ? raw.limiterEnabled : d.limiterEnabled,
     activePresetId: typeof raw.activePresetId === 'string' ? raw.activePresetId : null,
   };
@@ -219,7 +228,20 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const setBassBoost = (gainDb: number) => patch({ bassBoost: num(gainDb, 0, 12, 0), activePresetId: null });
   const setTreble = (gainDb: number) => patch({ treble: num(gainDb, -6, 12, 0), activePresetId: null });
   const setBalance = (balance: number) => patch({ balance: num(balance, -1, 1, 0) });
-  const toggleMonoMix = () => patch({ monoMix: !settingsRef.current.monoMix });
+  const resetBalance = () => patch({ balance: 0 });
+  const setChannelMode = (mode: ChannelMode) => {
+    patch({
+      channelMode: mode,
+      monoMix: mode === 'mono',
+    });
+  };
+  const toggleMonoMix = () => {
+    const nextMode = settingsRef.current.channelMode === 'mono' ? 'stereo' : 'mono';
+    patch({
+      channelMode: nextMode,
+      monoMix: nextMode === 'mono',
+    });
+  };
   const toggleDSPEnabled = () => patch({ enabled: !settingsRef.current.enabled });
   const toggleLimiter = () => patch({ limiterEnabled: !settingsRef.current.limiterEnabled });
 
@@ -440,6 +462,8 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setBassBoost,
         setTreble,
         setBalance,
+        resetBalance,
+        setChannelMode,
         toggleMonoMix,
         toggleDSPEnabled,
         toggleLimiter,

@@ -3,6 +3,7 @@ import { usePlayer } from '../../context/PlayerContext';
 import { useLibrary } from '../../context/LibraryContext';
 import { QualityBadge } from '../inspector/QualityBadge';
 import { AudioQualityInspectorService } from '../../services/inspectorService';
+import { ABRepeatControls } from '../audio/ABRepeatControls';
 import {
   Play,
   Pause,
@@ -42,6 +43,11 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
     isShuffle,
     playbackRate,
     sleepTimer,
+    abRepeat,
+    setABRepeatPointA,
+    setABRepeatPointB,
+    toggleABRepeat,
+    clearABRepeat,
     togglePlayPause,
     seekTo,
     nextTrack,
@@ -58,6 +64,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
   const { activeView, setActiveView, toggleFavorite } = useLibrary();
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [showSleepMenu, setShowSleepMenu] = useState(false);
+  const [showABMenu, setShowABMenu] = useState(false);
   const [customMinutes, setCustomMinutes] = useState('');
 
   // Scrubber interactive states
@@ -154,6 +161,47 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
           {/* Playhead thumb */}
           <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3.5 h-3.5 rounded-full bg-white shadow-[0_0_10px_rgba(167,139,250,0.9)] opacity-0 group-hover:opacity-100 transition-opacity scale-90 group-hover:scale-100" />
         </div>
+
+        {/* Active A-B Loop Region Highlight */}
+        {duration > 0 && abRepeat.pointA !== null && abRepeat.pointB !== null && (
+          <div
+            className={`absolute top-0 bottom-0 pointer-events-none transition-all ${
+              abRepeat.enabled
+                ? 'bg-amber-400/40 border-l-2 border-r-2 border-amber-300 shadow-[0_0_8px_rgba(251,191,36,0.6)]'
+                : 'bg-white/20 border-l border-r border-white/40'
+            }`}
+            style={{
+              left: `${Math.max(0, Math.min(100, (abRepeat.pointA / duration) * 100))}%`,
+              width: `${Math.max(0, Math.min(100, ((abRepeat.pointB - abRepeat.pointA) / duration) * 100))}%`,
+            }}
+          />
+        )}
+
+        {/* Point A Marker Pin */}
+        {duration > 0 && abRepeat.pointA !== null && (
+          <div
+            style={{ left: `${Math.max(0, Math.min(100, (abRepeat.pointA / duration) * 100))}%` }}
+            className="absolute top-0 bottom-0 w-0.5 bg-amber-400 pointer-events-none z-10"
+            title={`Point A: ${formatTime(abRepeat.pointA)}`}
+          >
+            <div className="absolute -top-3.5 -translate-x-1/2 px-1 py-0.2 rounded text-[8px] font-bold bg-amber-500 text-black">
+              A
+            </div>
+          </div>
+        )}
+
+        {/* Point B Marker Pin */}
+        {duration > 0 && abRepeat.pointB !== null && (
+          <div
+            style={{ left: `${Math.max(0, Math.min(100, (abRepeat.pointB / duration) * 100))}%` }}
+            className="absolute top-0 bottom-0 w-0.5 bg-amber-400 pointer-events-none z-10"
+            title={`Point B: ${formatTime(abRepeat.pointB)}`}
+          >
+            <div className="absolute -top-3.5 -translate-x-1/2 px-1 py-0.2 rounded text-[8px] font-bold bg-amber-500 text-black">
+              B
+            </div>
+          </div>
+        )}
 
         {/* Floating Timestamp Tooltip */}
         {isHoveringBar && hoverSeekTime !== null && (
@@ -281,6 +329,38 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
             {repeatMode === 'one' ? <Repeat1 size={16} /> : <Repeat size={16} />}
             {repeatMode !== 'off' && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[var(--accent-dynamic)]" />}
           </button>
+
+          {/* A-B Repeat Quick Button & Popover */}
+          <div className="relative">
+            <button
+              onClick={() => setShowABMenu(!showABMenu)}
+              title={
+                abRepeat.enabled
+                  ? 'A-B Loop: Active'
+                  : abRepeat.pointA !== null || abRepeat.pointB !== null
+                  ? 'A-B Loop: Configured'
+                  : 'A-B Repeat Looper'
+              }
+              className={`px-1.5 py-1 rounded-md text-[11px] font-mono-numbers font-bold transition-all relative ${
+                abRepeat.enabled
+                  ? 'bg-amber-400 text-black shadow-[0_0_8px_rgba(251,191,36,0.5)]'
+                  : abRepeat.pointA !== null || abRepeat.pointB !== null
+                  ? 'text-amber-400 bg-amber-400/10 border border-amber-400/30'
+                  : 'text-[#71717A] hover:text-[#F5F3FF]'
+              }`}
+            >
+              <span>A-B</span>
+              {abRepeat.enabled && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              )}
+            </button>
+
+            {showABMenu && (
+              <div className="absolute bottom-full mb-3 left-1/2 -translate-x-1/2 w-80 p-3 rounded-2xl glass-panel border border-white/15 shadow-2xl z-50">
+                <ABRepeatControls compact={false} />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Time display with tabular numbers */}

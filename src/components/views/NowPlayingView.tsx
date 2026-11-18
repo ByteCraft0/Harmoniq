@@ -10,6 +10,8 @@ import { AudioQualityInspectorService } from '../../services/inspectorService';
 import { LyricsService } from '../../services/lyricsService';
 import { LyricsData } from '../../types/lyrics';
 import { AddToPlaylistModal } from '../layout/AddToPlaylistModal';
+import { AudioQualityAnalyzer } from '../audio/AudioQualityAnalyzer';
+import { ABRepeatControls } from '../audio/ABRepeatControls';
 import {
   Play,
   Pause,
@@ -61,7 +63,7 @@ export const NowPlayingView: React.FC = () => {
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [isAddToPlaylistOpen, setIsAddToPlaylistOpen] = useState(false);
   const [artworkMode, setArtworkMode] = useState<'ambient' | 'vinyl' | 'circular' | 'visualizer'>('ambient');
-  const [bottomVisualizerMode, setBottomVisualizerMode] = useState<'mini-spectrum' | 'spectrum-7band'>('mini-spectrum');
+  const [bottomVisualizerMode, setBottomVisualizerMode] = useState<'mini-spectrum' | 'spectrum-7band' | 'stream-specs'>('mini-spectrum');
   const [isUserScrolling, setIsUserScrolling] = useState(false);
 
   const trackIdRef = useRef<string | null>(null);
@@ -413,13 +415,27 @@ export const NowPlayingView: React.FC = () => {
                 >
                   7-Band
                 </button>
+                <button
+                  onClick={() => setBottomVisualizerMode('stream-specs')}
+                  className={`px-1.5 py-0.5 rounded ${
+                    bottomVisualizerMode === 'stream-specs'
+                      ? 'bg-[var(--accent-dynamic)] text-white font-bold'
+                      : 'text-[#71717A] hover:text-[#A1A1AA]'
+                  }`}
+                >
+                  Specs
+                </button>
               </div>
             </div>
 
             {bottomVisualizerMode === 'mini-spectrum' ? (
               <AudioVisualizer height={40} mode="spectrum" />
-            ) : (
+            ) : bottomVisualizerMode === 'spectrum-7band' ? (
               <RealTimeFrequencySpectrum height={70} compact={true} />
+            ) : (
+              <div className="pt-1">
+                <AudioQualityAnalyzer compact={true} />
+              </div>
             )}
           </div>
         </div>
@@ -619,6 +635,9 @@ export const NowPlayingView: React.FC = () => {
             >
               {repeatMode === 'one' ? <Repeat1 size={18} /> : <Repeat size={18} />}
             </button>
+
+            {/* A-B Precision Repeat Looper */}
+            <ABRepeatControls compact={true} />
           </div>
 
           {/* Center: Playback Controls */}

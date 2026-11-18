@@ -32,6 +32,25 @@ export interface EQPreset {
   treble?: number; // dB (-6 to 12)
 }
 
+export type ChannelMode = 'stereo' | 'mono' | 'left_only' | 'right_only';
+
+export interface ABRepeatState {
+  enabled: boolean;
+  pointA: number | null; // seconds
+  pointB: number | null; // seconds
+}
+
+export interface BitPerfectState {
+  enabled: boolean;
+  active: boolean;
+  status: 'active' | 'resampled' | 'impaired' | 'disabled';
+  reason?: string;
+  sourceSampleRate: number;
+  outputSampleRate: number;
+  isLossless: boolean;
+  disabledFeatures: string[];
+}
+
 export interface DSPSettings {
   enabled: boolean;
   eqMode: 'graphic' | 'parametric';
@@ -41,7 +60,8 @@ export interface DSPSettings {
   bassBoost: number; // in dB (0 to 12)
   treble: number; // in dB (-6 to 12)
   balance: number; // -1 (full Left) to +1 (full Right), 0 is Center
-  monoMix: boolean; // Downmix to mono
+  monoMix: boolean; // Backwards-compatible downmix to mono
+  channelMode: ChannelMode; // Channel routing mode: stereo, mono, left_only, right_only
   limiterEnabled: boolean; // Anti-clipping brickwall limiter
   activePresetId: string | null;
 }

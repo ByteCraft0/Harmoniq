@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { TrackMetadata, RepeatMode, ReplayGainMode } from '../types/audio';
+import { ABRepeatState, BitPerfectState } from '../types/dsp';
+import { AudioDeviceInfo } from '../types/devices';
 import { audioEngine } from '../services/audioEngine';
 import { libraryService } from '../services/libraryService';
 import { colorExtractionService } from '../services/colorExtractionService';
@@ -7,7 +9,17 @@ import { useToast } from './ToastContext';
 
 const PREFS_KEY = 'harmoniq_player_prefs';
 
-function loadPrefs(): Partial<{ volume: number; isMuted: boolean; playbackRate: number; preservesPitch: boolean; repeatMode: RepeatMode; isShuffle: boolean; replayGainMode: ReplayGainMode; crossfadeDuration: number }> {
+function loadPrefs(): Partial<{
+  volume: number;
+  isMuted: boolean;
+  playbackRate: number;
+  preservesPitch: boolean;
+  repeatMode: RepeatMode;
+  isShuffle: boolean;
+  replayGainMode: ReplayGainMode;
+  crossfadeDuration: number;
+  isBitPerfect: boolean;
+}> {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
     return raw ? JSON.parse(raw) : {};
@@ -67,6 +79,27 @@ interface PlayerContextType {
   removeFromQueue: (index: number) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   clearQueue: () => void;
+
+  // A-B Repeat
+  abRepeat: ABRepeatState;
+  setABRepeatPointA: (seconds?: number) => void;
+  setABRepeatPointB: (seconds?: number) => void;
+  toggleABRepeat: (enabled?: boolean) => void;
+  clearABRepeat: () => void;
+  setABPoints: (a: number | null, b: number | null, enabled?: boolean) => void;
+
+  // Bit-Perfect Playback Mode
+  isBitPerfect: boolean;
+  bitPerfectStatus: BitPerfectState;
+  setBitPerfectMode: (requested: boolean) => void;
+  engageBitPerfectMode: () => void;
+  disengageBitPerfectMode: () => void;
+
+  // Audio Device Manager
+  outputDevices: AudioDeviceInfo[];
+  currentDeviceId: string;
+  setOutputDevice: (deviceId: string) => Promise<boolean>;
+  refreshOutputDevices: () => Promise<void>;
 
   // Sleep timer
   setSleepTimer: (minutes: number, stopAfterCurrentTrack?: boolean) => void;
@@ -136,6 +169,17 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     isFading: false,
   });
 
+  // A-B Repeat State
+  const [abRepeat, setABRepeat] = useState<ABRepeatState>(() => audioEngine.getABRepeat());
+
+  // Bit-Perfect Mode State
+  const [isBitPerfect, setIsBitPerfectState] = useState<boolean>(!!prefs.isBitPerfect);
+  const [bitPerfectStatus, setBitPerfectStatus] = useState<BitPerfectState>(() => audioEngine.getBitPerfectStatus());
+
+  // Audio Device Manager State
+  const [outputDevices, setOutputDevices] = useState<AudioDeviceInfo[]>([]);
+  const [currentDeviceId, setCurrentDeviceId] = useState<string>(() => audioEngine.getCurrentSinkId());
+
   const sleepTimerIntervalRef = useRef<any>(null);
   const sleepTimerFadeIntervalRef = useRef<any>(null);
   const preFadeVolumeRef = useRef<number | null>(null);
@@ -177,20 +221,56 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     audioEngine.setPlaybackRate(playbackRate, preservesPitch);
     audioEngine.setReplayGainMode(replayGainMode);
     audioEngine.setCrossfadeDuration(crossfadeDuration);
+    audioEngine.setBitPerfectMode(isBitPerfect);
+
+    // Initial devices enumeration
+    audioEngine.getAvailableOutputDevices().then((devs) => {
+      setOutputDevices(devs);
+      setCurrentDeviceId(audioEngine.getCurrentSinkId());
+    });
+
+    const unsubAB = audioEngine.subscribeABRepeat((state) => {
+      setABRepeat(state);
+    });
+
+    const unsubDev = audioEngine.subscribeDeviceChange((activeId, devs) => {
+      setCurrentDeviceId(activeId);
+      setOutputDevices(devs);
+    });
+
+    return () => {
+      unsubAB();
+      unsubDev();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Update bit-perfect status whenever relevant playback or DSP states change
+  useEffect(() => {
+    setBitPerfectStatus(audioEngine.getBitPerfectStatus());
+  }, [currentTrack, volume, isMuted, isBitPerfect, crossfadeDuration, replayGainMode]);
 
   // Persist preferences
   useEffect(() => {
     try {
       localStorage.setItem(
         PREFS_KEY,
-        JSON.stringify({ volume, isMuted, playbackRate, preservesPitch, repeatMode, isShuffle, replayGainMode, crossfadeDuration })
+        JSON.stringify({
+          volume,
+          isMuted,
+          playbackRate,
+          preservesPitch,
+          repeatMode,
+          isShuffle,
+          replayGainMode,
+          crossfadeDuration,
+          isBitPerfect,
+        })
       );
     } catch {
       /* ignore */
     }
-  }, [volume, isMuted, playbackRate, preservesPitch, repeatMode, isShuffle, replayGainMode, crossfadeDuration]);
+  }, [volume, isMuted, playbackRate, preservesPitch, repeatMode, isShuffle, replayGainMode, crossfadeDuration, isBitPerfect]);
 
   // Subscribe to audio engine status updates (handlers read through refs, so no stale closures)
   useEffect(() => {
@@ -486,6 +566,62 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } else {
       setCrossfadeDuration(0);
     }
+  };
+
+  // A-B Repeat Actions
+  const setABRepeatPointA = (seconds?: number) => {
+    audioEngine.setABRepeatPointA(seconds !== undefined ? seconds : currentTime);
+  };
+
+  const setABRepeatPointB = (seconds?: number) => {
+    audioEngine.setABRepeatPointB(seconds !== undefined ? seconds : currentTime);
+  };
+
+  const toggleABRepeat = (enabled?: boolean) => {
+    audioEngine.toggleABRepeat(enabled);
+  };
+
+  const clearABRepeat = () => {
+    audioEngine.clearABRepeat();
+  };
+
+  const setABPoints = (a: number | null, b: number | null, enabled = true) => {
+    audioEngine.setABPoints(a, b, enabled);
+  };
+
+  // Bit-Perfect Mode Actions
+  const setBitPerfectMode = (requested: boolean) => {
+    setIsBitPerfectState(requested);
+    audioEngine.setBitPerfectMode(requested);
+    if (requested) {
+      setVolume(1.0);
+      setCrossfadeDuration(0);
+      setReplayGainMode('off');
+      showToast('Bit-Perfect Mode engaged: 100% Unity Gain, DSP bypassed, Crossfade & ReplayGain disabled', 'info');
+    }
+    setBitPerfectStatus(audioEngine.getBitPerfectStatus());
+  };
+
+  const engageBitPerfectMode = () => setBitPerfectMode(true);
+  const disengageBitPerfectMode = () => setBitPerfectMode(false);
+
+  // Audio Device Manager Actions
+  const refreshOutputDevices = async () => {
+    const devs = await audioEngine.getAvailableOutputDevices();
+    setOutputDevices(devs);
+    setCurrentDeviceId(audioEngine.getCurrentSinkId());
+  };
+
+  const setOutputDevice = async (deviceId: string): Promise<boolean> => {
+    const success = await audioEngine.setAudioOutputDevice(deviceId);
+    if (success) {
+      setCurrentDeviceId(deviceId);
+      const dev = outputDevices.find((d) => d.deviceId === deviceId);
+      showToast(`Audio output: ${dev?.label || 'Selected Device'}`, 'success');
+    } else {
+      showToast('Could not switch output device', 'warning');
+    }
+    return success;
   };
 
   // Queue actions
@@ -822,6 +958,25 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         removeFromQueue,
         reorderQueue,
         clearQueue,
+        // A-B Repeat
+        abRepeat,
+        setABRepeatPointA,
+        setABRepeatPointB,
+        toggleABRepeat,
+        clearABRepeat,
+        setABPoints,
+        // Bit-Perfect Mode
+        isBitPerfect,
+        bitPerfectStatus,
+        setBitPerfectMode,
+        engageBitPerfectMode,
+        disengageBitPerfectMode,
+        // Audio Device Manager
+        outputDevices,
+        currentDeviceId,
+        setOutputDevice,
+        refreshOutputDevices,
+        // Sleep Timer
         setSleepTimer,
         cancelSleepTimer,
         updateCurrentTrackMetadata,

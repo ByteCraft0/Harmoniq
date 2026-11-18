@@ -1,5 +1,14 @@
-import { DSPSettings, EQ_FREQUENCIES, DEFAULT_PARAMETRIC_FILTERS, LimiterMetrics } from '../types/dsp';
+import {
+  DSPSettings,
+  EQ_FREQUENCIES,
+  DEFAULT_PARAMETRIC_FILTERS,
+  LimiterMetrics,
+  ChannelMode,
+  ABRepeatState,
+  BitPerfectState,
+} from '../types/dsp';
 import { TrackMetadata, ReplayGainMode } from '../types/audio';
+import { AudioDeviceInfo } from '../types/devices';
 
 export type PlaybackStatusCallback = (status: {
   currentTime: number;
@@ -54,6 +63,15 @@ class AudioEngine {
   private bassBoostFilter: BiquadFilterNode | null = null;
   private trebleFilter: BiquadFilterNode | null = null;
   private pannerNode: StereoPannerNode | null = null;
+
+  // 2x2 Channel Matrix Nodes (Stereo, Mono, Left-Only, Right-Only, Balance)
+  private channelSplitter: ChannelSplitterNode | null = null;
+  private channelMerger: ChannelMergerNode | null = null;
+  private gainLL: GainNode | null = null;
+  private gainLR: GainNode | null = null;
+  private gainRL: GainNode | null = null;
+  private gainRR: GainNode | null = null;
+
   private limiterNode: DynamicsCompressorNode | null = null;
   private analyserNode: AnalyserNode | null = null;
   private dspBypassGain: GainNode | null = null;
@@ -80,6 +98,7 @@ class AudioEngine {
     treble: 0,
     balance: 0,
     monoMix: false,
+    channelMode: 'stereo',
     limiterEnabled: true,
     activePresetId: 'flat',
   };
@@ -89,6 +108,20 @@ class AudioEngine {
   private transitionTimeout: any = null;
   private currentSinkId = '';
   private nextTrackQueued: TrackMetadata | null = null;
+
+  // A-B Repeat State & Listeners
+  private abRepeat: ABRepeatState = {
+    enabled: false,
+    pointA: null,
+    pointB: null,
+  };
+  private abRepeatListeners: Set<(state: ABRepeatState) => void> = new Set();
+
+  // Bit-Perfect Mode State
+  private bitPerfectRequested = false;
+
+  // Device Change Listeners
+  private deviceChangeListeners: Set<(activeDeviceId: string, devices: AudioDeviceInfo[]) => void> = new Set();
 
   constructor() {
     // Lazily initialized on first user interaction to comply with browser audio policies
@@ -168,19 +201,35 @@ class AudioEngine {
       this.trebleFilter.frequency.value = 10000;
       this.trebleFilter.gain.value = 0;
 
-      // 7. Mono downmix switch
-      this.monoNode = this.audioCtx.createGain();
-      this.monoNode.channelCountMode = 'explicit';
-      this.monoNode.channelInterpretation = 'speakers';
-      this.monoNode.channelCount = 2;
+      // 7. 2x2 Channel Matrix (Stereo, Mono Downmix, Left-Only, Right-Only, Stereo Balance)
+      this.channelSplitter = this.audioCtx.createChannelSplitter(2);
+      this.gainLL = this.audioCtx.createGain();
+      this.gainLR = this.audioCtx.createGain();
+      this.gainRL = this.audioCtx.createGain();
+      this.gainRR = this.audioCtx.createGain();
+      this.channelMerger = this.audioCtx.createChannelMerger(2);
 
-      // 8. Stereo Panner
+      // Connect 2x2 matrix:
+      // Left in (0) -> LL (to Left out) and LR (to Right out)
+      this.channelSplitter.connect(this.gainLL, 0);
+      this.channelSplitter.connect(this.gainLR, 0);
+      // Right in (1) -> RL (to Left out) and RR (to Right out)
+      this.channelSplitter.connect(this.gainRL, 1);
+      this.channelSplitter.connect(this.gainRR, 1);
+
+      // Connect to output merger
+      this.gainLL.connect(this.channelMerger, 0, 0);
+      this.gainRL.connect(this.channelMerger, 0, 0);
+      this.gainLR.connect(this.channelMerger, 0, 1);
+      this.gainRR.connect(this.channelMerger, 0, 1);
+
+      // Legacy fallback nodes
+      this.monoNode = this.audioCtx.createGain();
       if (this.audioCtx.createStereoPanner) {
         this.pannerNode = this.audioCtx.createStereoPanner();
-        this.pannerNode.pan.value = 0;
       }
 
-      // 9. Anti-Clipping Brickwall Limiter (DynamicsCompressorNode)
+      // 8. Anti-Clipping Brickwall Limiter (DynamicsCompressorNode)
       this.limiterNode = this.audioCtx.createDynamicsCompressor();
       this.limiterNode.threshold.value = -0.5; // Trigger just below 0 dBFS
       this.limiterNode.knee.value = 3.0;
@@ -188,30 +237,24 @@ class AudioEngine {
       this.limiterNode.attack.value = 0.003; // Fast 3ms attack
       this.limiterNode.release.value = 0.1; // 100ms release
 
-      // 10. High-Resolution FFT Analyser
+      // 9. High-Resolution FFT Analyser
       this.analyserNode = this.audioCtx.createAnalyser();
       this.analyserNode.fftSize = 2048;
       this.analyserNode.smoothingTimeConstant = 0.8;
 
-      // 11. Bypass routing nodes
+      // 10. Bypass routing nodes
       this.dspActiveGain = this.audioCtx.createGain();
       this.dspBypassGain = this.audioCtx.createGain();
 
       // Connect DSP chain:
-      // masterMixGain -> Preamp -> EQ[0..9] -> Parametric[0..11] -> BassBoost -> Treble -> Mono -> (Panner) -> Limiter -> dspActiveGain -> Analyser -> Destination
+      // masterMixGain -> Preamp -> EQ[0..9] -> Parametric[0..11] -> BassBoost -> Treble -> ChannelMatrix -> Limiter -> dspActiveGain -> Analyser -> Destination
       this.masterMixGain.connect(this.preampGainNode);
       this.preampGainNode.connect(this.eqFilters[0]);
       this.eqFilters[this.eqFilters.length - 1].connect(this.parametricFilterNodes[0]);
       this.parametricFilterNodes[this.parametricFilterNodes.length - 1].connect(this.bassBoostFilter);
       this.bassBoostFilter.connect(this.trebleFilter);
-
-      this.trebleFilter.connect(this.monoNode);
-      if (this.pannerNode) {
-        this.monoNode.connect(this.pannerNode);
-        this.pannerNode.connect(this.limiterNode);
-      } else {
-        this.monoNode.connect(this.limiterNode);
-      }
+      this.trebleFilter.connect(this.channelSplitter);
+      this.channelMerger.connect(this.limiterNode);
 
       this.limiterNode.connect(this.dspActiveGain);
       this.dspActiveGain.connect(this.analyserNode);
@@ -222,6 +265,23 @@ class AudioEngine {
       this.dspBypassGain.connect(this.analyserNode);
 
       this.analyserNode.connect(this.audioCtx.destination);
+
+      // Setup dynamic device change listener
+      if (typeof navigator !== 'undefined' && navigator.mediaDevices?.addEventListener) {
+        navigator.mediaDevices.addEventListener('devicechange', async () => {
+          const devices = await this.getAvailableOutputDevices();
+          if (this.currentSinkId && this.currentSinkId !== 'default' && this.currentSinkId !== '') {
+            const exists = devices.some((d) => d.deviceId === this.currentSinkId);
+            if (!exists) {
+              console.warn(`[AudioEngine] Active device ${this.currentSinkId} was disconnected. Falling back to default.`);
+              await this.setAudioOutputDevice('default');
+              this.deviceChangeListeners.forEach((cb) => cb('default', devices));
+              return;
+            }
+          }
+          this.deviceChangeListeners.forEach((cb) => cb(this.currentSinkId || 'default', devices));
+        });
+      }
 
       // Apply initial configurations
       this.applyVolumeToBothDecks();
@@ -326,12 +386,22 @@ class AudioEngine {
    * Monitor playback position on active deck to trigger Gapless or Crossfade transitions seamlessly
    */
   private handleTimeUpdate(): void {
-    if (!this.activeDeck || !this.standbyDeck || this.isTransitioning) return;
+    if (!this.activeDeck) return;
 
     const el = this.activeDeck.element;
     const currentTime = el.currentTime;
     const duration = el.duration;
 
+    // A-B Repeat Loop Check
+    if (this.abRepeat.enabled && this.abRepeat.pointA !== null && this.abRepeat.pointB !== null) {
+      if (currentTime >= this.abRepeat.pointB) {
+        el.currentTime = this.abRepeat.pointA;
+        this.emitStatus();
+        return; // Prevent crossfade or gapless handoff during active A-B loop!
+      }
+    }
+
+    if (!this.standbyDeck || this.isTransitioning) return;
     if (!Number.isFinite(duration) || duration <= 0) return;
 
     const remaining = duration - currentTime;
@@ -594,6 +664,11 @@ class AudioEngine {
     // If crossfade was active, cancel it immediately
     if (this.isTransitioning) {
       this.cancelCrossfade();
+    }
+
+    // Reset A-B repeat interval when loading a different track
+    if (this.activeDeck.currentTrack?.id !== track.id) {
+      this.clearABRepeat();
     }
 
     // Check if the requested track is already preloaded on the standby deck and start point is 0
@@ -869,12 +944,34 @@ class AudioEngine {
       this.trebleFilter.gain.setTargetAtTime(settings.treble, now, 0.05);
     }
 
-    // 5. Stereo Balance
+    // 5. Channel Routing Matrix & Stereo Balance (Stereo, Mono, Left-Only, Right-Only, Balance)
+    if (this.gainLL && this.gainLR && this.gainRL && this.gainRR) {
+      let baseLL = 1.0, baseLR = 0.0, baseRL = 0.0, baseRR = 1.0;
+      const mode = settings.channelMode || (settings.monoMix ? 'mono' : 'stereo');
+
+      if (mode === 'mono') {
+        baseLL = 0.5; baseLR = 0.5; baseRL = 0.5; baseRR = 0.5;
+      } else if (mode === 'left_only') {
+        baseLL = 1.0; baseLR = 1.0; baseRL = 0.0; baseRR = 0.0;
+      } else if (mode === 'right_only') {
+        baseLL = 0.0; baseLR = 0.0; baseRL = 1.0; baseRR = 1.0;
+      }
+
+      // Balance adjustment: -1.0 (Left) to +1.0 (Right)
+      const bal = Math.max(-1.0, Math.min(1.0, settings.balance ?? 0));
+      const multL = bal <= 0 ? 1.0 : Math.max(0, 1.0 - bal);
+      const multR = bal >= 0 ? 1.0 : Math.max(0, 1.0 + bal);
+
+      this.gainLL.gain.setTargetAtTime(baseLL * multL, now, 0.02);
+      this.gainRL.gain.setTargetAtTime(baseRL * multL, now, 0.02);
+      this.gainLR.gain.setTargetAtTime(baseLR * multR, now, 0.02);
+      this.gainRR.gain.setTargetAtTime(baseRR * multR, now, 0.02);
+    }
+
+    // Legacy fallback nodes
     if (this.pannerNode) {
       this.pannerNode.pan.setTargetAtTime(settings.balance, now, 0.05);
     }
-
-    // 6. Mono downmix
     if (this.monoNode) {
       this.monoNode.channelCount = settings.monoMix ? 1 : 2;
     }
@@ -1070,14 +1167,25 @@ class AudioEngine {
     };
   }
 
-  // Audio Device Selection
+  // Audio Device Manager & Output Routing
   public async setAudioOutputDevice(sinkId: string): Promise<boolean> {
     this.currentSinkId = sinkId;
     let ok = false;
 
+    // 1. Try to set on Web Audio AudioContext (Chromium AudioContext.setSinkId)
+    if (this.audioCtx && (this.audioCtx as any).setSinkId) {
+      try {
+        await (this.audioCtx as any).setSinkId(sinkId === 'default' ? '' : sinkId);
+        ok = true;
+      } catch (err) {
+        console.warn('Failed to setSinkId on audioCtx:', err);
+      }
+    }
+
+    // 2. Set on HTML5 media elements for both decks
     if (this.deckA?.element && (this.deckA.element as any).setSinkId) {
       try {
-        await (this.deckA.element as any).setSinkId(sinkId);
+        await (this.deckA.element as any).setSinkId(sinkId === 'default' ? '' : sinkId);
         ok = true;
       } catch (err) {
         console.warn('Failed to setSinkId on deckA:', err);
@@ -1086,18 +1194,254 @@ class AudioEngine {
 
     if (this.deckB?.element && (this.deckB.element as any).setSinkId) {
       try {
-        await (this.deckB.element as any).setSinkId(sinkId);
+        await (this.deckB.element as any).setSinkId(sinkId === 'default' ? '' : sinkId);
         ok = true;
       } catch (err) {
         console.warn('Failed to setSinkId on deckB:', err);
       }
     }
 
+    try {
+      localStorage.setItem('harmoniq_preferred_audio_device', sinkId);
+    } catch {}
+
     return ok;
   }
 
+  public async getAvailableOutputDevices(): Promise<AudioDeviceInfo[]> {
+    const devices: AudioDeviceInfo[] = [];
+
+    // Enumerate via Web MediaDevices API
+    if (typeof navigator !== 'undefined' && navigator.mediaDevices?.enumerateDevices) {
+      try {
+        const mediaDevices = await navigator.mediaDevices.enumerateDevices();
+        const outputs = mediaDevices.filter((d) => d.kind === 'audiooutput');
+
+        outputs.forEach((d, idx) => {
+          const isDefault = d.deviceId === 'default' || (!d.deviceId && idx === 0);
+          devices.push({
+            deviceId: d.deviceId || (isDefault ? 'default' : `device_${idx}`),
+            label: d.label || (isDefault ? 'Default Windows Audio Endpoint' : `Audio Endpoint ${idx + 1}`),
+            groupId: d.groupId || '',
+            isDefault,
+            sampleRate: this.audioCtx?.sampleRate || 48000,
+            channels: 2,
+            bitDepth: 24,
+          });
+        });
+      } catch (e) {
+        console.warn('Failed to enumerate media devices:', e);
+      }
+    }
+
+    // Provide default endpoint if enumeration was restricted or empty
+    if (devices.length === 0) {
+      devices.push({
+        deviceId: 'default',
+        label: 'Default Windows Audio Endpoint',
+        groupId: 'default-group',
+        isDefault: true,
+        sampleRate: this.audioCtx?.sampleRate || 48000,
+        channels: 2,
+        bitDepth: 24,
+      });
+    }
+
+    return devices;
+  }
+
+  public subscribeDeviceChange(cb: (activeDeviceId: string, devices: AudioDeviceInfo[]) => void): () => void {
+    this.deviceChangeListeners.add(cb);
+    this.getAvailableOutputDevices().then((devs) => {
+      cb(this.currentSinkId || 'default', devs);
+    });
+    return () => this.deviceChangeListeners.delete(cb);
+  }
+
   public getCurrentSinkId(): string {
-    return this.currentSinkId;
+    return this.currentSinkId || 'default';
+  }
+
+  // A-B Repeat Controller
+  public getABRepeat(): ABRepeatState {
+    return { ...this.abRepeat };
+  }
+
+  public setABRepeatPointA(time?: number): void {
+    const curTime = time !== undefined ? time : (this.activeDeck?.element.currentTime || 0);
+    this.abRepeat.pointA = Math.max(0, curTime);
+
+    if (this.abRepeat.pointB !== null && this.abRepeat.pointB <= this.abRepeat.pointA) {
+      this.abRepeat.pointB = null;
+    }
+
+    if (this.abRepeat.pointA !== null && this.abRepeat.pointB !== null) {
+      this.abRepeat.enabled = true;
+    }
+    this.emitABRepeat();
+  }
+
+  public setABRepeatPointB(time?: number): void {
+    const curTime = time !== undefined ? time : (this.activeDeck?.element.currentTime || 0);
+    if (this.abRepeat.pointA === null) {
+      this.abRepeat.pointA = 0;
+    }
+
+    if (curTime <= this.abRepeat.pointA) {
+      this.abRepeat.pointB = this.abRepeat.pointA + 1.0;
+    } else {
+      this.abRepeat.pointB = curTime;
+    }
+
+    this.abRepeat.enabled = true;
+    this.emitABRepeat();
+  }
+
+  public toggleABRepeat(enabled?: boolean): void {
+    if (enabled !== undefined) {
+      this.abRepeat.enabled = enabled;
+    } else {
+      this.abRepeat.enabled = !this.abRepeat.enabled;
+    }
+    this.emitABRepeat();
+  }
+
+  public clearABRepeat(): void {
+    this.abRepeat = {
+      enabled: false,
+      pointA: null,
+      pointB: null,
+    };
+    this.emitABRepeat();
+  }
+
+  public setABPoints(a: number | null, b: number | null, enabled = true): void {
+    this.abRepeat = {
+      enabled,
+      pointA: a !== null ? Math.max(0, a) : null,
+      pointB: b !== null ? Math.max(0, b) : null,
+    };
+    this.emitABRepeat();
+  }
+
+  public subscribeABRepeat(cb: (state: ABRepeatState) => void): () => void {
+    this.abRepeatListeners.add(cb);
+    cb(this.getABRepeat());
+    return () => this.abRepeatListeners.delete(cb);
+  }
+
+  private emitABRepeat(): void {
+    const copy = this.getABRepeat();
+    this.abRepeatListeners.forEach((cb) => cb(copy));
+  }
+
+  // Bit-Perfect Playback Mode
+  public setBitPerfectMode(requested: boolean): void {
+    this.bitPerfectRequested = requested;
+  }
+
+  public isBitPerfectRequested(): boolean {
+    return this.bitPerfectRequested;
+  }
+
+  public getBitPerfectStatus(): BitPerfectState {
+    const track = this.getCurrentTrack();
+    const outputRate = this.audioCtx?.sampleRate || 48000;
+    const sourceRate = track?.sampleRate || outputRate;
+    const isLossless = !!track?.isLossless;
+    const rateMatches = sourceRate === outputRate;
+    const unityVolume = Math.abs(this.volume - 1.0) < 0.001 && !this.muted;
+    const dspBypassed =
+      !this.dspSettings.enabled ||
+      (this.dspSettings.bands.every((b) => Math.abs(b) < 0.05) &&
+        Math.abs(this.dspSettings.preamp) < 0.05 &&
+        Math.abs(this.dspSettings.bassBoost) < 0.05 &&
+        Math.abs(this.dspSettings.treble) < 0.05 &&
+        Math.abs(this.dspSettings.balance) < 0.01 &&
+        this.dspSettings.channelMode === 'stereo');
+    const replayGainOff = this.replayGainMode === 'off';
+    const crossfadeOff = this.crossfadeDuration === 0;
+
+    const disabledFeatures: string[] = [];
+    if (!dspBypassed) disabledFeatures.push('Equalizer / Tone Controls');
+    if (!replayGainOff) disabledFeatures.push('ReplayGain Normalization');
+    if (!crossfadeOff) disabledFeatures.push('Crossfade');
+    if (!unityVolume) disabledFeatures.push('Digital Volume Attenuation');
+
+    if (!this.bitPerfectRequested) {
+      return {
+        enabled: false,
+        active: false,
+        status: 'disabled',
+        reason: 'Bit-Perfect mode is not engaged',
+        sourceSampleRate: sourceRate,
+        outputSampleRate: outputRate,
+        isLossless,
+        disabledFeatures,
+      };
+    }
+
+    if (!isLossless) {
+      return {
+        enabled: true,
+        active: false,
+        status: 'impaired',
+        reason: 'Source audio is lossy (compressed). True bit-perfection requires lossless PCM/FLAC source.',
+        sourceSampleRate: sourceRate,
+        outputSampleRate: outputRate,
+        isLossless,
+        disabledFeatures,
+      };
+    }
+
+    if (!rateMatches) {
+      return {
+        enabled: true,
+        active: false,
+        status: 'resampled',
+        reason: `Sample rate mismatch: source is ${(sourceRate / 1000).toFixed(1)} kHz but hardware output is ${(outputRate / 1000).toFixed(1)} kHz. Resampling is performed by Windows Audio Engine.`,
+        sourceSampleRate: sourceRate,
+        outputSampleRate: outputRate,
+        isLossless,
+        disabledFeatures,
+      };
+    }
+
+    if (!unityVolume || !dspBypassed || !replayGainOff) {
+      return {
+        enabled: true,
+        active: false,
+        status: 'impaired',
+        reason: 'Processing active: DSP, Volume, or ReplayGain is altering bitstream.',
+        sourceSampleRate: sourceRate,
+        outputSampleRate: outputRate,
+        isLossless,
+        disabledFeatures,
+      };
+    }
+
+    return {
+      enabled: true,
+      active: true,
+      status: 'active',
+      reason: 'Bit-transparent audio path active. Original bitstream preserved with 0 dB unity gain.',
+      sourceSampleRate: sourceRate,
+      outputSampleRate: outputRate,
+      isLossless: true,
+      disabledFeatures: [],
+    };
+  }
+
+  // Channel Mode & Balance Controls
+  public setChannelMode(mode: ChannelMode): void {
+    this.dspSettings.channelMode = mode;
+    this.dspSettings.monoMix = mode === 'mono';
+    this.applyDSPSettings(this.dspSettings);
+  }
+
+  public setBalance(balance: number): void {
+    this.dspSettings.balance = Math.max(-1.0, Math.min(1.0, balance));
+    this.applyDSPSettings(this.dspSettings);
   }
 
   public getCurrentTrack(): TrackMetadata | null {

@@ -15,6 +15,11 @@ import {
   formatAcceleratorToKeys,
   keyboardEventToAccelerator,
 } from '../../services/shortcutService';
+import { AudioDeviceManager } from '../audio/AudioDeviceManager';
+import { AudioQualityAnalyzer } from '../audio/AudioQualityAnalyzer';
+import { BitPerfectController } from '../audio/BitPerfectController';
+import { ChannelConfigurationCard } from '../audio/ChannelConfigurationCard';
+import { ABRepeatControls } from '../audio/ABRepeatControls';
 import {
   Settings,
   FolderPlus,
@@ -33,6 +38,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Radio,
+  Speaker,
+  FileAudio,
+  Repeat1,
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
@@ -67,6 +75,20 @@ export const SettingsView: React.FC = () => {
   const [recordingKey, setRecordingKey] = useState<string>('');
   const [shortcutErrors, setShortcutErrors] = useState<Partial<Record<ShortcutAction, string>>>({});
   const [shortcutSaveSuccess, setShortcutSaveSuccess] = useState<boolean>(false);
+
+  type SettingsTab = 'all' | 'devices' | 'quality' | 'bitperfect' | 'playback' | 'channel' | 'system' | 'library';
+  const [activeTab, setActiveTab] = useState<SettingsTab>('all');
+
+  const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
+    { id: 'all', label: 'All Settings', icon: <Sparkles size={13} /> },
+    { id: 'devices', label: 'Output Devices', icon: <Speaker size={13} /> },
+    { id: 'quality', label: 'Audio Quality', icon: <FileAudio size={13} /> },
+    { id: 'bitperfect', label: 'Bit-Perfect', icon: <ShieldCheck size={13} /> },
+    { id: 'playback', label: 'Playback & Looper', icon: <Sliders size={13} /> },
+    { id: 'channel', label: 'Channel & Balance', icon: <Radio size={13} /> },
+    { id: 'system', label: 'Windows Integration', icon: <AppWindow size={13} /> },
+    { id: 'library', label: 'Music Folders', icon: <FolderPlus size={13} /> },
+  ];
 
   useEffect(() => {
     if (window.harmoniqApi?.getCloseToTray) {
@@ -176,8 +198,111 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Music Folders Section */}
-      <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
+      {/* Settings Navigation Tabs */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold whitespace-nowrap transition-all ${
+              activeTab === tab.id
+                ? 'bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] text-[#F5F3FF] shadow-glow-sm'
+                : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+            }`}
+          >
+            {tab.icon}
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* 1. Audio Output Devices */}
+      {(activeTab === 'all' || activeTab === 'devices') && (
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
+          <div className="flex items-center justify-between border-b border-[#272733] pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-[#F5F3FF] flex items-center gap-2">
+                <Speaker size={16} className="text-[var(--accent-dynamic)]" />
+                <span>Audio Device Manager</span>
+              </h3>
+              <p className="text-xs text-[#A1A1AA]">
+                Switch active sound endpoints, headphones, and external USB/WASAPI DACs with live fallback.
+              </p>
+            </div>
+            <span className="text-[10px] uppercase font-mono-numbers px-2.5 py-0.5 rounded-full bg-[#1B1B24] text-[var(--accent-dynamic)] border border-[#272733]">
+              Hardware Routing
+            </span>
+          </div>
+          <AudioDeviceManager />
+        </div>
+      )}
+
+      {/* 2. Audio Quality Analyzer */}
+      {(activeTab === 'all' || activeTab === 'quality') && (
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
+          <div className="flex items-center justify-between border-b border-[#272733] pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-[#F5F3FF] flex items-center gap-2">
+                <FileAudio size={16} className="text-[var(--accent-dynamic)]" />
+                <span>Audio Quality Analyzer</span>
+              </h3>
+              <p className="text-xs text-[#A1A1AA]">
+                Real-time technical metrics, format verification, and sample rate conversion diagnosis.
+              </p>
+            </div>
+            <span className="text-[10px] uppercase font-mono-numbers px-2.5 py-0.5 rounded-full bg-[#1B1B24] text-[#A78BFA] border border-[#272733]">
+              Stream Telemetry
+            </span>
+          </div>
+          <AudioQualityAnalyzer />
+        </div>
+      )}
+
+      {/* 3. Bit-Perfect Playback */}
+      {(activeTab === 'all' || activeTab === 'bitperfect') && (
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
+          <div className="flex items-center justify-between border-b border-[#272733] pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-[#F5F3FF] flex items-center gap-2">
+                <ShieldCheck size={16} className="text-[var(--accent-dynamic)]" />
+                <span>Bit-Perfect Direct Playback</span>
+              </h3>
+              <p className="text-xs text-[#A1A1AA]">
+                Direct hardware pass-through bypassing DSP, volume attenuation, and digital sound processing.
+              </p>
+            </div>
+            <span className="text-[10px] uppercase font-mono-numbers px-2.5 py-0.5 rounded-full bg-[#1B1B24] text-emerald-400 border border-[#272733]">
+              Bit-Transparent
+            </span>
+          </div>
+          <BitPerfectController />
+        </div>
+      )}
+
+      {/* 4. Channel Configuration */}
+      {(activeTab === 'all' || activeTab === 'channel') && (
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
+          <div className="flex items-center justify-between border-b border-[#272733] pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-[#F5F3FF] flex items-center gap-2">
+                <Radio size={16} className="text-[var(--accent-dynamic)]" />
+                <span>Channel Routing & Stereo Balance</span>
+              </h3>
+              <p className="text-xs text-[#A1A1AA]">
+                Configure stereo downmixing, isolated channel listening, and left/right balance.
+              </p>
+            </div>
+            <span className="text-[10px] uppercase font-mono-numbers px-2.5 py-0.5 rounded-full bg-[#1B1B24] text-[var(--accent-dynamic)] border border-[#272733]">
+              Matrix Processing
+            </span>
+          </div>
+          <ChannelConfigurationCard />
+        </div>
+      )}
+
+      {/* 5. Music Folders Section */}
+      {(activeTab === 'all' || activeTab === 'library') && (
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
         <div className="flex items-center justify-between border-b border-[#272733] pb-3">
           <div>
             <h3 className="font-bold text-sm text-[#F5F3FF]">Local Music Folders</h3>
@@ -210,8 +335,10 @@ export const SettingsView: React.FC = () => {
           </button>
         </div>
       </div>
+      )}
 
-      {/* Core Playback Enhancements (Batch 1) */}
+      {/* 6. Core Playback Enhancements & A-B Looper */}
+      {(activeTab === 'all' || activeTab === 'playback') && (
       <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-6 shadow-card">
         <div className="flex items-center justify-between border-b border-[#272733] pb-3">
           <div>
@@ -389,9 +516,16 @@ export const SettingsView: React.FC = () => {
             className="w-4 h-4 accent-[var(--accent-dynamic)] rounded cursor-pointer"
           />
         </div>
+
+        {/* 4. A-B Precision Repeat Looper */}
+        <div className="pt-2 border-t border-[#1B1B24]">
+          <ABRepeatControls compact={false} />
+        </div>
       </div>
+      )}
 
       {/* Windows System Integration (Batch 2) */}
+      {(activeTab === 'all' || activeTab === 'system') && (
       <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-6 shadow-card">
         <div className="flex items-center justify-between border-b border-[#272733] pb-3">
           <div>
@@ -572,6 +706,7 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* Privacy Guarantee */}
       <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-3 shadow-card">

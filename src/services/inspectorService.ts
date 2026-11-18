@@ -139,6 +139,7 @@ export class AudioQualityInspectorService {
       Math.abs(dspSettings.bassBoost) < 0.1 &&
       Math.abs(dspSettings.treble) < 0.1 &&
       Math.abs(dspSettings.balance) < 0.01 &&
+      (!dspSettings.channelMode || dspSettings.channelMode === 'stereo') &&
       !dspSettings.monoMix;
 
     const dspClean = isBypassed || isFlat;
