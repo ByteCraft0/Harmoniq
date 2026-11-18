@@ -22,6 +22,9 @@ import { AudioOutputView } from './components/views/AudioOutputView';
 import { SettingsView } from './components/views/SettingsView';
 import { MiniPlayer } from './components/layout/MiniPlayer';
 import { ListeningStatsDashboard } from './components/stats/ListeningStatsDashboard';
+import { OnlineMusicSearchView } from './components/online/OnlineMusicSearchView';
+import { RadioView } from './components/online/RadioView';
+import { PodcastView } from './components/online/PodcastView';
 
 const MainLayout: React.FC = () => {
   const { activeView, setActiveView } = useLibrary();
@@ -145,6 +148,12 @@ const MainLayout: React.FC = () => {
         return <SettingsView />;
       case 'stats':
         return <ListeningStatsDashboard />;
+      case 'online_music':
+        return <OnlineMusicSearchView />;
+      case 'radio':
+        return <RadioView />;
+      case 'podcasts':
+        return <PodcastView />;
       default:
         return <HomeView />;
     }

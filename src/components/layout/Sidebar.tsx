@@ -17,6 +17,9 @@ import {
   Sparkles,
   Plus,
   BarChart3,
+  Globe,
+  Radio,
+  Podcast,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -71,6 +74,14 @@ export const Sidebar: React.FC = () => {
         { view: 'home' as AppView, label: 'Home', icon: <Home size={16} /> },
         { view: 'discover' as AppView, label: 'Discover', icon: <Compass size={16} /> },
         { view: 'stats' as AppView, label: 'Listening Stats', icon: <BarChart3 size={16} /> },
+      ],
+    },
+    {
+      title: 'ONLINE & RADIO',
+      items: [
+        { view: 'online_music' as AppView, label: 'Online Search', icon: <Globe size={16} /> },
+        { view: 'radio' as AppView, label: 'Internet Radio', icon: <Radio size={16} /> },
+        { view: 'podcasts' as AppView, label: 'Podcasts', icon: <Podcast size={16} /> },
       ],
     },
     {
