@@ -89,30 +89,40 @@ export class LyricsService {
     const lines: LyricLine[] = [];
     let fileOffsetSec = 0;
 
-    // Standard LRC tag regex: [mm:ss.xx] or [mm:ss.xxx]
+    // Standard LRC timestamp regex: [mm:ss.xx] or [mm:ss.xxx] or [mm:ss]
     const timestampRegex = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
     const offsetRegex = /\[offset:\s*([+-]?\d+)\s*\]/i;
+    const idTagRegex = /^\[(ti|ar|al|au|by|length|re|ve|la):.*\]/i;
 
     for (const rawLine of rawLines) {
+      const trimmed = rawLine.trim();
+      if (!trimmed) continue;
+
       // Check for global offset tag: [offset:+500] in ms
-      const offsetMatch = offsetRegex.exec(rawLine);
+      const offsetMatch = offsetRegex.exec(trimmed);
       if (offsetMatch) {
         fileOffsetSec = parseInt(offsetMatch[1], 10) / 1000;
         continue;
       }
 
+      // Check for metadata tag without lyric text (e.g. [ti:Song Title])
+      if (idTagRegex.test(trimmed) && !timestampRegex.test(trimmed)) {
+        continue;
+      }
+
       // Check if line has timestamp tags
       timestampRegex.lastIndex = 0;
-      const matches = [...rawLine.matchAll(timestampRegex)];
+      const matches = [...trimmed.matchAll(timestampRegex)];
 
       if (matches.length > 0) {
         // Strip timestamps to get clean lyric text
-        const text = rawLine.replace(timestampRegex, '').trim();
+        const text = trimmed.replace(timestampRegex, '').trim();
 
         // One line may have multiple timestamps (e.g. [00:12.00][00:24.00] Chorus line)
         for (const match of matches) {
           const minutes = parseInt(match[1], 10);
           const seconds = parseInt(match[2], 10);
+          if (isNaN(minutes) || isNaN(seconds) || seconds >= 60) continue;
           const fraction = match[3]
             ? parseInt(match[3], 10) / Math.pow(10, match[3].length)
             : 0;
@@ -142,8 +152,32 @@ export class LyricsService {
       lines,
       plainText: content,
       source,
-      offset: 0,
+      offset: fileOffsetSec,
     };
+  }
+
+  /**
+   * Manually load and set lyrics content for a track
+   */
+  public static setManualLyrics(track: TrackMetadata, content: string): LyricsData {
+    const parsed = this.parseLrc(content, 'lrc_file');
+    this.hydrateCache();
+    this.cache.set(track.id, parsed);
+    this.cache.set(this.getCompositeKey(track), parsed);
+    this.persistCache();
+    return parsed;
+  }
+
+  /**
+   * Prompt user to select a local .lrc file via native dialog and load it
+   */
+  public static async pickAndLoadLrcFile(track: TrackMetadata): Promise<LyricsData | null> {
+    if (!window.harmoniqApi?.openLrcFileDialog) return null;
+    const res = await window.harmoniqApi.openLrcFileDialog();
+    if (res && res.content) {
+      return this.setManualLyrics(track, res.content);
+    }
+    return null;
   }
 
   /**

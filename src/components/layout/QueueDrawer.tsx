@@ -23,13 +23,13 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
   const totalDuration = queue.reduce((sum, t) => sum + (t.duration || 0), 0);
 
   return (
-    <aside className="w-80 h-full bg-[#0D0D12] border-l border-[#272733] flex flex-col z-30 select-none shadow-2xl animate-in slide-in-from-right duration-200">
+    <aside className="w-80 h-full bg-[#0D0D12]/85 backdrop-blur-2xl border-l border-[#272733]/80 flex flex-col z-30 select-none shadow-2xl animate-in slide-in-from-right duration-200">
       {/* Drawer Header */}
-      <div className="p-4 border-b border-[#272733] flex items-center justify-between">
+      <div className="p-4 border-b border-[#272733]/80 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <ListMusic size={18} className="text-[#A78BFA]" />
+          <ListMusic size={18} className="text-[var(--accent-dynamic)]" />
           <h3 className="font-bold text-sm text-[#F5F3FF]">Play Queue</h3>
-          <span className="text-[10px] font-mono-numbers px-2 py-0.5 rounded-full bg-[#1B1B24] text-[#A78BFA] border border-[#272733]">
+          <span className="text-[10px] font-mono-numbers px-2 py-0.5 rounded-full bg-[#1B1B24] text-[var(--accent-dynamic)] border border-[#272733]">
             {queue.length}
           </span>
         </div>

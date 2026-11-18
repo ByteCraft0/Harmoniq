@@ -9,10 +9,12 @@ import {
   RefreshCw,
   FolderPlus,
   Sparkles,
+  Minimize2,
+  Radio,
 } from 'lucide-react';
 
 export const TitleBar: React.FC = () => {
-  const { searchQuery, setSearchQuery, stats, addMusicFolders, rescanLibrary, setActiveView } = useLibrary();
+  const { searchQuery, setSearchQuery, stats, addMusicFolders, rescanLibrary, setActiveView, watcherStatus } = useLibrary();
   const [isMaximized, setIsMaximized] = useState(false);
 
   useEffect(() => {
@@ -82,7 +84,30 @@ export const TitleBar: React.FC = () => {
       </div>
 
       {/* Window Controls & Actions */}
-      <div className="flex items-center gap-1 window-no-drag">
+      <div className="flex items-center gap-1.5 window-no-drag">
+        {/* Real-time Folder Watcher Status Pill */}
+        {watcherStatus.folderCount > 0 && (
+          <div
+            title={`Real-Time Folder Watcher: Monitoring ${watcherStatus.folderCount} music folder${watcherStatus.folderCount > 1 ? 's' : ''}${
+              watcherStatus.status === 'syncing' ? ' (Syncing changes...)' : ' (Active)'
+            }`}
+            className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-[10px] font-mono-numbers text-[#A1A1AA]"
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                watcherStatus.status === 'syncing'
+                  ? 'bg-amber-400 animate-ping'
+                  : watcherStatus.status === 'error'
+                  ? 'bg-red-400'
+                  : 'bg-emerald-400'
+              }`}
+            />
+            <span className="truncate max-w-[100px]">
+              {watcherStatus.status === 'syncing' ? 'Syncing...' : 'Live Sync'}
+            </span>
+          </div>
+        )}
+
         <button
           onClick={addMusicFolders}
           title="Add Music Folder"
@@ -99,7 +124,16 @@ export const TitleBar: React.FC = () => {
           <RefreshCw size={14} className={stats.isScanning ? 'animate-spin text-[#A78BFA]' : ''} />
         </button>
 
-        <div className="h-4 w-[1px] bg-[#272733] mx-1.5" />
+        {/* Mini-Player Toggle Button */}
+        <button
+          onClick={() => window.harmoniqApi?.setMiniPlayer(true)}
+          title="Compact Mini-Player Mode (Floating Widget)"
+          className="w-8 h-7 flex items-center justify-center text-[#A1A1AA] hover:bg-[#14141B] hover:text-[var(--accent-dynamic)] rounded transition-colors"
+        >
+          <Minimize2 size={13} />
+        </button>
+
+        <div className="h-4 w-[1px] bg-[#272733] mx-1" />
 
         {/* Windows titlebar control buttons */}
         <button

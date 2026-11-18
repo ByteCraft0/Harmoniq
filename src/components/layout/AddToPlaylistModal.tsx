@@ -42,11 +42,11 @@ export const AddToPlaylistModal: React.FC<AddToPlaylistModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm select-none p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md select-none p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl bg-[#14141B] border border-[#272733] shadow-2xl p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150"
+        className="w-full max-w-sm rounded-2xl bg-[#14141B]/90 backdrop-blur-2xl border border-[#272733] shadow-[0_20px_50px_rgba(0,0,0,0.6)] p-5 space-y-4 animate-in fade-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

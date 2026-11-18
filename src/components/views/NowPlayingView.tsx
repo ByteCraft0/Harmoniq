@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { usePlayer } from '../../context/PlayerContext';
 import { useLibrary } from '../../context/LibraryContext';
 import { AudioVisualizer } from '../visualizer/AudioVisualizer';
@@ -23,8 +23,11 @@ import {
   FileText,
   FolderPlus,
   Gauge,
-  ListMusic,
-  Sparkles,
+  Disc3,
+  Layers,
+  Upload,
+  CheckCircle2,
+  RotateCcw,
 } from 'lucide-react';
 
 export const NowPlayingView: React.FC = () => {
@@ -50,27 +53,86 @@ export const NowPlayingView: React.FC = () => {
   const { setActiveView, toggleFavorite } = useLibrary();
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [isAddToPlaylistOpen, setIsAddToPlaylistOpen] = useState(false);
-  const trackIdRef = useRef<string | null>(null);
+  const [artworkMode, setArtworkMode] = useState<'ambient' | 'vinyl'>('ambient');
+  const [isUserScrolling, setIsUserScrolling] = useState(false);
 
+  const trackIdRef = useRef<string | null>(null);
+  const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
+  const activeLyricRef = useRef<HTMLDivElement | null>(null);
+  const userScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load lyrics on track change
   useEffect(() => {
     if (currentTrack) {
       const activeId = currentTrack.id;
       trackIdRef.current = activeId;
-      setLyricsData(null); // Immediate reset to prevent previous song lyrics from displaying
-      LyricsService.loadLyricsForTrack(currentTrack).then((data) => {
-        if (trackIdRef.current === activeId) {
-          setLyricsData(data);
-        }
-      }).catch(() => {
-        if (trackIdRef.current === activeId) {
-          setLyricsData(null);
-        }
-      });
+      setLyricsData(null);
+      setIsUserScrolling(false);
+
+      LyricsService.loadLyricsForTrack(currentTrack)
+        .then((data) => {
+          if (trackIdRef.current === activeId) {
+            setLyricsData(data);
+          }
+        })
+        .catch(() => {
+          if (trackIdRef.current === activeId) {
+            setLyricsData(null);
+          }
+        });
     } else {
       trackIdRef.current = null;
       setLyricsData(null);
     }
   }, [currentTrack?.id]);
+
+  const activeLyricIndex = lyricsData?.synced
+    ? LyricsService.findActiveLineIndex(lyricsData.lines, currentTime, lyricsData.offset || 0)
+    : -1;
+
+  // Auto-scroll to active lyric line (centered)
+  const scrollToActive = useCallback((smooth = true) => {
+    if (lyricsContainerRef.current && activeLyricRef.current) {
+      const container = lyricsContainerRef.current;
+      const el = activeLyricRef.current;
+      const targetScroll = el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
+      container.scrollTo({
+        top: Math.max(0, targetScroll),
+        behavior: smooth ? 'smooth' : 'auto',
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isUserScrolling && activeLyricIndex >= 0) {
+      scrollToActive(true);
+    }
+  }, [activeLyricIndex, isUserScrolling, scrollToActive]);
+
+  const handleContainerWheel = () => {
+    setIsUserScrolling(true);
+    if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
+    userScrollTimeoutRef.current = setTimeout(() => {
+      setIsUserScrolling(false);
+      scrollToActive(true);
+    }, 4000);
+  };
+
+  const handleResumeSync = () => {
+    if (userScrollTimeoutRef.current) clearTimeout(userScrollTimeoutRef.current);
+    setIsUserScrolling(false);
+    scrollToActive(true);
+  };
+
+  const handlePickLrc = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!currentTrack) return;
+    const loaded = await LyricsService.pickAndLoadLrcFile(currentTrack);
+    if (loaded) {
+      setLyricsData(loaded);
+      setIsUserScrolling(false);
+    }
+  };
 
   const formatTime = (seconds: number) => {
     if (!seconds || isNaN(seconds)) return '0:00';
@@ -91,7 +153,7 @@ export const NowPlayingView: React.FC = () => {
         </p>
         <button
           onClick={() => setActiveView('songs')}
-          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] text-xs font-bold shadow-glow-sm hover:shadow-glow-md transition-all active:scale-95"
+          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] text-[#F5F3FF] text-xs font-bold shadow-glow-sm hover:shadow-glow-md transition-all active:scale-95"
         >
           Browse Music Library
         </button>
@@ -100,20 +162,27 @@ export const NowPlayingView: React.FC = () => {
   }
 
   const qualityTier = AudioQualityInspectorService.calculateQualityTier(currentTrack);
-  const activeLyricIndex = lyricsData?.synced
-    ? LyricsService.findActiveLineIndex(lyricsData.lines, currentTime, lyricsData.offset || 0)
-    : -1;
-
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const timeRemaining = duration > currentTime ? duration - currentTime : 0;
 
   return (
-    <div className="h-full overflow-y-auto px-8 py-8 flex flex-col justify-between max-w-6xl mx-auto relative select-none">
-      {/* Subtle Blurred Background Glow */}
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#7C3AED]/12 rounded-full blur-3xl pointer-events-none" />
+    <div className="h-full overflow-hidden px-8 py-6 flex flex-col justify-between max-w-6xl mx-auto relative select-none">
+      {/* Ambient Mesh Glow Layers (Dynamic Colors) */}
+      <div
+        className="ambient-mesh-glow -top-24 -left-24 w-[500px] h-[500px] opacity-20 pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle, var(--ambient-primary) 0%, transparent 70%)',
+        }}
+      />
+      <div
+        className="ambient-mesh-glow -bottom-24 -right-24 w-[450px] h-[450px] opacity-15 pointer-events-none"
+        style={{
+          background: 'radial-gradient(circle, var(--ambient-secondary) 0%, transparent 70%)',
+        }}
+      />
 
       {/* Top Header Bar */}
-      <div className="flex items-center justify-between z-10">
+      <div className="flex items-center justify-between z-10 shrink-0">
         <div className="flex items-center gap-3">
           <QualityBadge
             tier={qualityTier}
@@ -126,63 +195,166 @@ export const NowPlayingView: React.FC = () => {
           />
           <button
             onClick={() => setActiveView('inspector')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B]/80 hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors backdrop-blur-md"
           >
-            <Gauge size={14} className="text-[#A78BFA]" />
+            <Gauge size={14} className="text-[var(--accent-dynamic)]" />
             <span>Technical Inspector</span>
           </button>
         </div>
 
-        <button
-          onClick={() => setActiveView('equalizer')}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
-        >
-          <Sliders size={14} className="text-[#A78BFA]" />
-          <span>Equalizer Studio</span>
-        </button>
-      </div>
-
-      {/* Main Focus: Artwork + Details & Synced Lyrics */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-10 my-auto items-center z-10 py-4">
-        {/* Left Column: Album Artwork & Spectrum */}
-        <div className="md:col-span-5 flex flex-col items-center space-y-5">
-          <div className="relative group w-72 h-72 sm:w-80 sm:h-80 rounded-2xl overflow-hidden bg-[#14141B] border border-[#272733] shadow-2xl flex items-center justify-center">
-            {currentTrack.artworkDataUrl ? (
-              <img
-                src={currentTrack.artworkDataUrl}
-                alt={currentTrack.album}
-                className="w-full h-full object-cover select-none transition-transform duration-500 group-hover:scale-105"
-              />
-            ) : (
-              <div className="flex flex-col items-center justify-center text-[#3F3F46]">
-                <FileAudio size={80} strokeWidth={1} />
-                <span className="text-xs uppercase tracking-wider mt-2 font-mono-numbers text-[#71717A]">
-                  {currentTrack.codec} Lossless
-                </span>
-              </div>
-            )}
+        <div className="flex items-center gap-3">
+          {/* Artwork Presentation Style Toggle */}
+          <div className="flex items-center bg-[#14141B]/80 border border-[#272733] rounded-xl p-0.5 text-xs">
+            <button
+              onClick={() => setArtworkMode('ambient')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-all ${
+                artworkMode === 'ambient'
+                  ? 'bg-[var(--accent-dynamic)] text-white shadow-sm'
+                  : 'text-[#71717A] hover:text-[#A1A1AA]'
+              }`}
+              title="Ambient Floating Artwork mode"
+            >
+              <Layers size={13} />
+              <span>Ambient</span>
+            </button>
+            <button
+              onClick={() => setArtworkMode('vinyl')}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-medium transition-all ${
+                artworkMode === 'vinyl'
+                  ? 'bg-[var(--accent-dynamic)] text-white shadow-sm'
+                  : 'text-[#71717A] hover:text-[#A1A1AA]'
+              }`}
+              title="Vinyl 33⅓ RPM Record mode"
+            >
+              <Disc3 size={13} />
+              <span>Vinyl LP</span>
+            </button>
           </div>
 
+          <button
+            onClick={() => setActiveView('equalizer')}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B]/80 hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors backdrop-blur-md"
+          >
+            <Sliders size={14} className="text-[var(--accent-dynamic)]" />
+            <span>Equalizer Studio</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Focus: Artwork (Left) + Interactive Karaoke Lyrics (Right) */}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-8 my-auto items-center z-10 py-3 flex-1 min-h-0">
+        {/* Left Column: Artwork Presentation & Live Spectrum */}
+        <div className="md:col-span-5 flex flex-col items-center justify-center space-y-4">
+          {artworkMode === 'ambient' ? (
+            /* Style A: Ambient Floating Artwork with Breathing Animation */
+            <div
+              className={`relative group w-72 h-72 sm:w-80 sm:h-80 rounded-2xl overflow-hidden bg-[#14141B] border border-[#272733] shadow-2xl flex items-center justify-center transition-all duration-700 ${
+                isPlaying ? 'animate-artwork-breathing shadow-[0_12px_40px_var(--glow-dynamic)]' : ''
+              }`}
+            >
+              {currentTrack.artworkDataUrl ? (
+                <img
+                  src={currentTrack.artworkDataUrl}
+                  alt={currentTrack.album}
+                  className="w-full h-full object-cover select-none transition-transform duration-700 group-hover:scale-105"
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center text-[#3F3F46]">
+                  <FileAudio size={76} strokeWidth={1} />
+                  <span className="text-xs uppercase tracking-wider mt-2 font-mono-numbers text-[#71717A]">
+                    {currentTrack.codec} Lossless
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Style B: Vinyl Record 33⅓ RPM Mode */
+            <div className="relative w-80 h-72 flex items-center justify-center">
+              {/* Vinyl Sleeve / Jacket */}
+              <div className="relative w-64 h-64 rounded-xl overflow-hidden bg-[#14141B] border border-[#272733] shadow-2xl z-20 shrink-0">
+                {currentTrack.artworkDataUrl ? (
+                  <img
+                    src={currentTrack.artworkDataUrl}
+                    alt={currentTrack.album}
+                    className="w-full h-full object-cover select-none"
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-[#3F3F46]">
+                    <FileAudio size={60} strokeWidth={1} />
+                    <span className="text-[10px] uppercase tracking-wider mt-1 text-[#71717A]">
+                      {currentTrack.codec}
+                    </span>
+                  </div>
+                )}
+                {/* Vinyl Sleeve Spine Shadow */}
+                <div className="absolute inset-y-0 right-0 w-3 bg-gradient-to-l from-black/80 to-transparent pointer-events-none" />
+              </div>
+
+              {/* Vinyl Disc (slides out and rotates when playing) */}
+              <div
+                className={`absolute w-60 h-60 rounded-full border border-black/40 shadow-2xl z-10 transition-transform duration-700 ease-out flex items-center justify-center ${
+                  isPlaying ? 'translate-x-14' : 'translate-x-4'
+                }`}
+                style={{
+                  background:
+                    'radial-gradient(circle, #1a1a24 0%, #0d0d12 40%, #15151e 55%, #08080c 70%, #171720 85%, #050508 100%)',
+                }}
+              >
+                {/* Concentric Vinyl Grooves */}
+                <div className="absolute inset-2 rounded-full border border-white/5 pointer-events-none" />
+                <div className="absolute inset-5 rounded-full border border-white/5 pointer-events-none" />
+                <div className="absolute inset-8 rounded-full border border-white/5 pointer-events-none" />
+                <div className="absolute inset-12 rounded-full border border-white/5 pointer-events-none" />
+
+                {/* Rotating Vinyl Body & Center Label */}
+                <div
+                  className={`w-full h-full rounded-full flex items-center justify-center ${
+                    isPlaying ? 'animate-vinyl' : ''
+                  }`}
+                  style={{
+                    animationPlayState: isPlaying ? 'running' : 'paused',
+                  }}
+                >
+                  {/* Center Label (Mini Artwork) */}
+                  <div className="w-24 h-24 rounded-full overflow-hidden border-2 border-white/10 shadow-inner relative flex items-center justify-center bg-[#111]">
+                    {currentTrack.artworkDataUrl ? (
+                      <img
+                        src={currentTrack.artworkDataUrl}
+                        alt=""
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <Disc3 size={32} className="text-[#A78BFA]" />
+                    )}
+                    {/* Center Spindle Hole */}
+                    <div className="absolute w-4 h-4 rounded-full bg-[#0a0a0f] border border-white/20 shadow-md" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Integrated Live Spectrum Visualizer */}
-          <div className="w-full max-w-xs p-3 rounded-xl bg-[#14141B] border border-[#272733]">
-            <AudioVisualizer height={48} mode="spectrum" />
+          <div className="w-full max-w-xs p-2.5 rounded-xl bg-[#14141B]/80 border border-[#272733] backdrop-blur-md shadow-card">
+            <AudioVisualizer height={40} mode="spectrum" />
           </div>
         </div>
 
-        {/* Right Column: Track Details & Synchronized Lyrics */}
-        <div className="md:col-span-7 flex flex-col justify-center space-y-6">
-          <div className="space-y-1.5">
+        {/* Right Column: Track Details & Interactive Karaoke Lyrics Container */}
+        <div className="md:col-span-7 flex flex-col justify-between h-full max-h-[460px] space-y-4">
+          {/* Track Meta Header */}
+          <div className="space-y-1.5 shrink-0">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold uppercase tracking-wider text-[#A78BFA] font-mono-numbers">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent-dynamic)] font-mono-numbers">
                 Now Playing
               </span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setIsAddToPlaylistOpen(true)}
                   title="Add to Playlist"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B]/80 hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
                 >
-                  <FolderPlus size={14} className="text-[#A78BFA]" />
+                  <FolderPlus size={14} className="text-[var(--accent-dynamic)]" />
                   <span>Add to Playlist</span>
                 </button>
                 <button
@@ -191,17 +363,17 @@ export const NowPlayingView: React.FC = () => {
                   className="p-1.5 rounded-full hover:bg-[#1B1B24] text-[#71717A] hover:text-red-400 transition-colors"
                 >
                   <Heart
-                    size={20}
+                    size={19}
                     className={currentTrack.isFavorite ? 'fill-red-500 text-red-500' : ''}
                   />
                 </button>
               </div>
             </div>
 
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-[#F5F3FF] tracking-tight truncate">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-[#F5F3FF] tracking-tight truncate">
               {currentTrack.title}
             </h1>
-            <p className="text-lg text-[#A1A1AA] font-medium truncate">
+            <p className="text-base text-[#A1A1AA] font-medium truncate">
               {currentTrack.artist}
             </p>
             <p className="text-xs text-[#71717A] font-mono-numbers">
@@ -209,55 +381,117 @@ export const NowPlayingView: React.FC = () => {
             </p>
           </div>
 
-          {/* Synchronized Lyrics Container (Clickable to open full Lyrics view) */}
-          <div
-            onClick={() => setActiveView('lyrics')}
-            title="Click to view full Synced Lyrics (Key: L)"
-            className="h-44 overflow-hidden rounded-2xl bg-[#14141B] hover:bg-[#181822] border border-[#272733] hover:border-[#3B3B4E] p-5 flex flex-col justify-center text-center shadow-card cursor-pointer transition-all relative group"
-          >
-            <div className="absolute top-2.5 right-3 text-[10px] text-[#71717A] group-hover:text-[#A78BFA] font-semibold flex items-center gap-1 transition-colors">
-              <FileText size={12} />
-              <span>Full Lyrics</span>
-            </div>
-            {lyricsData && lyricsData.synced && lyricsData.lines.length > 0 ? (
-              <div className="space-y-2">
-                {activeLyricIndex >= 0 ? (
-                  <>
-                    <p className="text-xs text-[#71717A] line-clamp-1 opacity-70">
-                      {lyricsData.lines[activeLyricIndex - 1]?.text || ''}
-                    </p>
-                    <p className="text-xl sm:text-2xl font-black text-[#A78BFA] drop-shadow-[0_0_12px_rgba(167,139,250,0.5)] transition-all">
-                      {lyricsData.lines[activeLyricIndex].text}
-                    </p>
-                    <p className="text-xs text-[#71717A] line-clamp-1 opacity-70">
-                      {lyricsData.lines[activeLyricIndex + 1]?.text || ''}
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-xs text-[#A1A1AA]">Waiting for audio timestamp...</p>
+          {/* Interactive Karaoke Synchronized Lyrics Section */}
+          <div className="flex-1 min-h-[260px] rounded-2xl bg-[#14141B]/60 border border-[#272733] relative flex flex-col overflow-hidden backdrop-blur-md shadow-card">
+            {/* Lyrics Header bar with source indicator & Manual LRC loader */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-[#272733]/60 bg-[#121218]/50 text-xs shrink-0">
+              <div className="flex items-center gap-2">
+                <FileText size={13} className="text-[var(--accent-dynamic)]" />
+                <span className="font-semibold text-[#F5F3FF] text-xs">Synchronized Karaoke Lyrics</span>
+                {lyricsData?.source && lyricsData.source !== 'none' && (
+                  <span className="text-[10px] text-emerald-400 font-medium flex items-center gap-0.5 ml-1">
+                    <CheckCircle2 size={11} />
+                    {lyricsData.source === 'lrc_file' ? '.LRC' : lyricsData.source === 'embedded' ? 'Embedded' : 'LRCLIB'}
+                  </span>
                 )}
               </div>
-            ) : (
-              <div className="text-xs text-[#71717A] space-y-1">
-                <p className="font-semibold text-[#A1A1AA]">No Synchronized Lyrics</p>
-                <p className="text-[11px]">
-                  {lyricsData?.plainText
-                    ? lyricsData.plainText.substring(0, 100) + '...'
-                    : 'Click to open Synced Lyrics view'}
-                </p>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handlePickLrc}
+                  title="Choose local .lrc file for this track"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#1B1B24] hover:bg-[#252532] text-[#A1A1AA] hover:text-[#F5F3FF] text-[11px] font-medium transition-colors border border-[#2D2D3B]"
+                >
+                  <Upload size={11} />
+                  <span>Load .LRC</span>
+                </button>
+                <button
+                  onClick={() => setActiveView('lyrics')}
+                  title="Open full dedicated Lyrics View (Hotkey: L)"
+                  className="text-[11px] text-[#71717A] hover:text-[var(--accent-dynamic)] transition-colors px-1 font-medium"
+                >
+                  Full View
+                </button>
               </div>
+            </div>
+
+            {/* Synchronized Lyrics Interactive Scroll Area */}
+            <div
+              ref={lyricsContainerRef}
+              onWheel={handleContainerWheel}
+              className="flex-1 overflow-y-auto px-6 py-12 space-y-6 text-center relative scroll-smooth select-none"
+            >
+              {lyricsData && lyricsData.synced && lyricsData.lines.length > 0 ? (
+                lyricsData.lines.map((line, idx) => {
+                  const isActive = idx === activeLyricIndex;
+                  return (
+                    <div
+                      key={idx}
+                      ref={isActive ? activeLyricRef : null}
+                      onClick={() => seekTo(line.time)}
+                      title={`Seek to ${formatTime(line.time)}`}
+                      className={`group cursor-pointer py-1.5 px-3 rounded-xl transition-all duration-300 ${
+                        isActive
+                          ? 'scale-105 origin-center'
+                          : 'opacity-40 hover:opacity-80 hover:bg-[#1B1B24]/40'
+                      }`}
+                    >
+                      <p
+                        className={`transition-all duration-300 ${
+                          isActive
+                            ? 'text-xl sm:text-2xl font-black text-[var(--accent-dynamic)] drop-shadow-[0_0_16px_var(--glow-dynamic)]'
+                            : 'text-sm sm:text-base font-semibold text-[#8E8EA0] group-hover:text-[#F5F3FF]'
+                        }`}
+                      >
+                        {line.text}
+                      </p>
+                    </div>
+                  );
+                })
+              ) : lyricsData?.plainText ? (
+                <div className="max-w-md mx-auto whitespace-pre-wrap text-sm text-[#A1A1AA] leading-relaxed py-4">
+                  {lyricsData.plainText}
+                </div>
+              ) : (
+                /* Clean Empty State with Action */
+                <div className="flex flex-col items-center justify-center h-full min-h-[160px] text-center text-[#71717A] py-6">
+                  <FileText size={32} className="text-[#3F3F46] mb-2" />
+                  <p className="text-xs font-semibold text-[#A1A1AA]">No Synchronized Lyrics Loaded</p>
+                  <p className="text-[11px] text-[#71717A] mt-0.5 max-w-xs">
+                    Place a matching <span className="text-[var(--accent-dynamic)] font-mono-numbers">.lrc</span> file in the same folder or load one manually.
+                  </p>
+                  <button
+                    onClick={handlePickLrc}
+                    className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] text-white text-xs font-bold shadow-glow-sm hover:scale-105 active:scale-95 transition-all"
+                  >
+                    <Upload size={12} />
+                    <span>Choose .LRC File</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Resume Auto-Scroll Pill if User Manually Scrolled */}
+            {isUserScrolling && lyricsData?.synced && (
+              <button
+                onClick={handleResumeSync}
+                className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1 rounded-full bg-[var(--accent-dynamic)] hover:bg-[#8B5CF6] text-white text-[11px] font-bold shadow-lg shadow-[var(--glow-dynamic)] transition-all hover:scale-105 active:scale-95 z-20"
+              >
+                <RotateCcw size={11} />
+                <span>Resume Auto-Scroll</span>
+              </button>
             )}
           </div>
         </div>
       </div>
 
       {/* Bottom Transport Controls */}
-      <div className="space-y-4 pt-4 border-t border-[#272733] z-10">
+      <div className="space-y-3 pt-3 border-t border-[#272733] z-10 shrink-0">
         {/* Progress Bar & Seek */}
-        <div className="space-y-1.5">
+        <div className="space-y-1">
           <div className="relative group w-full h-2 rounded-full bg-[#1B1B24] overflow-hidden cursor-pointer">
             <div
-              className="h-full bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] rounded-full transition-all duration-100"
+              className="h-full bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] rounded-full transition-all duration-100"
               style={{ width: `${progressPercent}%` }}
             />
             <input
@@ -285,7 +519,7 @@ export const NowPlayingView: React.FC = () => {
               onClick={toggleShuffle}
               title="Shuffle"
               className={`p-2 rounded-lg transition-colors ${
-                isShuffle ? 'text-[#A78BFA] bg-[#1B1B24]' : 'text-[#71717A] hover:text-[#F5F3FF]'
+                isShuffle ? 'text-[var(--accent-dynamic)] bg-[#1B1B24]' : 'text-[#71717A] hover:text-[#F5F3FF]'
               }`}
             >
               <Shuffle size={18} />
@@ -295,7 +529,7 @@ export const NowPlayingView: React.FC = () => {
               title={`Repeat: ${repeatMode}`}
               className={`p-2 rounded-lg transition-colors ${
                 repeatMode !== 'off'
-                  ? 'text-[#A78BFA] bg-[#1B1B24]'
+                  ? 'text-[var(--accent-dynamic)] bg-[#1B1B24]'
                   : 'text-[#71717A] hover:text-[#F5F3FF]'
               }`}
             >
@@ -316,9 +550,9 @@ export const NowPlayingView: React.FC = () => {
             <button
               onClick={togglePlayPause}
               title={isPlaying ? 'Pause' : 'Play'}
-              className="p-4 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] shadow-glow-sm hover:shadow-glow-md hover:scale-105 transition-transform active:scale-95"
+              className="p-3.5 rounded-full bg-gradient-to-tr from-[var(--accent-dynamic)] to-[#A78BFA] text-[#F5F3FF] shadow-glow-sm hover:shadow-glow-md hover:scale-105 transition-transform active:scale-95"
             >
-              {isPlaying ? <Pause size={24} /> : <Play size={24} className="ml-0.5" />}
+              {isPlaying ? <Pause size={22} /> : <Play size={22} className="ml-0.5" />}
             </button>
 
             <button
@@ -345,7 +579,7 @@ export const NowPlayingView: React.FC = () => {
               step="0.01"
               value={isMuted ? 0 : volume}
               onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="w-24"
+              className="w-24 accent-[var(--accent-dynamic)]"
             />
           </div>
         </div>

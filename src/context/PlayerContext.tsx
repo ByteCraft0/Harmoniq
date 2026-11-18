@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { TrackMetadata, RepeatMode, ReplayGainMode } from '../types/audio';
 import { audioEngine } from '../services/audioEngine';
 import { libraryService } from '../services/libraryService';
+import { colorExtractionService } from '../services/colorExtractionService';
 import { useToast } from './ToastContext';
 
 const PREFS_KEY = 'harmoniq_player_prefs';
@@ -15,10 +16,12 @@ function loadPrefs(): Partial<{ volume: number; isMuted: boolean; playbackRate: 
   }
 }
 
-interface SleepTimerState {
+export interface SleepTimerState {
   isActive: boolean;
-  minutesRemaining: number;
+  totalSeconds: number;
+  secondsRemaining: number;
   stopAfterCurrentTrack: boolean;
+  isFading: boolean;
 }
 
 interface PlayerContextType {
@@ -66,6 +69,7 @@ interface PlayerContextType {
   // Sleep timer
   setSleepTimer: (minutes: number, stopAfterCurrentTrack?: boolean) => void;
   cancelSleepTimer: () => void;
+  updateCurrentTrackMetadata: (updated: Partial<TrackMetadata>) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | null>(null);
@@ -89,11 +93,15 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [history, setHistory] = useState<TrackMetadata[]>([]);
   const [sleepTimer, setSleepTimerState] = useState<SleepTimerState>({
     isActive: false,
-    minutesRemaining: 0,
+    totalSeconds: 0,
+    secondsRemaining: 0,
     stopAfterCurrentTrack: false,
+    isFading: false,
   });
 
   const sleepTimerIntervalRef = useRef<any>(null);
+  const sleepTimerFadeIntervalRef = useRef<any>(null);
+  const preFadeVolumeRef = useRef<number | null>(null);
   const queueRef = useRef(queue);
   queueRef.current = queue;
   const currentTrackRef = useRef(currentTrack);
@@ -115,6 +123,15 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     pause: () => {},
     seek: () => {},
   });
+
+  // Dynamic Color Extraction for ambient atmosphere and accents
+  useEffect(() => {
+    if (currentTrack?.artworkDataUrl) {
+      colorExtractionService.extractFromArtwork(currentTrack.artworkDataUrl);
+    } else {
+      colorExtractionService.extractFromArtwork(null);
+    }
+  }, [currentTrack?.artworkDataUrl, currentTrack?.id]);
 
   // Push persisted preferences into the engine once (engine stores them until the audio graph exists)
   useEffect(() => {
@@ -439,40 +456,90 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     playNextCountRef.current = 0;
   };
 
-  // Sleep Timer
-  const setSleepTimer = (minutes: number, stopAfterCurrentTrack = false) => {
-    if (sleepTimerIntervalRef.current) {
-      clearInterval(sleepTimerIntervalRef.current);
+  // Sleep Timer with Gradual Volume Fade-Out (18-20s fade before pause)
+  const startVolumeFadeOut = () => {
+    if (sleepTimerFadeIntervalRef.current) {
+      clearInterval(sleepTimerFadeIntervalRef.current);
     }
+
+    const initialVolume = volume;
+    preFadeVolumeRef.current = initialVolume;
+
+    setSleepTimerState((prev) => ({
+      ...prev,
+      isFading: true,
+    }));
+
+    const fadeDurationMs = 18000; // 18 seconds
+    const stepIntervalMs = 300;
+    const totalSteps = Math.round(fadeDurationMs / stepIntervalMs);
+    let currentStep = 0;
+
+    sleepTimerFadeIntervalRef.current = setInterval(() => {
+      currentStep++;
+      const fraction = currentStep / totalSteps;
+      const nextVol = Math.max(0, initialVolume * (1 - fraction));
+      audioEngine.setVolume(nextVol);
+
+      if (currentStep >= totalSteps) {
+        if (sleepTimerFadeIntervalRef.current) {
+          clearInterval(sleepTimerFadeIntervalRef.current);
+          sleepTimerFadeIntervalRef.current = null;
+        }
+        audioEngine.pause();
+        // Restore user's base volume
+        audioEngine.setVolume(initialVolume);
+        setVolumeState(initialVolume);
+        preFadeVolumeRef.current = null;
+        cancelSleepTimer();
+      }
+    }, stepIntervalMs);
+  };
+
+  const setSleepTimer = (minutes: number, stopAfterCurrentTrack = false) => {
+    cancelSleepTimer();
 
     if (stopAfterCurrentTrack) {
       setSleepTimerState({
         isActive: true,
-        minutesRemaining: 0,
+        totalSeconds: 0,
+        secondsRemaining: 0,
         stopAfterCurrentTrack: true,
+        isFading: false,
       });
       return;
     }
 
-    let remainingSeconds = minutes * 60;
+    const totalSecs = Math.round(minutes * 60);
+    let remaining = totalSecs;
+
     setSleepTimerState({
       isActive: true,
-      minutesRemaining: minutes,
+      totalSeconds: totalSecs,
+      secondsRemaining: totalSecs,
       stopAfterCurrentTrack: false,
+      isFading: false,
     });
 
     sleepTimerIntervalRef.current = setInterval(() => {
-      remainingSeconds -= 60;
-      if (remainingSeconds <= 0) {
-        audioEngine.pause();
-        cancelSleepTimer();
+      remaining -= 1;
+      if (remaining <= 0) {
+        if (sleepTimerIntervalRef.current) {
+          clearInterval(sleepTimerIntervalRef.current);
+          sleepTimerIntervalRef.current = null;
+        }
+        setSleepTimerState((prev) => ({
+          ...prev,
+          secondsRemaining: 0,
+        }));
+        startVolumeFadeOut();
       } else {
         setSleepTimerState((prev) => ({
           ...prev,
-          minutesRemaining: Math.ceil(remainingSeconds / 60),
+          secondsRemaining: remaining,
         }));
       }
-    }, 60000);
+    }, 1000);
   };
 
   const cancelSleepTimer = () => {
@@ -480,10 +547,28 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       clearInterval(sleepTimerIntervalRef.current);
       sleepTimerIntervalRef.current = null;
     }
+    if (sleepTimerFadeIntervalRef.current) {
+      clearInterval(sleepTimerFadeIntervalRef.current);
+      sleepTimerFadeIntervalRef.current = null;
+    }
+    if (preFadeVolumeRef.current !== null) {
+      audioEngine.setVolume(preFadeVolumeRef.current);
+      setVolumeState(preFadeVolumeRef.current);
+      preFadeVolumeRef.current = null;
+    }
     setSleepTimerState({
       isActive: false,
-      minutesRemaining: 0,
+      totalSeconds: 0,
+      secondsRemaining: 0,
       stopAfterCurrentTrack: false,
+      isFading: false,
+    });
+  };
+
+  const updateCurrentTrackMetadata = (updated: Partial<TrackMetadata>) => {
+    setCurrentTrack((prev) => {
+      if (!prev) return null;
+      return { ...prev, ...updated };
     });
   };
 
@@ -586,6 +671,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         clearQueue,
         setSleepTimer,
         cancelSleepTimer,
+        updateCurrentTrackMetadata,
       }}
     >
       {children}

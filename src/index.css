@@ -12,6 +12,17 @@
     --border-subtle: #272733;
     --border-focus: #3b3b4e;
 
+    /* Dynamic Theme Tokens */
+    --surface-obsidian: #09090b;
+    --surface-glass: rgba(15, 15, 22, 0.72);
+    --border-glass: rgba(255, 255, 255, 0.08);
+    --accent-dynamic: #a78bfa;
+    --accent-dynamic-secondary: #7c3aed;
+    --ambient-primary: rgba(167, 139, 250, 0.20);
+    --ambient-secondary: rgba(124, 58, 237, 0.15);
+    --ambient-muted: rgba(31, 26, 58, 0.28);
+    --glow-dynamic: 0 0 24px rgba(167, 139, 250, 0.35);
+
     --accent-primary: #a78bfa;
     --accent-secondary: #7c3aed;
     --accent-dark: #5b21b6;
@@ -147,6 +158,97 @@ input[type="range"].eq-slider:hover::-webkit-slider-thumb {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid #272733;
+}
+
+/* Layered Glassmorphism Panels */
+.glass-panel {
+  background: rgba(15, 15, 22, 0.75);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.glass-panel-subtle {
+  background: rgba(20, 20, 29, 0.55);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-interactive {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-interactive:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.16);
+  transform: translateY(-1px);
+}
+
+/* Dynamic Ambient Mesh Glow */
+.ambient-mesh-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+  transition: background 1.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 1.2s ease;
+  background: radial-gradient(circle at 25% 25%, var(--ambient-primary) 0%, transparent 55%),
+              radial-gradient(circle at 75% 70%, var(--ambient-secondary) 0%, transparent 50%),
+              radial-gradient(circle at 50% 50%, var(--ambient-muted) 0%, transparent 65%);
+  filter: blur(90px);
+}
+
+/* Subtle Analog Film-Grain Noise Texture Overlay (2-3% opacity, non-interactive) */
+.analog-noise-overlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* Vinyl Record Animations */
+@keyframes vinyl-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-vinyl {
+  animation: vinyl-spin 18s linear infinite;
+  transition: transform 0.6s cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+
+.animate-vinyl-paused {
+  animation-play-state: paused;
+}
+
+/* Ambient Floating Artwork Breathing Animation */
+@keyframes ambient-float {
+  0%, 100% {
+    transform: translateY(0px) scale(1);
+    box-shadow: 0 20px 45px rgba(0, 0, 0, 0.6), 0 0 25px var(--ambient-primary);
+  }
+  50% {
+    transform: translateY(-5px) scale(1.018);
+    box-shadow: 0 26px 55px rgba(0, 0, 0, 0.7), 0 0 38px var(--ambient-primary);
+  }
+}
+
+.animate-artwork-breathing {
+  animation: ambient-float 7s ease-in-out infinite;
+}
+
+.animate-artwork-breathing-paused {
+  animation-play-state: paused;
 }
 
 /* Monospace Numbers */

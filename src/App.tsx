@@ -19,11 +19,21 @@ import { PlaylistsView } from './components/views/PlaylistsView';
 import { LyricsView } from './components/views/LyricsView';
 import { AudioOutputView } from './components/views/AudioOutputView';
 import { SettingsView } from './components/views/SettingsView';
+import { MiniPlayer } from './components/layout/MiniPlayer';
 
 const MainLayout: React.FC = () => {
   const { activeView, setActiveView } = useLibrary();
   const { togglePlayPause, seekTo, currentTime, setVolume, volume, nextTrack, prevTrack, toggleMute } = usePlayer();
   const [isQueueOpen, setIsQueueOpen] = useState(false);
+  const [isMini, setIsMini] = useState(false);
+
+  useEffect(() => {
+    if (window.harmoniqApi?.isMiniPlayer) {
+      window.harmoniqApi.isMiniPlayer().then(setIsMini);
+    }
+    const off = window.harmoniqApi?.onMiniPlayerChange?.(setIsMini);
+    return () => off?.();
+  }, []);
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -131,8 +141,20 @@ const MainLayout: React.FC = () => {
     }
   };
 
+  if (isMini) {
+    return (
+      <div className="h-screen w-screen bg-transparent p-0 overflow-hidden select-none">
+        <div className="analog-noise-overlay" />
+        <MiniPlayer onExpand={() => window.harmoniqApi?.setMiniPlayer(false)} />
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#09090B] text-[#F5F3FF] select-none overflow-hidden font-sans">
+    <div className="flex flex-col h-screen w-screen bg-[#09090B] text-[#F5F3FF] select-none overflow-hidden font-sans relative">
+      {/* Subtle Analog Film-Grain Noise Texture Overlay */}
+      <div className="analog-noise-overlay" />
+
       {/* Frameless Custom Window Titlebar */}
       <TitleBar />
 

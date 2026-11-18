@@ -371,10 +371,10 @@ export const EqualizerStudio: React.FC = () => {
 
       {/* Save Custom Preset Modal */}
       {showSaveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md">
           <form
             onSubmit={handleSavePreset}
-            className="w-full max-w-sm p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-2xl"
+            className="w-full max-w-sm p-6 rounded-2xl bg-[#14141B]/90 backdrop-blur-2xl border border-[#272733] shadow-[0_20px_50px_rgba(0,0,0,0.6)] space-y-4"
           >
             <h3 className="text-lg font-bold text-[#F5F3FF]">Save Custom EQ Preset</h3>
             <p className="text-xs text-[#A1A1AA]">

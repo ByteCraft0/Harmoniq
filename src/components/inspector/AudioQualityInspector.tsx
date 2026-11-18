@@ -5,6 +5,7 @@ import { audioEngine } from '../../services/audioEngine';
 import { AudioQualityInspectorService } from '../../services/inspectorService';
 import { InspectionReport } from '../../types/inspector';
 import { QualityBadge } from './QualityBadge';
+import { MetadataEditorModal } from './MetadataEditorModal';
 import {
   Activity,
   CheckCircle2,
@@ -16,6 +17,7 @@ import {
   FileAudio,
   Sliders,
   Check,
+  Edit3,
 } from 'lucide-react';
 
 export const AudioQualityInspector: React.FC = () => {
@@ -23,6 +25,7 @@ export const AudioQualityInspector: React.FC = () => {
   const { settings: dspSettings, limiterMetrics } = useDSP();
   const [report, setReport] = useState<InspectionReport | null>(null);
   const [activeDeviceLabel, setActiveDeviceLabel] = useState('Windows Default Output Endpoint');
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   useEffect(() => {
     const updateReport = () => {
@@ -97,20 +100,30 @@ export const AudioQualityInspector: React.FC = () => {
           </p>
         </div>
 
-        {/* Bit-Perfect Master Indicator */}
-        <div
-          className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-xs font-bold uppercase tracking-wider font-mono-numbers ${
-            bitPerfect.isBitPerfect
-              ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
-              : 'bg-[#1B1B24] border-[#272733] text-[#A1A1AA]'
-          }`}
-        >
-          {bitPerfect.isBitPerfect ? (
-            <ShieldCheck size={18} className="text-emerald-400" />
-          ) : (
-            <Info size={18} className="text-[#A78BFA]" />
-          )}
-          <span>{bitPerfect.isBitPerfect ? 'Bit-Perfect Path Active' : 'Processed Audio Pipeline'}</span>
+        {/* Actions & Bit-Perfect Master Indicator */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setIsEditModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[var(--accent-dynamic)] text-xs font-semibold text-[#F5F3FF] transition-all active:scale-95 shadow-sm"
+          >
+            <Edit3 size={14} className="text-[var(--accent-dynamic)]" />
+            <span>Edit Metadata</span>
+          </button>
+
+          <div
+            className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-xs font-bold uppercase tracking-wider font-mono-numbers ${
+              bitPerfect.isBitPerfect
+                ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.15)]'
+                : 'bg-[#1B1B24] border-[#272733] text-[#A1A1AA]'
+            }`}
+          >
+            {bitPerfect.isBitPerfect ? (
+              <ShieldCheck size={18} className="text-emerald-400" />
+            ) : (
+              <Info size={18} className="text-[#A78BFA]" />
+            )}
+            <span>{bitPerfect.isBitPerfect ? 'Bit-Perfect Path Active' : 'Processed Audio Pipeline'}</span>
+          </div>
         </div>
       </div>
 
@@ -422,6 +435,12 @@ export const AudioQualityInspector: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <MetadataEditorModal
+        track={currentTrack}
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+      />
     </div>
   );
 };

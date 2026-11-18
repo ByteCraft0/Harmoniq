@@ -11,6 +11,7 @@ import {
   Disc,
   Play,
   CheckCircle2,
+  Upload,
 } from 'lucide-react';
 
 const formatLineTime = (seconds: number) => {
@@ -115,6 +116,16 @@ export const LyricsView: React.FC = () => {
     setOffsetMs(0);
   };
 
+  const handlePickLrc = async () => {
+    if (!currentTrack) return;
+    const loaded = await LyricsService.pickAndLoadLrcFile(currentTrack);
+    if (loaded) {
+      setLyricsData(loaded);
+      setOffsetMs((loaded.offset || 0) * 1000);
+      setIsUserScrolling(false);
+    }
+  };
+
   if (!currentTrack) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center text-[#71717A] select-none">
@@ -194,6 +205,15 @@ export const LyricsView: React.FC = () => {
           )}
 
           <button
+            onClick={handlePickLrc}
+            title="Load local .lrc file"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
+          >
+            <Upload size={13} className="text-[var(--accent-dynamic)]" />
+            <span>Load .LRC</span>
+          </button>
+
+          <button
             onClick={() => fetchLyrics(true)}
             title="Refresh / Re-fetch Lyrics"
             className="p-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#71717A] hover:text-[#A78BFA] transition-colors"
@@ -258,12 +278,19 @@ export const LyricsView: React.FC = () => {
             <p className="max-w-sm mt-1 text-[#A1A1AA]">
               No lyrics found for <span className="text-[#F5F3FF] font-semibold">{currentTrack.title}</span> by <span className="text-[#F5F3FF] font-semibold">{currentTrack.artist}</span>.
             </p>
-            <div className="flex items-center gap-2 mt-4">
+            <div className="flex items-center gap-2.5 mt-4">
               <button
                 onClick={() => fetchLyrics(true)}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] font-bold text-xs shadow-glow-sm hover:shadow-glow-md transition-all"
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] text-[#F5F3FF] font-bold text-xs shadow-glow-sm hover:shadow-glow-md transition-all"
               >
                 Retry Search
+              </button>
+              <button
+                onClick={handlePickLrc}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1B1B24] hover:bg-[#252532] text-[#F5F3FF] font-bold text-xs border border-[#2D2D3B] transition-all"
+              >
+                <Upload size={13} />
+                <span>Load .LRC File</span>
               </button>
             </div>
             <p className="text-[11px] text-[#71717A] mt-3">

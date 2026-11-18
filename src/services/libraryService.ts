@@ -176,6 +176,39 @@ export class LibraryService {
     return this.tracks.get(id);
   }
 
+  public updateTrack(track: TrackMetadata): void {
+    if (!track || !track.id) return;
+    const existing = this.tracks.get(track.id);
+    if (existing) {
+      track.playCount = existing.playCount;
+      track.isFavorite = existing.isFavorite;
+      track.lastPlayed = existing.lastPlayed;
+      track.resumePosition = existing.resumePosition;
+      track.customPlaybackSpeed = existing.customPlaybackSpeed;
+      track.dateAdded = existing.dateAdded;
+    }
+    if (track.artworkDataUrl) {
+      const key = albumKeyOf(track);
+      this.artworkByAlbum.set(key, track.artworkDataUrl);
+    }
+    this.tracks.set(track.id, track);
+    this.invalidate();
+    this.emit('data');
+  }
+
+  public removeTrackByPath(filePath: string): boolean {
+    const norm = normPath(filePath);
+    for (const [id, t] of this.tracks) {
+      if (normPath(t.filePath) === norm) {
+        this.tracks.delete(id);
+        this.invalidate();
+        this.emit('data');
+        return true;
+      }
+    }
+    return false;
+  }
+
   public toggleFavorite(trackId: string): boolean {
     const track = this.tracks.get(trackId);
     if (!track) return false;

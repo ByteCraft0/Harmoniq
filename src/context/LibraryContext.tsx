@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { TrackMetadata } from '../types/audio';
 import { Album, Artist, Playlist, FolderNode, LibraryStats } from '../types/library';
+import { WatcherSyncStatus } from '../types/electron';
 import { libraryService } from '../services/libraryService';
 import { useToast } from './ToastContext';
 
@@ -60,6 +61,8 @@ interface LibraryContextType {
   importPlaylistM3u: (name: string, content: string) => void;
   showFileInFolder: (filePath: string) => void;
   rescanLibrary: () => Promise<void>;
+  updateTrackMetadataInLibrary: (track: TrackMetadata) => void;
+  watcherStatus: WatcherSyncStatus;
 }
 
 const LibraryContext = createContext<LibraryContextType | null>(null);
@@ -82,6 +85,10 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [stats, setStats] = useState<LibraryStats>(libraryService.getStats());
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<TrackMetadata[]>([]);
+  const [watcherStatus, setWatcherStatus] = useState<WatcherSyncStatus>({
+    status: 'idle',
+    folderCount: 0,
+  });
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -168,19 +175,59 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (savedData) {
         libraryService.deserialize(savedData);
         refreshLibraryState();
+
+        // Start real-time folder watching on stored music folders
+        const savedFolders = libraryService.getFolders();
+        if (savedFolders.length > 0 && window.harmoniqApi?.startFolderWatcher) {
+          window.harmoniqApi.startFolderWatcher(savedFolders);
+        }
       }
     };
 
     loadSaved();
 
     // Listen to background scanning progress events if available
+    const unsubs: (() => void)[] = [];
+
     if (window.harmoniqApi?.onScanProgress) {
-      const unsubscribe = window.harmoniqApi.onScanProgress((prog) => {
-        libraryService.setScanning(true, prog);
-        setStats(libraryService.getStats());
-      });
-      return () => unsubscribe();
+      unsubs.push(
+        window.harmoniqApi.onScanProgress((prog) => {
+          libraryService.setScanning(true, prog);
+          setStats(libraryService.getStats());
+        })
+      );
     }
+
+    // Real-time automatic folder watcher events
+    if (window.harmoniqApi?.onWatcherFileAddedOrUpdated) {
+      unsubs.push(
+        window.harmoniqApi.onWatcherFileAddedOrUpdated((track) => {
+          libraryService.updateTrack(track);
+          refreshLibraryState();
+        })
+      );
+    }
+
+    if (window.harmoniqApi?.onWatcherFileRemoved) {
+      unsubs.push(
+        window.harmoniqApi.onWatcherFileRemoved((filePath) => {
+          libraryService.removeTrackByPath(filePath);
+          refreshLibraryState();
+        })
+      );
+    }
+
+    if (window.harmoniqApi?.onWatcherSyncStatus) {
+      unsubs.push(
+        window.harmoniqApi.onWatcherSyncStatus((status) => {
+          setWatcherStatus(status);
+        })
+      );
+    }
+
+    return () => {
+      unsubs.forEach((u) => u());
+    };
   }, [refreshLibraryState]);
 
   // Update search results whenever searchQuery or tracks change
@@ -238,7 +285,11 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           }
           const currentFolders = libraryService.getFolders();
           if (!currentFolders.includes(folderPath)) {
-            libraryService.setFolders([...currentFolders, folderPath]);
+            const nextFolders = [...currentFolders, folderPath];
+            libraryService.setFolders(nextFolders);
+            if (window.harmoniqApi?.startFolderWatcher) {
+              window.harmoniqApi.startFolderWatcher(nextFolders);
+            }
           }
           showToast(`Indexed ${result.tracks.length} tracks from ${folderPath.split(/[\\/]/).pop()}${removedNote}`, 'success');
         }
@@ -250,6 +301,11 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         refreshLibraryState();
       }
     }
+  };
+
+  const updateTrackMetadataInLibrary = (updatedTrack: TrackMetadata) => {
+    libraryService.updateTrack(updatedTrack);
+    refreshLibraryState();
   };
 
   const rescanLibrary = async () => {
@@ -388,6 +444,8 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         importPlaylistM3u,
         showFileInFolder,
         rescanLibrary,
+        updateTrackMetadataInLibrary,
+        watcherStatus,
       }}
     >
       {children}

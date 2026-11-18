@@ -3,6 +3,7 @@ import { usePlayer } from '../../context/PlayerContext';
 import { useLibrary } from '../../context/LibraryContext';
 import { useToast } from '../../context/ToastContext';
 import { TrackMetadata } from '../../types/audio';
+import { MetadataEditorModal } from '../inspector/MetadataEditorModal';
 import {
   Play,
   Plus,
@@ -13,6 +14,7 @@ import {
   ExternalLink,
   Trash2,
   ChevronRight,
+  Edit3,
 } from 'lucide-react';
 
 export interface ContextMenuState {
@@ -46,16 +48,17 @@ export const TrackContextMenu: React.FC<TrackContextMenuProps> = ({
   const { showToast } = useToast();
   const menuRef = useRef<HTMLDivElement>(null);
   const [showSubmenu, setShowSubmenu] = useState(false);
+  const [isEditingTags, setIsEditingTags] = useState(false);
 
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (!isEditingTags && menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !isEditingTags) {
         onClose();
       }
     };
@@ -68,12 +71,25 @@ export const TrackContextMenu: React.FC<TrackContextMenuProps> = ({
       window.removeEventListener('mousedown', handleOutsideClick);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [menu, onClose]);
+  }, [menu, onClose, isEditingTags]);
 
   if (!menu) return null;
 
   const { track, x, y, playlistId, playlistIndex } = menu;
   const customPlaylists = playlists.filter((p) => !p.isSmart);
+
+  if (isEditingTags) {
+    return (
+      <MetadataEditorModal
+        track={track}
+        isOpen={isEditingTags}
+        onClose={() => {
+          setIsEditingTags(false);
+          onClose();
+        }}
+      />
+    );
+  }
 
   // Keep menu within viewport bounds
   const menuWidth = 210;
@@ -243,6 +259,16 @@ export const TrackContextMenu: React.FC<TrackContextMenuProps> = ({
       >
         <FileText size={13} className="text-[#71717A]" />
         <span>View Synced Lyrics</span>
+      </button>
+
+      <button
+        onClick={() => {
+          setIsEditingTags(true);
+        }}
+        className="w-full flex items-center gap-2.5 px-3 py-1.5 hover:bg-[#1B1B24] hover:text-[#F5F3FF] transition-colors text-left"
+      >
+        <Edit3 size={13} className="text-[#A78BFA]" />
+        <span>Edit Metadata</span>
       </button>
 
       <button

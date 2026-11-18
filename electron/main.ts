@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, protocol, shell, screen } from 'electron';
 import { Readable } from 'stream';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -10,6 +10,257 @@ const execAsync = promisify(exec);
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV === 'development' || (!app.isPackaged && process.env.NODE_ENV !== 'production');
+
+// Mini-player window state management
+let isMiniPlayer = false;
+let normalBounds: { x: number; y: number; width: number; height: number } | null = null;
+let miniBounds: { x: number; y: number; width: number; height: number } | null = null;
+
+function clampBoundsToScreen(bounds: { x: number; y: number; width: number; height: number }) {
+  try {
+    const display = screen.getDisplayMatching(bounds) || screen.getPrimaryDisplay();
+    const workArea = display.workArea;
+    const x = Math.max(workArea.x, Math.min(bounds.x, workArea.x + workArea.width - bounds.width));
+    const y = Math.max(workArea.y, Math.min(bounds.y, workArea.y + workArea.height - bounds.height));
+    return { x, y, width: bounds.width, height: bounds.height };
+  } catch {
+    return bounds;
+  }
+}
+
+// Folder watcher state
+let chokidarInstance: any = null;
+let activeFolderWatcher: any = null;
+let currentWatchedFolders: string[] = [];
+let watcherDebounceTimer: NodeJS.Timeout | null = null;
+const watcherPendingEvents = new Map<string, 'add' | 'change' | 'unlink'>();
+
+function stopFolderWatcher() {
+  if (activeFolderWatcher) {
+    try {
+      activeFolderWatcher.close();
+    } catch {}
+    activeFolderWatcher = null;
+  }
+  currentWatchedFolders = [];
+  watcherPendingEvents.clear();
+  if (watcherDebounceTimer) {
+    clearTimeout(watcherDebounceTimer);
+    watcherDebounceTimer = null;
+  }
+}
+
+function startFolderWatcher(folders: string[]) {
+  stopFolderWatcher();
+  const validFolders = (folders || []).filter((f) => {
+    try {
+      return fs.existsSync(f) && fs.statSync(f).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+
+  currentWatchedFolders = validFolders;
+  if (validFolders.length === 0) {
+    mainWindow?.webContents.send('watcher:syncStatus', { status: 'idle', folderCount: 0 });
+    return;
+  }
+
+  try {
+    if (!chokidarInstance) {
+      chokidarInstance = require('chokidar');
+    }
+    activeFolderWatcher = chokidarInstance.watch(validFolders, {
+      ignored: /(^|[\/\\])\../,
+      persistent: true,
+      ignoreInitial: true,
+      depth: 99,
+      awaitWriteFinish: {
+        stabilityThreshold: 1000,
+        pollInterval: 250,
+      },
+    });
+
+    const flushWatcherBatch = async () => {
+      if (watcherPendingEvents.size === 0) return;
+      const batch = Array.from(watcherPendingEvents.entries());
+      watcherPendingEvents.clear();
+
+      let addedOrUpdatedCount = 0;
+      let removedCount = 0;
+
+      for (const [filePath, action] of batch) {
+        const ext = path.extname(filePath).toLowerCase();
+        if (!AUDIO_EXTENSIONS.has(ext)) continue;
+
+        if (action === 'unlink') {
+          removedCount++;
+          mainWindow?.webContents.send('watcher:fileRemoved', filePath);
+        } else {
+          try {
+            const track = await parseSingleAudioFile(filePath);
+            if (track) {
+              addedOrUpdatedCount++;
+              mainWindow?.webContents.send('watcher:fileAddedOrUpdated', track);
+            }
+          } catch (e) {
+            console.warn(`Watcher failed to parse ${filePath}:`, e);
+          }
+        }
+      }
+
+      mainWindow?.webContents.send('watcher:syncStatus', {
+        status: 'active',
+        folderCount: currentWatchedFolders.length,
+        lastSync: Date.now(),
+        addedOrUpdatedCount,
+        removedCount,
+      });
+    };
+
+    const triggerBatch = () => {
+      mainWindow?.webContents.send('watcher:syncStatus', {
+        status: 'syncing',
+        folderCount: currentWatchedFolders.length,
+      });
+      if (watcherDebounceTimer) clearTimeout(watcherDebounceTimer);
+      watcherDebounceTimer = setTimeout(flushWatcherBatch, 800);
+    };
+
+    activeFolderWatcher.on('add', (filePath: string) => {
+      watcherPendingEvents.set(filePath, 'add');
+      triggerBatch();
+    });
+
+    activeFolderWatcher.on('change', (filePath: string) => {
+      watcherPendingEvents.set(filePath, 'change');
+      triggerBatch();
+    });
+
+    activeFolderWatcher.on('unlink', (filePath: string) => {
+      watcherPendingEvents.set(filePath, 'unlink');
+      triggerBatch();
+    });
+
+    activeFolderWatcher.on('error', (err: any) => {
+      console.warn('Folder watcher error:', err);
+      mainWindow?.webContents.send('watcher:syncStatus', {
+        status: 'error',
+        folderCount: currentWatchedFolders.length,
+        error: String(err?.message || err),
+      });
+    });
+
+    mainWindow?.webContents.send('watcher:syncStatus', {
+      status: 'active',
+      folderCount: currentWatchedFolders.length,
+    });
+  } catch (err) {
+    console.error('Failed to initialize folder watcher:', err);
+    mainWindow?.webContents.send('watcher:syncStatus', {
+      status: 'error',
+      folderCount: 0,
+      error: String(err),
+    });
+  }
+}
+
+async function writeAudioTagsToFile(
+  filePath: string,
+  tags: {
+    title?: string;
+    artist?: string;
+    album?: string;
+    albumArtist?: string;
+    genre?: string;
+    year?: number;
+    trackNumber?: number;
+    trackTotal?: number;
+    artworkBase64?: string;
+    artworkMime?: string;
+  }
+): Promise<{ success: boolean; track: any | null; error?: string }> {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return { success: false, track: null, error: 'Audio file does not exist' };
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+
+    if (ext === '.mp3') {
+      const NodeID3 = require('node-id3');
+      const id3Tags: any = {};
+      if (tags.title !== undefined) id3Tags.title = tags.title;
+      if (tags.artist !== undefined) id3Tags.artist = tags.artist;
+      if (tags.album !== undefined) id3Tags.album = tags.album;
+      if (tags.albumArtist !== undefined) id3Tags.performerInfo = tags.albumArtist;
+      if (tags.genre !== undefined) id3Tags.genre = tags.genre;
+      if (tags.year !== undefined) id3Tags.year = String(tags.year);
+      if (tags.trackNumber !== undefined) {
+        id3Tags.trackNumber = tags.trackTotal ? `${tags.trackNumber}/${tags.trackTotal}` : String(tags.trackNumber);
+      }
+      if (tags.artworkBase64) {
+        const cleanBase64 = tags.artworkBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+        const imgBuffer = Buffer.from(cleanBase64, 'base64');
+        id3Tags.image = {
+          mime: tags.artworkMime || 'image/jpeg',
+          type: { id: 3, name: 'front cover' },
+          description: 'Front Cover',
+          imageBuffer: imgBuffer,
+        };
+      }
+      const writeResult = NodeID3.update(id3Tags, filePath);
+      if (writeResult === false) {
+        return { success: false, track: null, error: 'Failed to write ID3 tags to MP3 file' };
+      }
+    } else if (ext === '.flac') {
+      const { readFlacTags, writeFlacTags } = await import('flac-tagger');
+      const current = await readFlacTags(filePath);
+      const tagMap = { ...(current.tagMap || {}) };
+
+      if (tags.title !== undefined) tagMap.TITLE = tags.title;
+      if (tags.artist !== undefined) tagMap.ARTIST = tags.artist;
+      if (tags.album !== undefined) tagMap.ALBUM = tags.album;
+      if (tags.albumArtist !== undefined) tagMap.ALBUMARTIST = tags.albumArtist;
+      if (tags.genre !== undefined) tagMap.GENRE = tags.genre;
+      if (tags.year !== undefined) {
+        tagMap.DATE = String(tags.year);
+        tagMap.YEAR = String(tags.year);
+      }
+      if (tags.trackNumber !== undefined) {
+        tagMap.TRACKNUMBER = tags.trackTotal ? `${tags.trackNumber}/${tags.trackTotal}` : String(tags.trackNumber);
+      }
+
+      let pictureObj = current.picture;
+      if (tags.artworkBase64) {
+        const cleanBase64 = tags.artworkBase64.replace(/^data:image\/[a-z]+;base64,/, '');
+        const imgBuffer = Buffer.from(cleanBase64, 'base64');
+        pictureObj = {
+          buffer: imgBuffer,
+          mime: tags.artworkMime || 'image/jpeg',
+          description: 'Front Cover',
+        };
+      }
+
+      await writeFlacTags(
+        {
+          tagMap,
+          picture: pictureObj,
+        },
+        filePath
+      );
+    } else {
+      return { success: false, track: null, error: `Metadata writing is not supported for ${ext} files` };
+    }
+
+    // Re-parse and return fresh metadata
+    const updatedTrack = await parseSingleAudioFile(filePath);
+    return { success: true, track: updatedTrack };
+  } catch (err: any) {
+    console.error('Error writing audio tags:', err);
+    return { success: false, track: null, error: err?.message || String(err) };
+  }
+}
 
 // Supported audio extensions
 const AUDIO_EXTENSIONS = new Set([
@@ -234,6 +485,65 @@ function setupIpc() {
     return mainWindow?.isMaximized() ?? false;
   });
 
+  // Mini-player controls
+  ipcMain.handle('window:isMiniPlayer', () => isMiniPlayer);
+
+  ipcMain.handle('window:setMiniPlayer', (_e, enable: boolean) => {
+    if (!mainWindow) return false;
+    if (enable === isMiniPlayer) return isMiniPlayer;
+
+    if (enable) {
+      // Entering compact mini-player mode
+      normalBounds = mainWindow.getBounds();
+      isMiniPlayer = true;
+      mainWindow.setAlwaysOnTop(true, 'screen-saver');
+      mainWindow.setMinimumSize(320, 140);
+      mainWindow.setMaximumSize(640, 360);
+
+      const targetWidth = miniBounds?.width || 360;
+      const targetHeight = miniBounds?.height || 160;
+      const targetX = miniBounds?.x ?? (normalBounds.x + normalBounds.width - targetWidth - 20);
+      const targetY = miniBounds?.y ?? (normalBounds.y + normalBounds.height - targetHeight - 20);
+
+      const clamped = clampBoundsToScreen({ x: targetX, y: targetY, width: targetWidth, height: targetHeight });
+      mainWindow.setBounds(clamped, true);
+      mainWindow.webContents.send('window:mini-player-changed', true);
+    } else {
+      // Restoring to full window mode
+      miniBounds = mainWindow.getBounds();
+      isMiniPlayer = false;
+      mainWindow.setAlwaysOnTop(false);
+      mainWindow.setMaximumSize(10000, 10000);
+      mainWindow.setMinimumSize(1000, 660);
+
+      const target = normalBounds || { x: 100, y: 100, width: 1300, height: 840 };
+      const clamped = clampBoundsToScreen(target);
+      mainWindow.setBounds(clamped, true);
+      mainWindow.webContents.send('window:mini-player-changed', false);
+    }
+    return isMiniPlayer;
+  });
+
+  ipcMain.handle('window:toggleMiniPlayer', () => {
+    return (ipcMain as any)._handlers['window:setMiniPlayer'](null, !isMiniPlayer);
+  });
+
+  // Folder watcher controls
+  ipcMain.handle('watcher:start', (_e, folders: string[]) => {
+    startFolderWatcher(folders);
+    return true;
+  });
+
+  ipcMain.handle('watcher:stop', () => {
+    stopFolderWatcher();
+    return true;
+  });
+
+  ipcMain.handle('watcher:getStatus', () => ({
+    isActive: !!activeFolderWatcher,
+    folders: currentWatchedFolders,
+  }));
+
   // Folder & file pickers
   ipcMain.handle('dialog:openFolder', async () => {
     if (!mainWindow) return null;
@@ -261,6 +571,57 @@ function setupIpc() {
     return result.filePaths;
   });
 
+  ipcMain.handle('dialog:openLrcFile', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      title: 'Select Synchronized Lyrics (.LRC) File',
+      filters: [
+        { name: 'LRC Lyric Files', extensions: ['lrc', 'txt'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    try {
+      const filePath = result.filePaths[0];
+      const content = fs.readFileSync(filePath, 'utf-8');
+      return {
+        filePath,
+        content: content.replace(/^\uFEFF/, ''),
+      };
+    } catch (e: any) {
+      console.warn('Failed to read selected LRC file:', e);
+      return null;
+    }
+  });
+
+  ipcMain.handle('dialog:openArtworkImage', async () => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      title: 'Select Album Artwork Image',
+      filters: [
+        { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'webp', 'gif'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    try {
+      const filePath = result.filePaths[0];
+      const buf = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const mime = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+      return {
+        filePath,
+        mime,
+        dataUrl: `data:${mime};base64,${buf.toString('base64')}`,
+      };
+    } catch (e: any) {
+      console.warn('Failed to read artwork file:', e);
+      return null;
+    }
+  });
+
   ipcMain.handle('system:showItemInFolder', async (_e, filePath: string) => {
     if (typeof filePath === 'string' && filePath) shell.showItemInFolder(filePath);
   });
@@ -272,8 +633,10 @@ function setupIpc() {
     return true;
   });
 
-  // Tag writing is not supported by the bundled metadata reader; report it instead of rejecting
-  ipcMain.handle('audio:writeTags', async () => false);
+  // Real ID3 & FLAC tag writing
+  ipcMain.handle('audio:writeTags', async (_e, filePath: string, tags: any) => {
+    return await writeAudioTagsToFile(filePath, tags);
+  });
 
   // Deep metadata parsing using music-metadata
   ipcMain.handle('audio:parseFile', async (_e, filePath: string) => {
