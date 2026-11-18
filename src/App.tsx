@@ -21,6 +21,7 @@ import { LyricsView } from './components/views/LyricsView';
 import { AudioOutputView } from './components/views/AudioOutputView';
 import { SettingsView } from './components/views/SettingsView';
 import { MiniPlayer } from './components/layout/MiniPlayer';
+import { ListeningStatsDashboard } from './components/stats/ListeningStatsDashboard';
 
 const MainLayout: React.FC = () => {
   const { activeView, setActiveView } = useLibrary();
@@ -142,6 +143,8 @@ const MainLayout: React.FC = () => {
         return <AudioOutputView />;
       case 'settings':
         return <SettingsView />;
+      case 'stats':
+        return <ListeningStatsDashboard />;
       default:
         return <HomeView />;
     }

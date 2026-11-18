@@ -16,6 +16,7 @@ import {
   Settings,
   Sparkles,
   Plus,
+  BarChart3,
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
@@ -69,6 +70,7 @@ export const Sidebar: React.FC = () => {
       items: [
         { view: 'home' as AppView, label: 'Home', icon: <Home size={16} /> },
         { view: 'discover' as AppView, label: 'Discover', icon: <Compass size={16} /> },
+        { view: 'stats' as AppView, label: 'Listening Stats', icon: <BarChart3 size={16} /> },
       ],
     },
     {

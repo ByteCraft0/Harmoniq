@@ -24,7 +24,11 @@ export type AppView =
   | 'playlists'
   | 'lyrics'
   | 'audio_output'
-  | 'settings';
+  | 'settings'
+  | 'stats'
+  | 'online_music'
+  | 'radio'
+  | 'podcasts';
 
 interface LibraryContextType {
   activeView: AppView;
