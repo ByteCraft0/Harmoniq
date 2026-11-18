@@ -12,7 +12,7 @@ describe('Batch 12: Online Music Integration', () => {
 
   describe('Online Music Search', () => {
     it('searches local library tracks matching title, artist, album, or genre', () => {
-      const mockTracks: TrackMetadata[] = [
+      const mockTracks = [
         {
           id: '1',
           filePath: '/m/1.mp3',
@@ -35,7 +35,7 @@ describe('Batch 12: Online Music Integration', () => {
           album: 'The Wall',
           genre: 'Progressive Rock',
         },
-      ];
+      ] as unknown as TrackMetadata[];
 
       vi.spyOn(libraryService, 'getAllTracks').mockReturnValue(mockTracks);
 

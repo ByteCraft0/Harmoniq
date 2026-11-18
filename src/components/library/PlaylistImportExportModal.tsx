@@ -71,7 +71,7 @@ export const PlaylistImportExportModal: React.FC<PlaylistImportExportModalProps>
 
   const handleConfirmImport = () => {
     if (!parsedResult || parsedResult.matchedTracks.length === 0) {
-      showToast('No tracks matched to import', 'error');
+      showToast('No tracks matched to import', 'warning');
       return;
     }
 
@@ -89,7 +89,7 @@ export const PlaylistImportExportModal: React.FC<PlaylistImportExportModalProps>
   const handleExport = () => {
     const pl = playlists.find((p) => p.id === selectedPlaylistId);
     if (!pl) {
-      showToast('Please select a playlist to export', 'error');
+      showToast('Please select a playlist to export', 'warning');
       return;
     }
 
@@ -98,7 +98,7 @@ export const PlaylistImportExportModal: React.FC<PlaylistImportExportModalProps>
       .filter((t): t is typeof tracks[0] => !!t);
 
     if (plTracks.length === 0) {
-      showToast('Playlist has no tracks to export', 'error');
+      showToast('Playlist has no tracks to export', 'warning');
       return;
     }
 

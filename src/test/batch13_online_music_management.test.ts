@@ -4,7 +4,7 @@ import { LyricsService } from '../services/lyricsService';
 import { TrackMetadata } from '../types/audio';
 
 describe('Batch 13: Online Music Management (M3U/M3U8 & Lyrics)', () => {
-  const mockLibraryTracks: TrackMetadata[] = [
+  const mockLibraryTracks = [
     {
       id: 't1',
       filePath: 'C:/Music/Rock/Queen/Bohemian Rhapsody.mp3',
@@ -27,7 +27,7 @@ describe('Batch 13: Online Music Management (M3U/M3U8 & Lyrics)', () => {
       album: 'Jazz',
       duration: 210,
     },
-  ];
+  ] as unknown as TrackMetadata[];
 
   describe('Playlist Import & Export (M3U / M3U8)', () => {
     it('generates standard M3U/M3U8 content with EXTINF and playlist name headers', () => {
