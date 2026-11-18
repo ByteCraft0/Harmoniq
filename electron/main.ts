@@ -1,15 +1,249 @@
-import { app, BrowserWindow, ipcMain, dialog, protocol, shell, screen } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  protocol,
+  shell,
+  screen,
+  Tray,
+  Menu,
+  nativeImage,
+  globalShortcut,
+} from 'electron';
 import { Readable } from 'stream';
 import * as path from 'path';
 import * as fs from 'fs';
 import { parseFile } from 'music-metadata';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import {
+  ShortcutAction,
+  SHORTCUT_ACTIONS,
+  DEFAULT_SHORTCUTS,
+  validateShortcutConfig,
+} from './shortcuts';
 
 const execAsync = promisify(exec);
 
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV === 'development' || (!app.isPackaged && process.env.NODE_ENV !== 'production');
+
+// System Tray, Close-to-Tray, and Lifecycle state
+let tray: Tray | null = null;
+let isQuitting = false;
+let closeToTray = true;
+let currentTrackSMTC: { title?: string; artist?: string; album?: string; isPlaying?: boolean } | null = null;
+
+// Persistent storage helper
+const storagePath = (key: string) =>
+  path.join(app.getPath('userData'), `harmoniq_${String(key).replace(/[^a-zA-Z0-9_-]/g, '')}.json`);
+
+function loadStoredDataSync<T>(key: string, fallback: T): T {
+  try {
+    const p = storagePath(key);
+    if (fs.existsSync(p)) {
+      return JSON.parse(fs.readFileSync(p, 'utf-8'));
+    }
+  } catch (e) {
+    console.warn(`Failed to read stored key ${key}:`, e);
+  }
+  return fallback;
+}
+
+function saveStoredDataSync<T>(key: string, data: T): void {
+  try {
+    const p = storagePath(key);
+    const tmp = `${p}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(data), 'utf-8');
+    fs.renameSync(tmp, p);
+  } catch (e) {
+    console.warn(`Failed to write stored key ${key}:`, e);
+  }
+}
+
+// Embedded 32x32 Harmoniq purple glowing vinyl icon (Base64 PNG)
+const TRAY_ICON_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAACAUlEQVR4nO2XS04CQRCGOQG3YocgIDCQ2atEjRjEiBmNj2jMbLwFN/AObjiBtzDWgk2Zn1BJpdI1D8SYGCf5kq6a+qu6Z7p7eiqV/6vklcZUTWOqpTGN0piSNaO1r/qThaM0ptenIXEWiEHsNgtjZG+PQ+IyQAPtd4snDwNij88PfgdZMcixafGX+wGxRgrmYXXIVXrkdxGxRhew94rEFH4SeG+3fWKNJLV+Dy++0JzA5LnpEwuSLOSz5OmQO694dN0jFiSJtcv6dc7MJYo1nPSIEyW2tvZZQjHWRg2vePWqSyyI0LPn6XIxT5fPaxZFdSC4Y2KCzLrEAkS6rW0UtXr4vHjdnnWdyYj9/HKPWIBIt8XGaL1XiHs23uYCqBXqQHLRIQaSQNvSDo1eP4WQxuYL7glwTjvEUyXQtrTzOhDS2HxeB0bnbWIBAt0WO+8V2HibC3ivoDZpEwsQ6ba2vUnoxev2pO1PwupZi1iQJJ5tl2FRHXAPLtgkxi3isRJaW/ssoRhruxvRugPR6S6xIGJrl/XrnLmnJXwwTprEgiQJ+Sx5utyPkUzG4yaxRpJZv4cXX/iIhnV61CDW6JHae0ViSh/NcIwaNYg13qO3WF3pI5l+Eoc7xB5SMCtm40Op6sTqWH5QJy7DVo7lpiOrH5P9OnEWW/8xCXTkd37N/uz1BXOVxZsDpm3kAAAAAElFTkSuQmCC';
+
+function getTrayImage(): Electron.NativeImage {
+  const assetPath = path.join(__dirname, '../assets/tray-icon.png');
+  if (fs.existsSync(assetPath)) {
+    try {
+      const img = nativeImage.createFromPath(assetPath);
+      if (!img.isEmpty()) return img;
+    } catch {}
+  }
+  return nativeImage.createFromDataURL(TRAY_ICON_DATA_URL);
+}
+
+// Window visibility toggle
+function toggleWindowVisibility() {
+  if (!mainWindow) return;
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    mainWindow.hide();
+  } else {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+  }
+  updateTrayMenu();
+}
+
+function updateTrayMenu() {
+  if (!tray) return;
+
+  const isPlaying = currentTrackSMTC?.isPlaying ?? false;
+  const songLabel = currentTrackSMTC?.title
+    ? `🎵 ${currentTrackSMTC.title}${currentTrackSMTC.artist ? ` — ${currentTrackSMTC.artist}` : ''}`
+    : '🎵 Harmoniq (Idle)';
+  const isWinVisible = mainWindow ? mainWindow.isVisible() && !mainWindow.isMinimized() : false;
+
+  const menuTemplate: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: songLabel,
+      enabled: false,
+    },
+    { type: 'separator' },
+    {
+      label: isWinVisible ? 'Hide Harmoniq' : 'Show Harmoniq',
+      click: () => toggleWindowVisibility(),
+    },
+    { type: 'separator' },
+    {
+      label: isPlaying ? 'Pause' : 'Play',
+      click: () => mainWindow?.webContents.send('media:command', 'playpause'),
+    },
+    {
+      label: 'Next Track',
+      click: () => mainWindow?.webContents.send('media:command', 'next'),
+    },
+    {
+      label: 'Previous Track',
+      click: () => mainWindow?.webContents.send('media:command', 'prev'),
+    },
+    { type: 'separator' },
+    {
+      label: 'Exit Harmoniq',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      },
+    },
+  ];
+
+  tray.setContextMenu(Menu.buildFromTemplate(menuTemplate));
+
+  if (currentTrackSMTC?.title) {
+    tray.setToolTip(`Harmoniq: ${currentTrackSMTC.title} — ${currentTrackSMTC.artist || 'Unknown'}`);
+  } else {
+    tray.setToolTip('Harmoniq — Audiophile Desktop Music Player');
+  }
+}
+
+function initTray() {
+  if (tray) return;
+  try {
+    const icon = getTrayImage();
+    tray = new Tray(icon);
+    tray.setToolTip('Harmoniq — Audiophile Desktop Music Player');
+    updateTrayMenu();
+
+    tray.on('click', () => {
+      toggleWindowVisibility();
+    });
+
+    tray.on('double-click', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.show();
+        mainWindow.focus();
+        updateTrayMenu();
+      }
+    });
+  } catch (err) {
+    console.error('Failed to create system tray icon:', err);
+  }
+}
+
+// Global Keyboard Shortcuts state & actions
+let currentShortcuts: Record<ShortcutAction, string> = { ...DEFAULT_SHORTCUTS };
+let shortcutStatus: Record<ShortcutAction, { registered: boolean; error?: string }> = {
+  playPause: { registered: false },
+  nextTrack: { registered: false },
+  prevTrack: { registered: false },
+  volumeUp: { registered: false },
+  volumeDown: { registered: false },
+  toggleMute: { registered: false },
+  toggleWindow: { registered: false },
+};
+
+function executeShortcutAction(action: ShortcutAction) {
+  if (action === 'toggleWindow') {
+    toggleWindowVisibility();
+    return;
+  }
+  const cmdMap: Record<ShortcutAction, string> = {
+    playPause: 'playpause',
+    nextTrack: 'next',
+    prevTrack: 'prev',
+    volumeUp: 'volumeup',
+    volumeDown: 'volumedown',
+    toggleMute: 'togglemute',
+    toggleWindow: 'togglewindow',
+  };
+  const cmd = cmdMap[action];
+  if (cmd) {
+    mainWindow?.webContents.send('media:command', cmd);
+  }
+}
+
+function registerAllShortcuts(config: Record<ShortcutAction, string>) {
+  try {
+    globalShortcut.unregisterAll();
+  } catch (e) {
+    console.warn('Error unregistering shortcuts:', e);
+  }
+
+  currentShortcuts = { ...config };
+  shortcutStatus = {
+    playPause: { registered: false },
+    nextTrack: { registered: false },
+    prevTrack: { registered: false },
+    volumeUp: { registered: false },
+    volumeDown: { registered: false },
+    toggleMute: { registered: false },
+    toggleWindow: { registered: false },
+  };
+
+  for (const action of SHORTCUT_ACTIONS) {
+    const accelerator = currentShortcuts[action];
+    if (!accelerator) {
+      shortcutStatus[action] = { registered: false, error: 'No shortcut assigned' };
+      continue;
+    }
+
+    try {
+      const success = globalShortcut.register(accelerator, () => {
+        executeShortcutAction(action);
+      });
+
+      if (success) {
+        shortcutStatus[action] = { registered: true };
+      } else {
+        shortcutStatus[action] = {
+          registered: false,
+          error: 'Failed to register with Windows (shortcut may be in use by another application)',
+        };
+      }
+    } catch (err: any) {
+      shortcutStatus[action] = {
+        registered: false,
+        error: err?.message || 'Invalid key combination',
+      };
+    }
+  }
+}
 
 // Supported audio extensions
 const AUDIO_EXTENSIONS = new Set([
@@ -351,6 +585,17 @@ function createMainWindow() {
 
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true));
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false));
+  mainWindow.on('show', () => updateTrayMenu());
+  mainWindow.on('hide', () => updateTrayMenu());
+
+  mainWindow.on('close', (event) => {
+    if (!isQuitting && closeToTray) {
+      event.preventDefault();
+      mainWindow?.hide();
+      updateTrayMenu();
+      return false;
+    }
+  });
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -484,7 +729,61 @@ function setupIpc() {
   });
 
   ipcMain.handle('window:close', () => {
-    mainWindow?.close();
+    if (closeToTray && !isQuitting) {
+      mainWindow?.hide();
+      updateTrayMenu();
+    } else {
+      mainWindow?.close();
+    }
+  });
+
+  ipcMain.handle('tray:setCloseToTray', (_e, enabled: boolean) => {
+    closeToTray = !!enabled;
+    saveStoredDataSync('settings_closetotray', closeToTray);
+    return closeToTray;
+  });
+
+  ipcMain.handle('tray:getCloseToTray', () => {
+    return closeToTray;
+  });
+
+  // Global Keyboard Shortcuts
+  ipcMain.handle('shortcuts:get', () => {
+    return {
+      shortcuts: currentShortcuts,
+      status: shortcutStatus,
+    };
+  });
+
+  ipcMain.handle('shortcuts:update', (_e, newShortcuts: Partial<Record<ShortcutAction, string>>) => {
+    const merged = { ...currentShortcuts, ...newShortcuts };
+    const validation = validateShortcutConfig(merged);
+    if (!validation.valid) {
+      return {
+        success: false,
+        shortcuts: currentShortcuts,
+        status: shortcutStatus,
+        errors: validation.errors,
+      };
+    }
+
+    registerAllShortcuts(merged as Record<ShortcutAction, string>);
+    saveStoredDataSync('settings_shortcuts', currentShortcuts);
+
+    return {
+      success: true,
+      shortcuts: currentShortcuts,
+      status: shortcutStatus,
+    };
+  });
+
+  ipcMain.handle('shortcuts:reset', () => {
+    registerAllShortcuts(DEFAULT_SHORTCUTS);
+    saveStoredDataSync('settings_shortcuts', DEFAULT_SHORTCUTS);
+    return {
+      shortcuts: currentShortcuts,
+      status: shortcutStatus,
+    };
   });
 
   ipcMain.handle('window:isMaximized', () => {
@@ -632,10 +931,16 @@ function setupIpc() {
     if (typeof filePath === 'string' && filePath) shell.showItemInFolder(filePath);
   });
 
-  // Now-playing info -> window title (OS media controls are handled by the renderer's Media Session)
-  ipcMain.handle('system:updateSMTC', async (_e, track: { title?: string; artist?: string; isPlaying?: boolean }) => {
+  // Now-playing info -> window title, Windows SMTC, and System Tray
+  ipcMain.handle('system:updateSMTC', async (_e, track: { title?: string; artist?: string; album?: string; isPlaying?: boolean }) => {
     if (!mainWindow || !track) return false;
-    mainWindow.setTitle(track.title ? `${track.isPlaying ? '▶ ' : ''}${track.artist ? track.artist + ' – ' : ''}${track.title} · HARMONIQ` : 'HARMONIQ');
+    currentTrackSMTC = track;
+    mainWindow.setTitle(
+      track.title
+        ? `${track.isPlaying ? '▶ ' : ''}${track.artist ? track.artist + ' – ' : ''}${track.title} · HARMONIQ`
+        : 'HARMONIQ'
+    );
+    updateTrayMenu();
     return true;
   });
 
@@ -741,9 +1046,6 @@ function setupIpc() {
   });
 
   // Persistent storage (userdata) - atomic writes so a crash can never corrupt the library
-  const storagePath = (key: string) =>
-    path.join(app.getPath('userData'), `harmoniq_${String(key).replace(/[^a-zA-Z0-9_-]/g, '')}.json`);
-
   ipcMain.handle('storage:load', async (_e, key: string) => {
     const filePath = storagePath(key);
     try {
@@ -987,24 +1289,55 @@ if (!gotLock) {
 } else {
   app.on('second-instance', () => {
     if (mainWindow) {
+      if (!mainWindow.isVisible()) mainWindow.show();
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
+      updateTrayMenu();
     }
   });
 
   app.whenReady().then(() => {
+    closeToTray = loadStoredDataSync<boolean>('settings_closetotray', true);
+    const savedShortcuts = loadStoredDataSync<Record<ShortcutAction, string>>(
+      'settings_shortcuts',
+      DEFAULT_SHORTCUTS
+    );
+
     registerMediaProtocol();
     setupIpc();
     createMainWindow();
+    initTray();
+    registerAllShortcuts(savedShortcuts);
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) {
         createMainWindow();
+      } else {
+        if (!mainWindow?.isVisible()) mainWindow?.show();
+        if (mainWindow?.isMinimized()) mainWindow?.restore();
+        mainWindow?.focus();
+        updateTrayMenu();
       }
     });
   });
 
+  app.on('before-quit', () => {
+    isQuitting = true;
+    if (tray) {
+      try {
+        tray.destroy();
+      } catch {}
+      tray = null;
+    }
+    try {
+      globalShortcut.unregisterAll();
+    } catch {}
+  });
+
   app.on('window-all-closed', () => {
+    if (closeToTray && !isQuitting) {
+      return;
+    }
     if (process.platform !== 'darwin') {
       app.quit();
     }

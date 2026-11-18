@@ -660,24 +660,60 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   actionsRef.current = { toggle: togglePlayPause, next: nextTrack, prev: prevTrack, pause, seek: seekTo };
 
-  // OS media integration: Media Session (Windows SMTC / media keys) + native taskbar buttons
+  // OS media integration: Media Session (Windows SMTC / media keys) + native taskbar & tray
   useEffect(() => {
     if (!('mediaSession' in navigator)) return;
     const ms = navigator.mediaSession;
     if (currentTrack) {
       try {
+        const artwork: MediaImage[] = [];
+        if (currentTrack.artworkDataUrl && currentTrack.artworkDataUrl.startsWith('data:image/')) {
+          artwork.push({
+            src: currentTrack.artworkDataUrl,
+            sizes: '512x512',
+            type: currentTrack.artworkDataUrl.includes('png') ? 'image/png' : 'image/jpeg',
+          });
+        }
         ms.metadata = new MediaMetadata({
-          title: currentTrack.title,
-          artist: currentTrack.artist,
-          album: currentTrack.album,
-          artwork: currentTrack.artworkDataUrl ? [{ src: currentTrack.artworkDataUrl }] : [],
+          title: currentTrack.title || 'Unknown Title',
+          artist: currentTrack.artist || 'Unknown Artist',
+          album: currentTrack.album || 'Unknown Album',
+          artwork,
         });
       } catch {
-        /* unsupported artwork */
+        /* fallback if MediaMetadata fails */
       }
+    } else {
+      try {
+        ms.metadata = null;
+      } catch {}
     }
     ms.playbackState = currentTrack ? (isPlaying ? 'playing' : 'paused') : 'none';
   }, [currentTrack, isPlaying]);
+
+  // Synchronize Windows SMTC scrubber seekbar
+  useEffect(() => {
+    if (
+      'mediaSession' in navigator &&
+      typeof navigator.mediaSession.setPositionState === 'function' &&
+      currentTrack &&
+      Number.isFinite(duration) &&
+      duration > 0 &&
+      Number.isFinite(currentTime) &&
+      currentTime >= 0
+    ) {
+      try {
+        const safePosition = Math.min(Math.max(0, currentTime), duration);
+        navigator.mediaSession.setPositionState({
+          duration,
+          playbackRate: playbackRate > 0 ? playbackRate : 1.0,
+          position: safePosition,
+        });
+      } catch {
+        /* ignore invalid timing state */
+      }
+    }
+  }, [currentTime, duration, playbackRate, currentTrack]);
 
   useEffect(() => {
     if ('mediaSession' in navigator) {
@@ -702,16 +738,45 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (cmd === 'playpause') actionsRef.current.toggle();
       else if (cmd === 'next') actionsRef.current.next();
       else if (cmd === 'prev') actionsRef.current.prev();
+      else if (cmd === 'volumeup') {
+        setVolumeState((prev) => {
+          const next = Math.min(1, Math.round((prev + 0.05) * 100) / 100);
+          audioEngine.setVolume(next);
+          return next;
+        });
+      } else if (cmd === 'volumedown') {
+        setVolumeState((prev) => {
+          const next = Math.max(0, Math.round((prev - 0.05) * 100) / 100);
+          audioEngine.setVolume(next);
+          return next;
+        });
+      } else if (cmd === 'togglemute') {
+        toggleMute();
+      }
     });
     return () => {
       off?.();
     };
-  }, []);
+  }, [toggleMute]);
 
   useEffect(() => {
     if (currentTrack) {
       window.harmoniqApi
-        ?.updateSMTC?.({ title: currentTrack.title, artist: currentTrack.artist, album: currentTrack.album, isPlaying })
+        ?.updateSMTC?.({
+          title: currentTrack.title,
+          artist: currentTrack.artist,
+          album: currentTrack.album,
+          isPlaying,
+        })
+        ?.catch?.(() => {});
+    } else {
+      window.harmoniqApi
+        ?.updateSMTC?.({
+          title: '',
+          artist: '',
+          album: '',
+          isPlaying: false,
+        })
         ?.catch?.(() => {});
     }
   }, [currentTrack, isPlaying]);

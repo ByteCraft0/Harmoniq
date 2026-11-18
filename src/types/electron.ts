@@ -1,5 +1,13 @@
 import { TrackMetadata } from './audio';
 import { LyricsData } from './lyrics';
+import {
+  ShortcutAction,
+  ShortcutConfig,
+  ShortcutStatus,
+  ShortcutStateResponse,
+} from './shortcuts';
+
+export type { ShortcutAction, ShortcutConfig, ShortcutStatus, ShortcutStateResponse };
 
 export interface WindowsAudioDeviceDiagnostic {
   name: string;
@@ -80,11 +88,23 @@ export interface HarmoniqApi {
     isWasapiExclusiveCapable: boolean;
   }>;
 
-  // Taskbar / Media Transport
+  // Taskbar / Media Transport & Tray
   updateSMTC: (track: { title: string; artist: string; album: string; isPlaying: boolean }) => Promise<boolean>;
+  setCloseToTray: (enabled: boolean) => Promise<boolean>;
+  getCloseToTray: () => Promise<boolean>;
+
+  // Global Keyboard Shortcuts
+  getGlobalShortcuts: () => Promise<ShortcutStateResponse>;
+  updateGlobalShortcuts: (shortcuts: ShortcutConfig) => Promise<{
+    success: boolean;
+    shortcuts: ShortcutConfig;
+    status: Record<ShortcutAction, ShortcutStatus>;
+    errors?: Partial<Record<ShortcutAction, string>>;
+  }>;
+  resetGlobalShortcuts: () => Promise<ShortcutStateResponse>;
 
   // Events
-  onMediaCommand?: (callback: (command: 'prev' | 'playpause' | 'next') => void) => () => void;
+  onMediaCommand?: (callback: (command: 'prev' | 'playpause' | 'next' | 'volumeup' | 'volumedown' | 'togglemute') => void) => () => void;
   onWindowMaximizedChange?: (callback: (isMaximized: boolean) => void) => () => void;
   onMiniPlayerChange?: (callback: (isMini: boolean) => void) => () => void;
   onScanProgress?: (callback: (progress: { current: number; total: number; currentFile: string }) => void) => () => void;

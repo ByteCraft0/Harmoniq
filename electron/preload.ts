@@ -47,8 +47,15 @@ const harmoniqApi = {
   // Windows Audio Diagnostics
   getWindowsAudioDiagnostics: () => ipcRenderer.invoke('system:getAudioDiagnostics'),
 
-  // Taskbar / Media Transport
+  // Taskbar / Media Transport & Tray
   updateSMTC: (track: any) => ipcRenderer.invoke('system:updateSMTC', track),
+  setCloseToTray: (enabled: boolean) => ipcRenderer.invoke('tray:setCloseToTray', enabled),
+  getCloseToTray: () => ipcRenderer.invoke('tray:getCloseToTray'),
+
+  // Global Keyboard Shortcuts
+  getGlobalShortcuts: () => ipcRenderer.invoke('shortcuts:get'),
+  updateGlobalShortcuts: (shortcuts: any) => ipcRenderer.invoke('shortcuts:update', shortcuts),
+  resetGlobalShortcuts: () => ipcRenderer.invoke('shortcuts:reset'),
 
   // Events
   onScanProgress: (callback: (progress: any) => void) => subscribe('scan:progress', callback),
