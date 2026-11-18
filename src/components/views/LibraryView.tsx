@@ -8,6 +8,9 @@ import { AddToPlaylistModal } from '../layout/AddToPlaylistModal';
 import { FolderTreeExplorer } from '../library/FolderTreeExplorer';
 import { ListeningHistoryView } from '../library/ListeningHistoryView';
 import { SmartPlaylistsSection } from '../library/SmartPlaylistsSection';
+import { DuplicateDetectorModal } from '../maintenance/DuplicateDetectorModal';
+import { MissingArtworkManager } from '../maintenance/MissingArtworkManager';
+import { BulkMetadataModal } from '../maintenance/BulkMetadataModal';
 import { TrackMetadata } from '../../types/audio';
 import { libraryService } from '../../services/libraryService';
 import {
@@ -74,6 +77,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
   // Multi-selection state
   const [selectedTrackIds, setSelectedTrackIds] = useState<Set<string>>(new Set());
   const [showRemoveConfirmModal, setShowRemoveConfirmModal] = useState(false);
+  const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
+  const [missingArtworkOpen, setMissingArtworkOpen] = useState(false);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
 
   // Advanced Filtering & Sorting
   const [formatFilter, setFormatFilter] = useState<string>('all');
@@ -350,13 +356,31 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
           </button>
         </div>
 
-        <button
-          onClick={addMusicFolders}
-          className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#F5F3FF] transition-colors"
-        >
-          <FolderOpen size={14} className="text-violet-400" />
-          <span>Add Music Folder</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setDuplicateModalOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-zinc-300 hover:text-white transition-colors"
+            title="Scan for duplicate songs"
+          >
+            <span>Duplicates</span>
+          </button>
+
+          <button
+            onClick={() => setMissingArtworkOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-zinc-300 hover:text-white transition-colors"
+            title="Scan for missing album artwork"
+          >
+            <span>Artwork</span>
+          </button>
+
+          <button
+            onClick={addMusicFolders}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-xs font-semibold text-white shadow-glow-sm transition-colors"
+          >
+            <FolderOpen size={14} />
+            <span>Add Folder</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Tab Content */}
@@ -645,6 +669,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
           </button>
 
           <button
+            onClick={() => setBulkEditOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-xs font-medium text-white transition-colors"
+          >
+            <span>Bulk Edit</span>
+          </button>
+
+          <button
             onClick={() => setShowRemoveConfirmModal(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 text-xs font-medium transition-colors border border-rose-500/20"
           >
@@ -688,6 +719,26 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
           </div>
         </div>
       )}
+
+      {/* Maintenance Modals */}
+      <DuplicateDetectorModal
+        isOpen={duplicateModalOpen}
+        onClose={() => setDuplicateModalOpen(false)}
+      />
+
+      <MissingArtworkManager
+        isOpen={missingArtworkOpen}
+        onClose={() => setMissingArtworkOpen(false)}
+      />
+
+      <BulkMetadataModal
+        isOpen={bulkEditOpen}
+        onClose={() => setBulkEditOpen(false)}
+        tracks={processedTracks.filter((t) => selectedTrackIds.has(t.id))}
+        onComplete={() => {
+          setSelectedTrackIds(new Set());
+        }}
+      />
 
       <TrackContextMenu
         menu={contextMenu}
