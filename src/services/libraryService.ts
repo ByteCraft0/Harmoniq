@@ -209,6 +209,21 @@ export class LibraryService {
     return false;
   }
 
+  public removeTracks(trackIds: string[]): number {
+    let count = 0;
+    for (const id of trackIds) {
+      if (this.tracks.delete(id)) {
+        count++;
+      }
+    }
+    if (count > 0) {
+      this.invalidate();
+      this.emit('data');
+      this.emit('persist');
+    }
+    return count;
+  }
+
   public toggleFavorite(trackId: string): boolean {
     const track = this.tracks.get(trackId);
     if (!track) return false;

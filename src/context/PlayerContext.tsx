@@ -5,6 +5,7 @@ import { AudioDeviceInfo } from '../types/devices';
 import { audioEngine } from '../services/audioEngine';
 import { libraryService } from '../services/libraryService';
 import { colorExtractionService } from '../services/colorExtractionService';
+import { historyService } from '../services/historyService';
 import { useToast } from './ToastContext';
 
 const PREFS_KEY = 'harmoniq_player_prefs';
@@ -197,6 +198,22 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const errorStreakRef = useRef(0);
   const playNextCountRef = useRef(0);
   const onEndedRef = useRef<() => void>(() => {});
+  const listeningDurationRef = useRef(0);
+  const lastPlaybackTimestampRef = useRef<number | null>(null);
+
+  const commitListeningSession = useCallback(() => {
+    const track = currentTrackRef.current;
+    const elapsed = listeningDurationRef.current;
+    listeningDurationRef.current = 0;
+    lastPlaybackTimestampRef.current = null;
+    if (track && elapsed > 0) {
+      const { isCompleted } = historyService.recordSession(track, elapsed);
+      if (isCompleted) {
+        libraryService.recordPlay(track.id);
+      }
+    }
+  }, []);
+
   const actionsRef = useRef<{ toggle: () => void; next: () => void; prev: () => void; pause: () => void; seek: (s: number) => void }>({
     toggle: () => {},
     next: () => {},
@@ -281,6 +298,20 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       }
       setIsPlaying(status.isPlaying);
 
+      // Track active playback duration without counting paused duration
+      if (status.isPlaying) {
+        const now = Date.now();
+        if (lastPlaybackTimestampRef.current !== null) {
+          const delta = (now - lastPlaybackTimestampRef.current) / 1000;
+          if (delta > 0 && delta < 2.0) {
+            listeningDurationRef.current += delta;
+          }
+        }
+        lastPlaybackTimestampRef.current = now;
+      } else {
+        lastPlaybackTimestampRef.current = null;
+      }
+
       const track = currentTrackRef.current;
       if (status.isPlaying) errorStreakRef.current = 0;
 
@@ -319,9 +350,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     // Automatic Gapless & Crossfade Deck Transition Subscriber
     const unsubscribeTransition = audioEngine.subscribeTrackTransition((nextTrack, type) => {
+      commitListeningSession();
       setCurrentTrack(nextTrack);
       currentTrackRef.current = nextTrack;
-      libraryService.recordPlay(nextTrack.id);
       setHistory((prev) => [nextTrack, ...prev.filter((t) => t.id !== nextTrack.id)].slice(0, 50));
 
       const subsequent = getNextTrackInQueue(
@@ -359,6 +390,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [currentTrack?.id, queue, isShuffle, repeatMode]);
 
   onEndedRef.current = () => {
+    commitListeningSession();
     if (sleepTimerRef.current.stopAfterCurrentTrack) {
       audioEngine.pause();
       cancelSleepTimer();
@@ -383,6 +415,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Load and play track
   const playTrack = async (track: TrackMetadata, newQueue?: TrackMetadata[]) => {
+    // Finalize previous track session if switching tracks
+    if (currentTrackRef.current && currentTrackRef.current.id !== track.id) {
+      commitListeningSession();
+    }
     playNextCountRef.current = 0;
     if (newQueue) {
       setQueue(newQueue);
@@ -404,7 +440,6 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     setCurrentTrack(track);
     await audioEngine.loadAndPlay(track, startPos);
-    libraryService.recordPlay(track.id);
 
     // Add to history
     setHistory((prev) => [track, ...prev.filter((t) => t.id !== track.id)].slice(0, 50));

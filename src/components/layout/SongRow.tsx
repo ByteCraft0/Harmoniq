@@ -48,6 +48,8 @@ interface SongRowProps {
   isCurrent: boolean;
   isPlaying: boolean;
   showAlbum?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: () => void;
   onPlay: (track: TrackMetadata) => void;
   onPlayNext: (track: TrackMetadata) => void;
   onAddToQueue: (track: TrackMetadata) => void;
@@ -70,6 +72,8 @@ const SongRowComponent: React.FC<SongRowProps> = ({
   isCurrent,
   isPlaying,
   showAlbum = true,
+  isSelected = false,
+  onToggleSelect,
   onPlay,
   onPlayNext,
   onAddToQueue,
@@ -91,13 +95,31 @@ const SongRowComponent: React.FC<SongRowProps> = ({
         alignItems: 'center',
       }}
       className={`group px-3 h-10 min-h-[40px] max-h-[40px] rounded-xl text-xs select-none cursor-pointer transition-colors duration-150 box-border ${
-        isCurrent
+        isSelected
+          ? 'bg-violet-900/30 border border-violet-500/40 text-violet-200'
+          : isCurrent
           ? 'bg-[#1B1B24] border border-[#272733] text-[#A78BFA] font-bold shadow-sm'
           : 'border border-transparent hover:bg-[#14141B] text-[#A1A1AA]'
       }`}
     >
       {/* 1. # & Favorite (48px) */}
       <div className="flex items-center gap-1 min-w-0">
+        {onToggleSelect ? (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleSelect();
+            }}
+            className="w-4 h-4 flex items-center justify-center shrink-0 cursor-pointer"
+          >
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => {}}
+              className="rounded border-zinc-700 bg-zinc-900 text-violet-600 focus:ring-0 cursor-pointer w-3.5 h-3.5"
+            />
+          </div>
+        ) : null}
         <div className="w-6 h-6 relative flex items-center justify-center shrink-0">
           <button
             onClick={(e) => {
