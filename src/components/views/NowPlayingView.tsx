@@ -5,6 +5,7 @@ import { AudioVisualizer } from '../visualizer/AudioVisualizer';
 import { CircularAudioVisualizer } from '../visualizer/CircularAudioVisualizer';
 import { AdvancedVisualizer } from '../visualizer/AdvancedVisualizer';
 import { RealTimeFrequencySpectrum } from '../visualizer/RealTimeFrequencySpectrum';
+import { FullScreenVisualizer } from '../visualizer/FullScreenVisualizer';
 import { QualityBadge } from '../inspector/QualityBadge';
 import { AudioQualityInspectorService } from '../../services/inspectorService';
 import { LyricsService } from '../../services/lyricsService';
@@ -39,6 +40,7 @@ import {
   Activity,
   Radio,
   Bookmark,
+  Maximize2,
 } from 'lucide-react';
 import { MusicBookmarksModal } from '../audio/MusicBookmarksModal';
 import { WaveformSeekbar } from '../audio/WaveformSeekbar';
@@ -82,6 +84,7 @@ export const NowPlayingView: React.FC = () => {
     });
   }, [artworkMode]);
 
+  const [showFullScreenVisualizer, setShowFullScreenVisualizer] = useState(false);
   const trackIdRef = useRef<string | null>(null);
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
   const activeLyricRef = useRef<HTMLDivElement | null>(null);
@@ -280,6 +283,15 @@ export const NowPlayingView: React.FC = () => {
               <span>Visualizer</span>
             </button>
           </div>
+
+          <button
+            onClick={() => setShowFullScreenVisualizer(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B]/80 hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors backdrop-blur-md"
+            title="Launch Immersive Fullscreen Listening Experience"
+          >
+            <Maximize2 size={14} className="text-[#A78BFA]" />
+            <span>Fullscreen</span>
+          </button>
 
           <button
             onClick={() => setActiveView('visualizer')}
@@ -753,6 +765,10 @@ export const NowPlayingView: React.FC = () => {
         isOpen={isBookmarksOpen}
         onClose={() => setIsBookmarksOpen(false)}
       />
+
+      {showFullScreenVisualizer && (
+        <FullScreenVisualizer onClose={() => setShowFullScreenVisualizer(false)} />
+      )}
     </div>
   );
 };

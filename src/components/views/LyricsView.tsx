@@ -13,10 +13,41 @@ import {
   CheckCircle2,
   Upload,
   Search,
+  List,
+  AlignLeft,
+  Sparkles,
+  Maximize2,
+  Minimize2,
+  X,
 } from 'lucide-react';
 import { SearchOnlineLyricsModal } from './SearchOnlineLyricsModal';
 import { HarmoniqWaveformLoader } from '../brand/HarmoniqWaveformLoader';
 import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
+
+export type LyricsDisplayMode = 'standard' | 'compact' | 'fullscreen' | 'minimal';
+
+const STORAGE_MODE_KEY = 'harmoniq_lyrics_display_mode';
+
+const getStoredOffset = (trackId: string): number => {
+  try {
+    const val = localStorage.getItem(`harmoniq_lyrics_offset_${trackId}`);
+    return val !== null ? parseInt(val, 10) || 0 : 0;
+  } catch {
+    return 0;
+  }
+};
+
+const saveStoredOffset = (trackId: string, offset: number) => {
+  try {
+    if (offset === 0) {
+      localStorage.removeItem(`harmoniq_lyrics_offset_${trackId}`);
+    } else {
+      localStorage.setItem(`harmoniq_lyrics_offset_${trackId}`, String(offset));
+    }
+  } catch {
+    /* ignore */
+  }
+};
 
 const formatLineTime = (seconds: number) => {
   if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
@@ -32,11 +63,42 @@ export const LyricsView: React.FC = () => {
   const [offsetMs, setOffsetMs] = useState(0);
   const [isUserScrolling, setIsUserScrolling] = useState(false);
   const [showOnlineSearchModal, setShowOnlineSearchModal] = useState(false);
+  const [displayMode, setDisplayMode] = useState<LyricsDisplayMode>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_MODE_KEY);
+      if (saved === 'standard' || saved === 'compact' || saved === 'fullscreen' || saved === 'minimal') {
+        return saved;
+      }
+    } catch {
+      /* ignore */
+    }
+    return 'standard';
+  });
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeLineRef = useRef<HTMLDivElement | null>(null);
   const trackIdRef = useRef<string | null>(null);
   const userScrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const changeDisplayMode = (mode: LyricsDisplayMode) => {
+    setDisplayMode(mode);
+    try {
+      localStorage.setItem(STORAGE_MODE_KEY, mode);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // Keyboard shortcut: Escape exits fullscreen mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && displayMode === 'fullscreen') {
+        changeDisplayMode('standard');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [displayMode]);
 
   const fetchLyrics = useCallback((forceRefresh = false) => {
     if (!currentTrack) return;
@@ -47,14 +109,19 @@ export const LyricsView: React.FC = () => {
     }
     setLyricsData(null);
     setIsLoading(true);
-    setOffsetMs(0);
+
+    // Load persisted offset for this specific track if available
+    const savedTrackOffset = getStoredOffset(activeId);
+    setOffsetMs(savedTrackOffset);
     setIsUserScrolling(false);
 
     LyricsService.loadLyricsForTrack(currentTrack, forceRefresh)
       .then((data) => {
         if (trackIdRef.current === activeId) {
           setLyricsData(data);
-          setOffsetMs((data.offset || 0) * 1000);
+          if (savedTrackOffset === 0 && data.offset) {
+            setOffsetMs(data.offset * 1000);
+          }
           setIsLoading(false);
         }
       })
@@ -114,11 +181,16 @@ export const LyricsView: React.FC = () => {
   };
 
   const adjustOffset = (deltaMs: number) => {
-    setOffsetMs((prev) => prev + deltaMs);
+    setOffsetMs((prev) => {
+      const next = prev + deltaMs;
+      if (currentTrack) saveStoredOffset(currentTrack.id, next);
+      return next;
+    });
   };
 
   const resetOffset = () => {
     setOffsetMs(0);
+    if (currentTrack) saveStoredOffset(currentTrack.id, 0);
   };
 
   const handlePickLrc = async () => {
@@ -126,7 +198,8 @@ export const LyricsView: React.FC = () => {
     const loaded = await LyricsService.pickAndLoadLrcFile(currentTrack);
     if (loaded) {
       setLyricsData(loaded);
-      setOffsetMs((loaded.offset || 0) * 1000);
+      const saved = getStoredOffset(currentTrack.id);
+      setOffsetMs(saved !== 0 ? saved : (loaded.offset || 0) * 1000);
       setIsUserScrolling(false);
     }
   };
@@ -169,8 +242,56 @@ export const LyricsView: React.FC = () => {
           </div>
         </div>
 
-        {/* Controls: Offset and Refresh */}
+        {/* Display Mode Switcher & Controls */}
         <div className="flex items-center gap-2">
+          {/* Mode Switcher */}
+          <div className="flex items-center bg-[#14141B] p-1 rounded-xl border border-[#272733] gap-0.5">
+            <button
+              onClick={() => changeDisplayMode('standard')}
+              title="Standard Mode (Full List)"
+              className={`p-1.5 rounded-lg transition-colors ${
+                displayMode === 'standard'
+                  ? 'bg-[var(--accent-dynamic)] text-[#F5F3FF]'
+                  : 'text-[#71717A] hover:text-[#F5F3FF]'
+              }`}
+            >
+              <List size={13} />
+            </button>
+            <button
+              onClick={() => changeDisplayMode('compact')}
+              title="Compact Mode (3-Line Focus)"
+              className={`p-1.5 rounded-lg transition-colors ${
+                displayMode === 'compact'
+                  ? 'bg-[var(--accent-dynamic)] text-[#F5F3FF]'
+                  : 'text-[#71717A] hover:text-[#F5F3FF]'
+              }`}
+            >
+              <AlignLeft size={13} />
+            </button>
+            <button
+              onClick={() => changeDisplayMode('minimal')}
+              title="Minimal Mode (Karaoke Single Line)"
+              className={`p-1.5 rounded-lg transition-colors ${
+                displayMode === 'minimal'
+                  ? 'bg-[var(--accent-dynamic)] text-[#F5F3FF]'
+                  : 'text-[#71717A] hover:text-[#F5F3FF]'
+              }`}
+            >
+              <Sparkles size={13} />
+            </button>
+            <button
+              onClick={() => changeDisplayMode(displayMode === 'fullscreen' ? 'standard' : 'fullscreen')}
+              title={displayMode === 'fullscreen' ? 'Exit Fullscreen' : 'Fullscreen Listening Mode'}
+              className={`p-1.5 rounded-lg transition-colors ${
+                displayMode === 'fullscreen'
+                  ? 'bg-[var(--accent-dynamic)] text-[#F5F3FF]'
+                  : 'text-[#71717A] hover:text-[#F5F3FF]'
+              }`}
+            >
+              {displayMode === 'fullscreen' ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            </button>
+          </div>
+
           {lyricsData?.synced && (
             <div className="flex items-center gap-2 bg-[#14141B] px-3.5 py-1.5 rounded-xl border border-[#272733] text-xs">
               <span className="text-[#71717A] font-mono-numbers">Offset:</span>
@@ -237,84 +358,219 @@ export const LyricsView: React.FC = () => {
         </div>
       </div>
 
-      {/* Lyrics Content Container */}
-      <div
-        ref={containerRef}
-        onWheel={handleContainerWheel}
-        className="flex-1 overflow-y-auto py-16 px-4 space-y-7 text-center relative scroll-smooth"
-      >
-        {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-64">
-            <HarmoniqWaveformLoader
-              label={`Synchronizing lyrics for "${currentTrack.title}"...`}
-              size="lg"
-            />
+      {/* Fullscreen Overlay */}
+      {displayMode === 'fullscreen' && (
+        <div className="fixed inset-0 z-50 bg-[#0A0A0F]/95 backdrop-blur-2xl flex flex-col p-8 select-none animate-in fade-in duration-200">
+          <div className="flex items-center justify-between pb-4 border-b border-white/10">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl overflow-hidden bg-white/5 border border-white/10 shadow-lg">
+                {currentTrack.artworkDataUrl ? (
+                  <img src={currentTrack.artworkDataUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <Disc size={24} className="m-auto text-white/40" />
+                )}
+              </div>
+              <div>
+                <h2 className="text-lg font-black text-white">{currentTrack.title}</h2>
+                <p className="text-xs text-white/60">{currentTrack.artist}</p>
+              </div>
+            </div>
+            <button
+              onClick={() => changeDisplayMode('standard')}
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white transition-all flex items-center gap-1.5 text-xs font-semibold"
+            >
+              <Minimize2 size={14} />
+              <span>Exit Fullscreen</span>
+            </button>
           </div>
-        ) : lyricsData?.synced && lyricsData.lines.length > 0 ? (
-          lyricsData.lines.map((line, idx) => {
-            const isActive = idx === activeIndex;
-            return (
-              <div
-                key={idx}
-                ref={isActive ? activeLineRef : null}
-                onClick={() => seekTo(line.time)}
-                className={`group relative flex items-center justify-center gap-3 cursor-pointer py-1.5 px-4 rounded-xl transition-all duration-300 ${
-                  isActive
-                    ? 'scale-105 origin-center'
-                    : 'hover:bg-[#14141B]/40'
-                }`}
-              >
-                {/* Time Indicator on Hover */}
-                <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono-numbers text-[#71717A] flex items-center gap-1 shrink-0">
-                  <Play size={10} className="text-[#A78BFA]" />
-                  {formatLineTime(line.time)}
-                </span>
 
-                {/* Lyric Text */}
+          <div
+            ref={containerRef}
+            onWheel={handleContainerWheel}
+            className="flex-1 overflow-y-auto py-20 px-8 space-y-10 text-center relative scroll-smooth"
+          >
+            {lyricsData?.synced && lyricsData.lines.length > 0 ? (
+              lyricsData.lines.map((line, idx) => {
+                const isActive = idx === activeIndex;
+                return (
+                  <div
+                    key={idx}
+                    ref={isActive ? activeLineRef : null}
+                    onClick={() => seekTo(line.time)}
+                    className={`cursor-pointer transition-all duration-300 ${
+                      isActive
+                        ? 'scale-110 origin-center text-3xl sm:text-5xl font-black text-[#A78BFA] drop-shadow-[0_0_25px_rgba(167,139,250,0.8)]'
+                        : 'text-lg sm:text-xl font-medium text-white/40 hover:text-white/80'
+                    }`}
+                  >
+                    {line.text}
+                  </div>
+                );
+              })
+            ) : lyricsData?.plainText ? (
+              <div className="max-w-xl mx-auto whitespace-pre-wrap text-base text-white/70 leading-relaxed py-8">
+                {lyricsData.plainText}
+              </div>
+            ) : (
+              <p className="text-xl text-white/60">No synced lyrics available.</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main Content by Display Mode */}
+      {displayMode === 'compact' ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-4">
+          {isLoading ? (
+            <HarmoniqWaveformLoader label="Synchronizing lyrics..." size="md" />
+          ) : lyricsData?.synced && lyricsData.lines.length > 0 ? (
+            <div className="w-full max-w-lg bg-[#14141B] border border-[#272733] rounded-2xl p-8 text-center space-y-6 shadow-2xl">
+              {/* Previous line */}
+              {activeIndex > 0 && (
                 <p
-                  className={`transition-all duration-300 ${
+                  onClick={() => seekTo(lyricsData.lines[activeIndex - 1].time)}
+                  className="text-sm font-medium text-[#71717A] hover:text-[#A1A1AA] cursor-pointer transition-all truncate"
+                >
+                  {lyricsData.lines[activeIndex - 1].text}
+                </p>
+              )}
+
+              {/* Active line */}
+              <div
+                onClick={() => activeIndex >= 0 && seekTo(lyricsData.lines[activeIndex].time)}
+                className="py-2 cursor-pointer transition-transform hover:scale-105"
+              >
+                <p className="text-2xl sm:text-3xl font-black text-[#A78BFA] drop-shadow-[0_0_20px_rgba(167,139,250,0.6)]">
+                  {activeIndex >= 0 ? lyricsData.lines[activeIndex].text : '...'}
+                </p>
+                {activeIndex >= 0 && (
+                  <span className="text-xs font-mono-numbers text-[#71717A] mt-2 inline-block">
+                    {formatLineTime(lyricsData.lines[activeIndex].time)}
+                  </span>
+                )}
+              </div>
+
+              {/* Next line */}
+              {activeIndex >= 0 && activeIndex + 1 < lyricsData.lines.length && (
+                <p
+                  onClick={() => seekTo(lyricsData.lines[activeIndex + 1].time)}
+                  className="text-sm font-medium text-[#71717A] hover:text-[#A1A1AA] cursor-pointer transition-all truncate"
+                >
+                  {lyricsData.lines[activeIndex + 1].text}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-[#71717A]">No synced lyrics available for compact mode.</p>
+          )}
+        </div>
+      ) : displayMode === 'minimal' ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
+          {isLoading ? (
+            <HarmoniqWaveformLoader label="Synchronizing lyrics..." size="md" />
+          ) : lyricsData?.synced && activeIndex >= 0 ? (
+            <div
+              onClick={() => seekTo(lyricsData.lines[activeIndex].time)}
+              className="cursor-pointer transition-transform duration-300 hover:scale-105"
+            >
+              <span className="inline-block px-3 py-1 rounded-full bg-[#7C3AED]/20 border border-[#7C3AED]/40 text-[#A78BFA] text-xs font-mono-numbers mb-4 animate-pulse">
+                {formatLineTime(lyricsData.lines[activeIndex].time)}
+              </span>
+              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-[#F5F3FF] tracking-tight drop-shadow-[0_0_30px_rgba(167,139,250,0.5)]">
+                {lyricsData.lines[activeIndex].text}
+              </h1>
+              {activeIndex + 1 < lyricsData.lines.length && (
+                <p className="text-sm text-[#71717A] mt-6 font-medium max-w-lg mx-auto truncate">
+                  {lyricsData.lines[activeIndex + 1].text}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-[#71717A]">
+              {lyricsData?.plainText ? lyricsData.plainText.slice(0, 100) + '...' : 'No synchronized lyric line active.'}
+            </p>
+          )}
+        </div>
+      ) : (
+        /* Standard Scrollable Mode */
+        <div
+          ref={containerRef}
+          onWheel={handleContainerWheel}
+          className="flex-1 overflow-y-auto py-16 px-4 space-y-7 text-center relative scroll-smooth"
+        >
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center h-64">
+              <HarmoniqWaveformLoader
+                label={`Synchronizing lyrics for "${currentTrack.title}"...`}
+                size="lg"
+              />
+            </div>
+          ) : lyricsData?.synced && lyricsData.lines.length > 0 ? (
+            lyricsData.lines.map((line, idx) => {
+              const isActive = idx === activeIndex;
+              return (
+                <div
+                  key={idx}
+                  ref={isActive ? activeLineRef : null}
+                  onClick={() => seekTo(line.time)}
+                  className={`group relative flex items-center justify-center gap-3 cursor-pointer py-1.5 px-4 rounded-xl transition-all duration-300 ${
                     isActive
-                      ? 'text-2xl sm:text-3xl font-black text-[#A78BFA] drop-shadow-[0_0_16px_rgba(167,139,250,0.5)]'
-                      : 'text-sm sm:text-base font-semibold text-[#52525B] group-hover:text-[#A1A1AA]'
+                      ? 'scale-105 origin-center'
+                      : 'hover:bg-[#14141B]/40'
                   }`}
                 >
-                  {line.text}
-                </p>
-              </div>
-            );
-          })
-        ) : lyricsData?.plainText ? (
-          <div className="max-w-lg mx-auto whitespace-pre-wrap text-sm text-[#A1A1AA] leading-relaxed py-6">
-            {lyricsData.plainText}
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center h-64 text-[#71717A] text-xs">
-            <FileText size={40} className="mb-2.5 text-[#3F3F46]" />
-            <p className="font-bold text-[#F5F3FF] text-sm">No Lyrics Available</p>
-            <p className="max-w-sm mt-1 text-[#A1A1AA]">
-              No lyrics found for <span className="text-[#F5F3FF] font-semibold">{currentTrack.title}</span> by <span className="text-[#F5F3FF] font-semibold">{currentTrack.artist}</span>.
-            </p>
-            <div className="flex items-center gap-2.5 mt-4">
-              <button
-                onClick={() => fetchLyrics(true)}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] text-[#F5F3FF] font-bold text-xs shadow-glow-sm hover:shadow-glow-md transition-all"
-              >
-                Retry Search
-              </button>
-              <button
-                onClick={handlePickLrc}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1B1B24] hover:bg-[#252532] text-[#F5F3FF] font-bold text-xs border border-[#2D2D3B] transition-all"
-              >
-                <Upload size={13} />
-                <span>Load .LRC File</span>
-              </button>
+                  {/* Time Indicator on Hover */}
+                  <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-mono-numbers text-[#71717A] flex items-center gap-1 shrink-0">
+                    <Play size={10} className="text-[#A78BFA]" />
+                    {formatLineTime(line.time)}
+                  </span>
+
+                  {/* Lyric Text */}
+                  <p
+                    className={`transition-all duration-300 ${
+                      isActive
+                        ? 'text-2xl sm:text-3xl font-black text-[#A78BFA] drop-shadow-[0_0_16px_rgba(167,139,250,0.5)]'
+                        : 'text-sm sm:text-base font-semibold text-[#52525B] group-hover:text-[#A1A1AA]'
+                    }`}
+                  >
+                    {line.text}
+                  </p>
+                </div>
+              );
+            })
+          ) : lyricsData?.plainText ? (
+            <div className="max-w-lg mx-auto whitespace-pre-wrap text-sm text-[#A1A1AA] leading-relaxed py-6">
+              {lyricsData.plainText}
             </div>
-            <p className="text-[11px] text-[#71717A] mt-3">
-              Searches companion <span className="font-mono-numbers text-[#A78BFA]">.lrc</span> files, embedded tags, and LRCLIB online.
-            </p>
-          </div>
-        )}
-      </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center h-64 text-[#71717A] text-xs">
+              <FileText size={40} className="mb-2.5 text-[#3F3F46]" />
+              <p className="font-bold text-[#F5F3FF] text-sm">No Lyrics Available</p>
+              <p className="max-w-sm mt-1 text-[#A1A1AA]">
+                No lyrics found for <span className="text-[#F5F3FF] font-semibold">{currentTrack.title}</span> by <span className="text-[#F5F3FF] font-semibold">{currentTrack.artist}</span>.
+              </p>
+              <div className="flex items-center gap-2.5 mt-4">
+                <button
+                  onClick={() => fetchLyrics(true)}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] text-[#F5F3FF] font-bold text-xs shadow-glow-sm hover:shadow-glow-md transition-all"
+                >
+                  Retry Search
+                </button>
+                <button
+                  onClick={handlePickLrc}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#1B1B24] hover:bg-[#252532] text-[#F5F3FF] font-bold text-xs border border-[#2D2D3B] transition-all"
+                >
+                  <Upload size={13} />
+                  <span>Load .LRC File</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-[#71717A] mt-3">
+                Searches companion <span className="font-mono-numbers text-[#A78BFA]">.lrc</span> files, embedded tags, and LRCLIB online.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Floating Resume Auto-Scroll Button */}
       {isUserScrolling && lyricsData?.synced && (

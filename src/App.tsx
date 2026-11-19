@@ -62,6 +62,10 @@ const MainLayout: React.FC = () => {
     nextTrack,
     prevTrack,
     toggleMute,
+    setABRepeatPointA,
+    setABRepeatPointB,
+    toggleABRepeat,
+    clearABRepeat,
   } = usePlayer();
   const { settings: dspSettings, presets } = useDSP();
   const { setAssistantContext } = useAssistant();
@@ -172,6 +176,19 @@ const MainLayout: React.FC = () => {
           break;
         case 'KeyL':
           setActiveView('lyrics');
+          break;
+        case 'BracketLeft':
+          setABRepeatPointA();
+          break;
+        case 'BracketRight':
+          setABRepeatPointB();
+          break;
+        case 'Backslash':
+          if (e.shiftKey) {
+            clearABRepeat();
+          } else {
+            toggleABRepeat();
+          }
           break;
         default:
           break;

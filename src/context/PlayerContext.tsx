@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useCallb
 import { TrackMetadata, RepeatMode, ReplayGainMode } from '../types/audio';
 import { ABRepeatState, BitPerfectState } from '../types/dsp';
 import { AudioDeviceInfo } from '../types/devices';
-import { audioEngine } from '../services/audioEngine';
+import { audioEngine, TransitionMode } from '../services/audioEngine';
 import { libraryService } from '../services/libraryService';
 import { colorExtractionService } from '../services/colorExtractionService';
 import { historyService } from '../services/historyService';
@@ -11,6 +11,9 @@ import { sessionRecoveryService } from '../services/sessionRecoveryService';
 import { queueManagerService } from '../services/queueManagerService';
 import { universalMusicService } from '../services/universalMusicService';
 import { trackMetadataToUnifiedTrack, unifiedTrackToTrackMetadata } from '../types/universalMusic';
+import { MusicBookmark } from '../types/bookmark';
+import { bookmarkService } from '../services/bookmarkService';
+import { ListeningSession, sessionTrackingService } from '../services/sessionTrackingService';
 import { useToast } from './ToastContext';
 
 const PREFS_KEY = 'harmoniq_player_prefs';
@@ -24,6 +27,7 @@ function loadPrefs(): Partial<{
   isShuffle: boolean;
   replayGainMode: ReplayGainMode;
   crossfadeDuration: number;
+  transitionMode: TransitionMode;
   isBitPerfect: boolean;
 }> {
   try {
@@ -94,6 +98,8 @@ interface PlayerContextType {
   setReplayGainMode: (mode: ReplayGainMode) => void;
   setCrossfadeDuration: (sec: number) => void;
   setCrossfadeEnabled: (enabled: boolean) => void;
+  transitionMode: TransitionMode;
+  setTransitionMode: (mode: TransitionMode) => void;
   
   // Queue actions
   addToQueue: (track: TrackMetadata) => void;
@@ -102,6 +108,21 @@ interface PlayerContextType {
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   clearQueue: () => void;
   replaceQueue: (tracks: TrackMetadata[]) => void;
+
+  // Bookmarks (Phase 5C.2)
+  bookmarks: MusicBookmark[];
+  addBookmark: (trackId: string, title: string, timestamp: number, note?: string) => MusicBookmark;
+  updateBookmark: (id: string, updates: { title?: string; note?: string; timestamp?: number }) => boolean;
+  deleteBookmark: (id: string) => boolean;
+  getBookmarksForTrack: (trackId: string) => MusicBookmark[];
+
+  // Listening Sessions (Phase 5C.5)
+  currentSession: ListeningSession | null;
+  sessionHistory: ListeningSession[];
+  replaySession: (sessionId: string) => void;
+  clearSessionHistory: () => void;
+  isSessionTrackingEnabled: boolean;
+  setSessionTrackingEnabled: (enabled: boolean) => void;
 
   // A-B Repeat
   abRepeat: ABRepeatState;
@@ -183,6 +204,20 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [replayGainMode, setReplayGainModeState] = useState<ReplayGainMode>(prefs.replayGainMode === 'track' || prefs.replayGainMode === 'album' ? prefs.replayGainMode : 'off');
   const [crossfadeDuration, setCrossfadeState] = useState(typeof prefs.crossfadeDuration === 'number' ? prefs.crossfadeDuration : 0);
   const [savedCrossfadeSec, setSavedCrossfadeSec] = useState(typeof prefs.crossfadeDuration === 'number' && prefs.crossfadeDuration > 0 ? prefs.crossfadeDuration : 4);
+  const [transitionMode, setTransitionModeState] = useState<TransitionMode>(
+    prefs.transitionMode === 'gapless' || prefs.transitionMode === 'fade_out_fade_in'
+      ? prefs.transitionMode
+      : 'crossfade'
+  );
+
+  // Bookmarks State (Phase 5C.2)
+  const [bookmarks, setBookmarks] = useState<MusicBookmark[]>(() => bookmarkService.getAllBookmarks());
+
+  // Session Tracking State (Phase 5C.5)
+  const [currentSession, setCurrentSession] = useState<ListeningSession | null>(() => sessionTrackingService.getCurrentSession());
+  const [sessionHistory, setSessionHistory] = useState<ListeningSession[]>(() => sessionTrackingService.getSessionHistory());
+  const [isSessionTrackingEnabled, setIsSessionTrackingEnabled] = useState<boolean>(() => sessionTrackingService.isTrackingEnabled());
+
   const [queue, setQueue] = useState<TrackMetadata[]>([]);
   const [history, setHistory] = useState<TrackMetadata[]>([]);
   const [sleepTimer, setSleepTimerState] = useState<SleepTimerState>({
@@ -238,7 +273,28 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (isCompleted) {
         libraryService.recordPlay(track.id);
       }
+      sessionTrackingService.onTrackCompletedOrSkipped(
+        track,
+        elapsed,
+        isCompleted ? 'completed' : elapsed < 15 ? 'skipped' : 'partial'
+      );
     }
+  }, []);
+
+  // Subscriptions for bookmarks and session tracking
+  useEffect(() => {
+    const unsubBookmarks = bookmarkService.subscribe((list) => {
+      setBookmarks(list);
+    });
+    const unsubSessions = sessionTrackingService.subscribe(() => {
+      setCurrentSession(sessionTrackingService.getCurrentSession());
+      setSessionHistory(sessionTrackingService.getSessionHistory());
+      setIsSessionTrackingEnabled(sessionTrackingService.isTrackingEnabled());
+    });
+    return () => {
+      unsubBookmarks();
+      unsubSessions();
+    };
   }, []);
 
   const actionsRef = useRef<{ toggle: () => void; next: () => void; prev: () => void; pause: () => void; seek: (s: number) => void }>({
@@ -278,6 +334,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     audioEngine.setPlaybackRate(playbackRate, preservesPitch);
     audioEngine.setReplayGainMode(replayGainMode);
     audioEngine.setCrossfadeDuration(crossfadeDuration);
+    audioEngine.setTransitionMode(transitionMode);
     audioEngine.setBitPerfectMode(isBitPerfect);
 
     // Initial devices enumeration
@@ -321,13 +378,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           isShuffle,
           replayGainMode,
           crossfadeDuration,
+          transitionMode,
           isBitPerfect,
         })
       );
     } catch {
       /* ignore */
     }
-  }, [volume, isMuted, playbackRate, preservesPitch, repeatMode, isShuffle, replayGainMode, crossfadeDuration, isBitPerfect]);
+  }, [volume, isMuted, playbackRate, preservesPitch, repeatMode, isShuffle, replayGainMode, crossfadeDuration, transitionMode, isBitPerfect]);
 
   // Harmoniq 2.0: Session Recovery on Launch
   useEffect(() => {
@@ -384,6 +442,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   useEffect(() => {
     const handleBeforeUnload = () => {
       commitListeningSession();
+      sessionTrackingService.endCurrentSession();
       if (currentTrackRef.current || queueRef.current.length > 0) {
         sessionRecoveryService.saveSessionImmediate({
           currentTrackId: currentTrackRef.current?.id || null,
@@ -420,6 +479,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           const delta = (now - lastPlaybackTimestampRef.current) / 1000;
           if (delta > 0 && delta < 2.0) {
             listeningDurationRef.current += delta;
+            sessionTrackingService.onPlaybackProgress(delta);
           }
         }
         lastPlaybackTimestampRef.current = now;
@@ -586,6 +646,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     setCurrentTrack(playableTrack);
     await audioEngine.loadAndPlay(playableTrack, startPos);
+    sessionTrackingService.onPlaybackStarted(playableTrack);
 
     // Add to history
     setHistory((prev) => [playableTrack, ...prev.filter((t) => t.id !== playableTrack.id)].slice(0, 50));
@@ -748,6 +809,64 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setCrossfadeDuration(0);
     }
   };
+
+  const setTransitionMode = (mode: TransitionMode) => {
+    setTransitionModeState(mode);
+    audioEngine.setTransitionMode(mode);
+  };
+
+  // Bookmarks Actions (Phase 5C.2)
+  const addBookmark = useCallback(
+    (trackId: string, title: string, timestamp: number, note?: string) => {
+      const b = bookmarkService.addBookmark(trackId, title, timestamp, note);
+      showToast(`Bookmark saved at ${bookmarkService.formatTimestamp(timestamp)}`, 'success');
+      return b;
+    },
+    [showToast]
+  );
+
+  const updateBookmark = useCallback(
+    (id: string, updates: { title?: string; note?: string; timestamp?: number }) => {
+      return bookmarkService.updateBookmark(id, updates);
+    },
+    []
+  );
+
+  const deleteBookmark = useCallback(
+    (id: string) => {
+      const res = bookmarkService.deleteBookmark(id);
+      if (res) showToast('Bookmark removed', 'info');
+      return res;
+    },
+    [showToast]
+  );
+
+  const getBookmarksForTrack = useCallback((trackId: string) => {
+    return bookmarkService.getBookmarksForTrack(trackId);
+  }, []);
+
+  // Listening Sessions Actions (Phase 5C.5)
+  const replaySession = useCallback(
+    (sessionId: string) => {
+      const tracks = sessionTrackingService.replaySession(sessionId);
+      if (tracks.length > 0) {
+        playTrack(tracks[0], tracks);
+        showToast(`Replaying session (${tracks.length} tracks)`, 'info');
+      } else {
+        showToast('No tracks found to replay for this session', 'warning');
+      }
+    },
+    [showToast]
+  );
+
+  const clearSessionHistory = useCallback(() => {
+    sessionTrackingService.clearSessionHistory();
+    showToast('Session history cleared', 'info');
+  }, [showToast]);
+
+  const setSessionTrackingEnabled = useCallback((enabled: boolean) => {
+    sessionTrackingService.setTrackingEnabled(enabled);
+  }, []);
 
   // A-B Repeat Actions
   const setABRepeatPointA = (seconds?: number) => {
@@ -1238,12 +1357,27 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         setReplayGainMode,
         setCrossfadeDuration,
         setCrossfadeEnabled,
+        transitionMode,
+        setTransitionMode,
         addToQueue,
         playNext,
         removeFromQueue,
         reorderQueue,
         clearQueue,
         replaceQueue,
+        // Bookmarks (Phase 5C.2)
+        bookmarks,
+        addBookmark,
+        updateBookmark,
+        deleteBookmark,
+        getBookmarksForTrack,
+        // Listening Sessions (Phase 5C.5)
+        currentSession,
+        sessionHistory,
+        replaySession,
+        clearSessionHistory,
+        isSessionTrackingEnabled,
+        setSessionTrackingEnabled,
         // A-B Repeat
         abRepeat,
         setABRepeatPointA,

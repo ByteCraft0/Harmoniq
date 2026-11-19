@@ -169,6 +169,64 @@ export class AudioParameterAutomation {
   }
 
   /**
+   * Transition an AudioParam using an equal-power sine/cosine curve.
+   * Eliminates the -3dB perceived acoustic volume dip experienced with linear crossfade ramps.
+   *
+   * Direction 'in':  g(t) = sin(pi/2 * (t / T)), from 0.0 to targetValue (default 1.0)
+   * Direction 'out': g(t) = cos(pi/2 * (t / T)), from startValue (default 1.0) to 0.0
+   * Constant power sum: sin^2(x) + cos^2(x) = 1.0
+   */
+  public static equalPowerFade(
+    param: AudioParam | undefined | null,
+    direction: 'in' | 'out',
+    durationSec: number,
+    audioCtx: AudioContext | null,
+    options: AutomationOptions = {}
+  ): void {
+    if (!param) return;
+
+    const safeDuration = Math.max(0.01, Number.isFinite(durationSec) ? durationSec : 0.05);
+    const targetValue = direction === 'in' ? (options.max ?? 1.0) : 0.0;
+    const clampedTarget = this.validateValue(targetValue, targetValue, options.min, options.max);
+
+    if (!audioCtx || audioCtx.state === 'closed') {
+      try {
+        param.value = clampedTarget;
+      } catch {
+        // ignore
+      }
+      return;
+    }
+
+    const now = Math.max(0, audioCtx.currentTime);
+    const steps = 64;
+    const curve = new Float32Array(steps);
+    const scale = options.max ?? 1.0;
+
+    for (let i = 0; i < steps; i++) {
+      const norm = i / (steps - 1);
+      const angle = (Math.PI / 2) * norm;
+      if (direction === 'in') {
+        curve[i] = Math.sin(angle) * scale;
+      } else {
+        curve[i] = Math.cos(angle) * scale;
+      }
+    }
+
+    try {
+      this.cancelAutomation(param, audioCtx, true);
+      if (typeof (param as any).setValueCurveAtTime === 'function') {
+        (param as any).setValueCurveAtTime(curve, now, safeDuration);
+      } else {
+        // Fallback for mock environments lacking setValueCurveAtTime
+        this.linearRamp(param, clampedTarget, safeDuration, audioCtx, options);
+      }
+    } catch {
+      this.linearRamp(param, clampedTarget, safeDuration, audioCtx, options);
+    }
+  }
+
+  /**
    * Safely set an AudioParam immediately with bounds validation,
    * cancelling any active automation.
    */

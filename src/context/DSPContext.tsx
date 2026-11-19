@@ -785,9 +785,9 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentVolume: 1.0,
       });
 
-      if (type === 'crossfade') {
+      if (type === 'crossfade' || type === 'fade_out_fade_in') {
         // Dual-deck independence: Apply incoming track settings to the standby deck (the incoming deck)!
-        // Outgoing active deck retains its existing track EQ throughout the crossfade fade-out!
+        // Outgoing active deck retains its existing track EQ throughout the transition!
         audioEngine.setStandbyDeckDSPSettings(resolved.settings);
       } else {
         updateSettings(resolved.settings);

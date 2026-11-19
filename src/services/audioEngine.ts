@@ -22,7 +22,12 @@ export type PlaybackStatusCallback = (status: {
 
 export type PlaybackErrorCallback = (message: string, track: TrackMetadata | null) => void;
 
-export type TrackTransitionCallback = (nextTrack: TrackMetadata, type: 'gapless' | 'crossfade') => void;
+export type TransitionMode = 'crossfade' | 'gapless' | 'fade_out_fade_in';
+
+export type TrackTransitionCallback = (
+  nextTrack: TrackMetadata,
+  type: 'gapless' | 'crossfade' | 'fade_out_fade_in'
+) => void;
 
 /**
  * Build a robust media URL:
@@ -156,6 +161,7 @@ class AudioEngine {
   };
   private replayGainMode: ReplayGainMode = 'off';
   private crossfadeDuration = 0; // 0 = disabled (gapless playback); 1 - 12 seconds
+  private transitionMode: TransitionMode = 'crossfade';
   private isTransitioning = false;
   private transitionTimeout: any = null;
   private currentSinkId = '';
@@ -479,18 +485,22 @@ class AudioEngine {
 
     const remaining = duration - currentTime;
 
-    // A. Crossfade transition trigger
-    if (this.crossfadeDuration > 0 && this.standbyDeck.isPreloaded && this.standbyDeck.currentTrack) {
+    // A. Crossfade / Fade-out-fade-in transition trigger
+    if (this.transitionMode !== 'gapless' && this.crossfadeDuration > 0 && this.standbyDeck.isPreloaded && this.standbyDeck.currentTrack) {
       // Ensure the track is long enough to crossfade safely
       const minTrackDuration = this.crossfadeDuration * 1.5;
       if (duration >= minTrackDuration && remaining <= this.crossfadeDuration) {
-        this.startCrossfadeTransition(Math.max(1, remaining));
+        if (this.transitionMode === 'fade_out_fade_in') {
+          this.startFadeOutFadeInTransition(Math.max(1, remaining));
+        } else {
+          this.startCrossfadeTransition(Math.max(1, remaining));
+        }
         return;
       }
     }
 
-    // B. Gapless playback trigger (crossfade disabled: 0s)
-    if (this.crossfadeDuration === 0 && this.standbyDeck.isPreloaded && this.standbyDeck.currentTrack) {
+    // B. Gapless playback trigger (gapless mode or crossfade disabled: 0s)
+    if ((this.transitionMode === 'gapless' || this.crossfadeDuration === 0) && this.standbyDeck.isPreloaded && this.standbyDeck.currentTrack) {
       // Trigger gapless handoff 60ms before completion to eliminate decoder initialization latency
       if (remaining <= 0.06) {
         this.executeGaplessTransition();
@@ -557,6 +567,7 @@ class AudioEngine {
 
   /**
    * Execute smooth crossfade transition across active and standby decks
+   * Uses equal-power sine/cosine automation curves to avoid the 3dB dip
    */
   private startCrossfadeTransition(fadeSeconds: number): void {
     if (!this.activeDeck || !this.standbyDeck || !this.standbyDeck.currentTrack || !this.audioCtx) return;
@@ -566,13 +577,12 @@ class AudioEngine {
     const outgoing = this.activeDeck;
     const incoming = this.standbyDeck;
 
-    const now = this.audioCtx.currentTime;
     const duration = Math.min(this.crossfadeDuration, Math.max(1, fadeSeconds));
 
-    // 1. Start incoming deck at zero gain
+    // 1. Equal-Power Fade-in on incoming deck (0 -> 1 via sin curve)
     if (incoming.faderGain) {
       AudioParameterAutomation.safeSetValue(incoming.faderGain.gain, 0.0, this.audioCtx);
-      AudioParameterAutomation.linearRamp(incoming.faderGain.gain, 1.0, duration, this.audioCtx);
+      AudioParameterAutomation.equalPowerFade(incoming.faderGain.gain, 'in', duration, this.audioCtx);
     }
 
     incoming.element.currentTime = 0;
@@ -580,9 +590,9 @@ class AudioEngine {
       console.warn('Crossfade incoming deck play error:', err);
     });
 
-    // 2. Ramp outgoing deck fader down to 0
+    // 2. Equal-Power Fade-out on outgoing deck (1 -> 0 via cos curve)
     if (outgoing.faderGain) {
-      AudioParameterAutomation.linearRamp(outgoing.faderGain.gain, 0.0, duration, this.audioCtx);
+      AudioParameterAutomation.equalPowerFade(outgoing.faderGain.gain, 'out', duration, this.audioCtx);
     }
 
     // 3. Notify listeners that crossfade has begun so current track title & lyrics update in sync
@@ -608,6 +618,70 @@ class AudioEngine {
         this.emitStatus();
       }
     }, duration * 1000 + 50);
+  }
+
+  /**
+   * Execute clean fade-out then fade-in transition across active and standby decks
+   * Ensures distinct silence separation between tracks rather than simultaneous overlap
+   */
+  private startFadeOutFadeInTransition(fadeSeconds: number): void {
+    if (!this.activeDeck || !this.standbyDeck || !this.standbyDeck.currentTrack || !this.audioCtx) return;
+
+    this.isTransitioning = true;
+    const incomingTrack = this.standbyDeck.currentTrack;
+    const outgoing = this.activeDeck;
+    const incoming = this.standbyDeck;
+
+    const totalDuration = Math.min(this.crossfadeDuration, Math.max(1, fadeSeconds));
+    const halfDuration = Math.max(0.25, totalDuration / 2);
+
+    // 1. Fade outgoing deck completely down to 0
+    if (outgoing.faderGain) {
+      AudioParameterAutomation.linearRamp(outgoing.faderGain.gain, 0.0, halfDuration, this.audioCtx);
+    }
+
+    // 2. Ensure incoming deck is silent initially
+    if (incoming.faderGain) {
+      AudioParameterAutomation.safeSetValue(incoming.faderGain.gain, 0.0, this.audioCtx);
+    }
+
+    if (this.transitionTimeout) clearTimeout(this.transitionTimeout);
+
+    // 3. Once outgoing has faded, pause outgoing, start incoming, and fade it in
+    this.transitionTimeout = setTimeout(() => {
+      if (!this.isTransitioning || this.activeDeck?.id !== outgoing.id) return;
+
+      outgoing.element.pause();
+      if (outgoing.faderGain) {
+        AudioParameterAutomation.safeSetValue(outgoing.faderGain.gain, 0.0, this.audioCtx);
+      }
+
+      incoming.element.currentTime = 0;
+      incoming.element.play().catch((err) => {
+        console.warn('FadeOutFadeIn incoming deck play error:', err);
+      });
+
+      if (incoming.faderGain) {
+        AudioParameterAutomation.linearRamp(incoming.faderGain.gain, 1.0, halfDuration, this.audioCtx);
+      }
+
+      // Notify listeners of the transition
+      this.transitionListeners.forEach((cb) => cb(incomingTrack, 'fade_out_fade_in'));
+
+      // 4. Complete handoff once incoming has finished fading in
+      this.transitionTimeout = setTimeout(() => {
+        if (this.isTransitioning && this.activeDeck?.id === outgoing.id) {
+          this.activeDeck = incoming;
+          this.standbyDeck = outgoing;
+          this.standbyDeck.isPreloaded = false;
+          this.isTransitioning = false;
+          if (incoming.deckDspSettings) {
+            this.dspSettings = { ...incoming.deckDspSettings };
+          }
+          this.emitStatus();
+        }
+      }, halfDuration * 1000 + 50);
+    }, halfDuration * 1000 + 30);
   }
 
   /**
@@ -686,7 +760,8 @@ class AudioEngine {
 
     // Set initial fader gain: 1.0 for instant gapless handoff, 0.0 for crossfade ramp
     if (this.audioCtx && this.standbyDeck.faderGain) {
-      const targetGain = this.crossfadeDuration > 0 ? 0.0 : 1.0;
+      const targetGain =
+        this.transitionMode !== 'gapless' && this.crossfadeDuration > 0 ? 0.0 : 1.0;
       this.standbyDeck.faderGain.gain.cancelScheduledValues(this.audioCtx.currentTime);
       this.standbyDeck.faderGain.gain.setValueAtTime(targetGain, this.audioCtx.currentTime);
     }
@@ -911,6 +986,14 @@ class AudioEngine {
 
   public isCrossfading(): boolean {
     return this.isTransitioning;
+  }
+
+  public setTransitionMode(mode: TransitionMode): void {
+    this.transitionMode = mode;
+  }
+
+  public getTransitionMode(): TransitionMode {
+    return this.transitionMode;
   }
 
   public setReplayGainMode(mode: ReplayGainMode): void {
