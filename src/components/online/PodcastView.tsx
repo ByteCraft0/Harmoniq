@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { podcastService, CURATED_PODCASTS } from '../../services/podcastService';
 import { PodcastFeed, PodcastEpisode } from '../../types/online';
 import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
+import { AddPodcastModal } from './AddPodcastModal';
 import {
   Podcast,
   Play,
@@ -22,12 +23,14 @@ import {
   Check,
   Radio,
   FileAudio,
+  Sparkles,
 } from 'lucide-react';
 
 export const PodcastView: React.FC = () => {
   const [feeds, setFeeds] = useState<PodcastFeed[]>([]);
   const [selectedFeed, setSelectedFeed] = useState<PodcastFeed | null>(null);
   const [playbackState, setPlaybackState] = useState(podcastService.getPlaybackState());
+  const [showAddModal, setShowAddModal] = useState(false);
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [feedUrl, setFeedUrl] = useState('');
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
@@ -173,11 +176,11 @@ export const PodcastView: React.FC = () => {
         </div>
 
         <button
-          onClick={handleOpenSubscribeModal}
-          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-[#F5F3FF] text-xs font-semibold rounded-xl shadow-md transition shrink-0"
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition active:scale-95 shrink-0"
         >
-          <Plus size={16} />
-          <span>Subscribe via RSS</span>
+          <Sparkles size={15} className="text-violet-200" />
+          <span>Add Podcast</span>
         </button>
       </div>
 
@@ -391,10 +394,10 @@ export const PodcastView: React.FC = () => {
                 <HarmoniqEmptyState
                   type="empty_search"
                   title="No Podcast Subscriptions"
-                  description="Subscribe to featured podcast shows below or enter an RSS feed URL to stream audio episodes."
+                  description="Paste a podcast website, Spotify, Apple Podcasts or RSS link to stream audio episodes."
                   action={{
-                    label: 'Add RSS Feed',
-                    onClick: () => setShowSubscribeModal(true),
+                    label: 'Add Podcast',
+                    onClick: () => setShowAddModal(true),
                   }}
                 />
               </div>
@@ -603,6 +606,12 @@ export const PodcastView: React.FC = () => {
           </div>
         </div>
       )}
+      {/* Smart Podcast URL Importer Modal */}
+      <AddPodcastModal
+        isOpen={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        onSubscribed={(feed) => setSelectedFeed(feed)}
+      />
     </div>
   );
 };

@@ -110,6 +110,7 @@ export interface HarmoniqApi {
 
   // Online Integrations
   fetchPodcastFeed: (feedUrl: string) => Promise<{ xmlText: string; effectiveUrl: string; contentType: string }>;
+  resolvePodcastUrl?: (urlOrQuery: string) => Promise<any>;
   searchOnlineMusic: (query: string, filter?: string) => Promise<any[]>;
   verifyRadioStream: (streamUrl: string) => Promise<{
     accessible: boolean;

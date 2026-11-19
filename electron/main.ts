@@ -1285,6 +1285,422 @@ function setupIpc() {
     }
   });
 
+  // Smart Podcast URL Resolver IPC Handler
+  ipcMain.handle('podcast:resolveUrl', async (_e, rawInput: string) => {
+    if (typeof rawInput !== 'string' || !rawInput.trim()) {
+      return {
+        success: false,
+        originalInput: '',
+        urlType: 'unknown',
+        title: '',
+        author: '',
+        description: '',
+        episodeCount: 0,
+        error: 'Please enter a podcast URL, website, or show title.',
+      };
+    }
+
+    const input = rawInput.trim();
+
+    // Helper to parse basic XML metadata from feed string
+    const parseQuickXmlMeta = (xmlText: string, feedUrl: string) => {
+      const cleanText = xmlText.replace(/^\uFEFF/, '').trim();
+      const getTag = (xml: string, tag: string) => {
+        const m = xml.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i'));
+        return m ? m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim() : '';
+      };
+      const getAttr = (xml: string, tag: string, attr: string) => {
+        const m = xml.match(new RegExp(`<${tag}[^>]*?${attr}=["']([^"']+)["']`, 'i'));
+        return m ? m[1] : '';
+      };
+
+      const channelMatch = cleanText.match(/<channel[\s\S]*?>([\s\S]*?)<\/channel>/i);
+      if (channelMatch) {
+        const channelXml = channelMatch[1];
+        const title = getTag(channelXml, 'title') || 'Untitled Podcast';
+        const author = getTag(channelXml, 'itunes:author') || getTag(channelXml, 'author') || 'Unknown Author';
+        const description = (getTag(channelXml, 'description') || getTag(channelXml, 'itunes:summary') || '')
+          .replace(/<[^>]*>?/gm, '')
+          .slice(0, 400);
+        const artworkUrl = getAttr(channelXml, 'itunes:image', 'href') || getTag(channelXml, 'url') || undefined;
+
+        const itemMatches = channelXml.match(/<item[\s\S]*?>[\s\S]*?<\/item>/gi) || [];
+        const episodeCount = itemMatches.length;
+
+        let latestTitle = '';
+        let latestDate = '';
+        if (itemMatches.length > 0) {
+          latestTitle = getTag(itemMatches[0], 'title');
+          latestDate = getTag(itemMatches[0], 'pubDate');
+        }
+
+        return {
+          title,
+          author,
+          description,
+          artworkUrl,
+          episodeCount,
+          latestEpisodeTitle: latestTitle,
+          latestEpisodeDate: latestDate ? new Date(latestDate).toLocaleDateString() : '',
+          resolvedFeedUrl: feedUrl,
+        };
+      }
+
+      // Atom feed
+      if (/<feed[\s\S]*?>/i.test(cleanText)) {
+        const title = getTag(cleanText, 'title') || 'Untitled Podcast';
+        const author = getTag(cleanText, 'name') || 'Unknown Author';
+        const description = (getTag(cleanText, 'subtitle') || getTag(cleanText, 'summary') || '')
+          .replace(/<[^>]*>?/gm, '')
+          .slice(0, 400);
+        const artworkUrl = getTag(cleanText, 'logo') || getTag(cleanText, 'icon') || undefined;
+        const entryMatches = cleanText.match(/<entry[\s\S]*?>[\s\S]*?<\/entry>/gi) || [];
+
+        let latestTitle = '';
+        let latestDate = '';
+        if (entryMatches.length > 0) {
+          latestTitle = getTag(entryMatches[0], 'title');
+          latestDate = getTag(entryMatches[0], 'published') || getTag(entryMatches[0], 'updated');
+        }
+
+        return {
+          title,
+          author,
+          description,
+          artworkUrl,
+          episodeCount: entryMatches.length,
+          latestEpisodeTitle: latestTitle,
+          latestEpisodeDate: latestDate ? new Date(latestDate).toLocaleDateString() : '',
+          resolvedFeedUrl: feedUrl,
+        };
+      }
+
+      return null;
+    };
+
+    // 1. Normalize input if it looks like a URL missing protocol
+    let candidateUrl = input;
+    const isExplicitUrl = /^https?:\/\//i.test(input);
+    if (!isExplicitUrl) {
+      if (/^(?:www\.|podcasts\.apple\.com|open\.spotify\.com|pca\.st|overcast\.fm|[a-zA-Z0-9-]+\.[a-zA-Z]{2,}\/)/i.test(input)) {
+        candidateUrl = `https://${input}`;
+      }
+    }
+
+    let parsedUrl: URL | null = null;
+    try {
+      parsedUrl = new URL(candidateUrl);
+    } catch {
+      parsedUrl = null;
+    }
+
+    // If not a URL (e.g. search query like "Planet Money")
+    if (!parsedUrl) {
+      try {
+        const itunesUrl = `https://itunes.apple.com/search?term=${encodeURIComponent(input)}&entity=podcast&limit=5`;
+        const res = await fetch(itunesUrl, { headers: { 'User-Agent': 'Harmoniq-Podcast-Resolver/1.0.0' } });
+        if (res.ok) {
+          const data = await res.json();
+          const match = data?.results?.[0];
+          if (match && match.feedUrl && isSafePublicUrl(match.feedUrl)) {
+            const feedRes = await fetch(match.feedUrl, { headers: { 'User-Agent': 'Harmoniq-Podcast-Resolver/1.0.0' } });
+            if (feedRes.ok) {
+              const xml = await feedRes.text();
+              const meta = parseQuickXmlMeta(xml, match.feedUrl);
+              if (meta) {
+                return {
+                  success: true,
+                  urlType: 'search_query',
+                  originalInput: input,
+                  ...meta,
+                  artworkUrl: meta.artworkUrl || match.artworkUrl600,
+                  author: meta.author || match.artistName,
+                };
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn('Podcast search lookup failed:', err);
+      }
+      return {
+        success: false,
+        urlType: 'search_query',
+        originalInput: input,
+        title: '',
+        author: '',
+        description: '',
+        episodeCount: 0,
+        error: `No podcast found matching query "${input}".`,
+      };
+    }
+
+    // SSRF Check for candidate URL
+    if (!isSafePublicUrl(candidateUrl)) {
+      return {
+        success: false,
+        urlType: 'unknown',
+        originalInput: input,
+        title: '',
+        author: '',
+        description: '',
+        episodeCount: 0,
+        error: 'Disallowed network address. Localhost and private intranet addresses are blocked for security.',
+      };
+    }
+
+    const host = parsedUrl.hostname.toLowerCase();
+
+    // 2. Case: Apple Podcasts
+    const appleIdMatch = candidateUrl.match(/\/id(\d+)/i);
+    if ((host.includes('apple.com') || host.includes('itunes.com')) && appleIdMatch) {
+      const appleId = appleIdMatch[1];
+      try {
+        const lookupUrl = `https://itunes.apple.com/lookup?id=${appleId}&entity=podcast`;
+        const res = await fetch(lookupUrl, { headers: { 'User-Agent': 'Harmoniq-Podcast-Resolver/1.0.0' } });
+        if (res.ok) {
+          const data = await res.json();
+          const result = data?.results?.[0];
+          if (result && result.feedUrl && isSafePublicUrl(result.feedUrl)) {
+            const feedRes = await fetch(result.feedUrl, { headers: { 'User-Agent': 'Harmoniq-Podcast-Resolver/1.0.0' } });
+            if (feedRes.ok) {
+              const xml = await feedRes.text();
+              const meta = parseQuickXmlMeta(xml, result.feedUrl);
+              if (meta) {
+                return {
+                  success: true,
+                  urlType: 'apple_podcasts',
+                  originalInput: input,
+                  ...meta,
+                  artworkUrl: meta.artworkUrl || result.artworkUrl600,
+                  author: meta.author || result.artistName,
+                };
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        return {
+          success: false,
+          urlType: 'apple_podcasts',
+          originalInput: input,
+          title: '',
+          author: '',
+          description: '',
+          episodeCount: 0,
+          error: `Failed to resolve Apple Podcasts ID ${appleId}: ${err?.message || 'Network error'}`,
+        };
+      }
+    }
+
+    // 3. Case: Spotify Show
+    const spotifyMatch = candidateUrl.match(/open\.spotify\.com\/show\/([a-zA-Z0-9]+)/i);
+    if (spotifyMatch) {
+      try {
+        const spotRes = await fetch(candidateUrl, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          },
+        });
+
+        if (spotRes.ok) {
+          const html = await spotRes.text();
+          let showTitle = '';
+          const ogTitleMatch = html.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
+          if (ogTitleMatch) {
+            showTitle = ogTitleMatch[1];
+          } else {
+            const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+            if (titleMatch) {
+              showTitle = titleMatch[1].replace(/\s*\|\s*Podcast on Spotify/i, '').replace(/\s*\|\s*Spotify/i, '');
+            }
+          }
+          showTitle = showTitle.trim();
+
+          if (showTitle) {
+            const itunesSearch = `https://itunes.apple.com/search?term=${encodeURIComponent(showTitle)}&entity=podcast&limit=5`;
+            const searchRes = await fetch(itunesSearch, { headers: { 'User-Agent': 'Harmoniq-Podcast-Resolver/1.0.0' } });
+            if (searchRes.ok) {
+              const data = await searchRes.json();
+              const results = data?.results || [];
+              const cleanShow = showTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+              const matched = results.find((r: any) => {
+                const rTitle = (r.collectionName || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                return rTitle.includes(cleanShow) || cleanShow.includes(rTitle);
+              });
+
+              if (matched && matched.feedUrl && isSafePublicUrl(matched.feedUrl)) {
+                const feedRes = await fetch(matched.feedUrl, { headers: { 'User-Agent': 'Harmoniq-Podcast-Resolver/1.0.0' } });
+                if (feedRes.ok) {
+                  const xml = await feedRes.text();
+                  const meta = parseQuickXmlMeta(xml, matched.feedUrl);
+                  if (meta) {
+                    return {
+                      success: true,
+                      urlType: 'spotify_show',
+                      originalInput: input,
+                      ...meta,
+                      artworkUrl: meta.artworkUrl || matched.artworkUrl600,
+                      warning: `Resolved public RSS feed for Spotify show "${showTitle}".`,
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+      } catch (err: any) {
+        console.warn('Spotify show lookup failed:', err);
+      }
+
+      return {
+        success: false,
+        urlType: 'spotify_show',
+        isExclusive: true,
+        originalInput: input,
+        title: '',
+        author: '',
+        description: '',
+        episodeCount: 0,
+        error: 'This show appears to be a Spotify-exclusive or walled-garden podcast that does not provide an open RSS feed.',
+      };
+    }
+
+    // 4. Case: Direct RSS/Atom Feed URL or Website
+    try {
+      const feedRes = await fetch(candidateUrl, {
+        headers: {
+          'User-Agent': 'Harmoniq-Podcast-Engine/1.0.0',
+          'Accept': 'application/rss+xml, application/xml, text/xml, application/atom+xml, text/html, */*',
+        },
+      });
+
+      if (feedRes.ok) {
+        const text = await feedRes.text();
+        const meta = parseQuickXmlMeta(text, candidateUrl);
+        if (meta && meta.episodeCount >= 0) {
+          return {
+            success: true,
+            urlType: 'direct_rss',
+            originalInput: input,
+            ...meta,
+          };
+        }
+
+        // 5. HTML website page: inspect for RSS alternate links
+        if (text.includes('<html') || text.includes('<!DOCTYPE html')) {
+          const linkRegex = /<link[^>]+(?:type=["']application\/(?:rss\+xml|atom\+xml|xml)["']|rel=["']alternate["'])[^>]*>/gi;
+          let linkMatch: RegExpExecArray | null;
+          let discoveredFeedUrl = '';
+
+          const hrefRegex = /href=["']([^"']+)["']/i;
+          const typeRegex = /type=["']application\/(?:rss\+xml|atom\+xml|xml)["']/i;
+
+          while ((linkMatch = linkRegex.exec(text)) !== null) {
+            const tag = linkMatch[0];
+            if (typeRegex.test(tag)) {
+              const h = tag.match(hrefRegex);
+              if (h && h[1]) {
+                discoveredFeedUrl = h[1];
+                break;
+              }
+            }
+          }
+
+          if (discoveredFeedUrl) {
+            try {
+              discoveredFeedUrl = new URL(discoveredFeedUrl, candidateUrl).href;
+            } catch {
+              /* ignore */
+            }
+          }
+
+          if (!discoveredFeedUrl) {
+            const aRegex = /<a[^>]+href=["']([^"']+\.(?:rss|xml)|[^"']*\/feed\/?)[^"']*["'][^>]*>/i;
+            const aMatch = text.match(aRegex);
+            if (aMatch && aMatch[1]) {
+              try {
+                discoveredFeedUrl = new URL(aMatch[1], candidateUrl).href;
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+
+          if (discoveredFeedUrl && isSafePublicUrl(discoveredFeedUrl)) {
+            const resolvedRes = await fetch(discoveredFeedUrl, { headers: { 'User-Agent': 'Harmoniq-Podcast-Engine/1.0.0' } });
+            if (resolvedRes.ok) {
+              const resolvedXml = await resolvedRes.text();
+              const resolvedMeta = parseQuickXmlMeta(resolvedXml, discoveredFeedUrl);
+              if (resolvedMeta) {
+                return {
+                  success: true,
+                  urlType: 'website',
+                  originalInput: input,
+                  websiteUrl: candidateUrl,
+                  ...resolvedMeta,
+                };
+              }
+            }
+          }
+
+          // Fallback: extract page title and query directory
+          const ogTitleMatch = text.match(/<meta\s+property=["']og:title["']\s+content=["']([^"']+)["']/i);
+          const pageTitle = ogTitleMatch ? ogTitleMatch[1] : (text.match(/<title>([^<]+)<\/title>/i)?.[1] || '');
+          if (pageTitle.trim()) {
+            const cleanTitle = pageTitle.replace(/\s*[-|]\s*Podcast.*$/i, '').trim();
+            const itunesSearch = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanTitle)}&entity=podcast&limit=3`;
+            const searchRes = await fetch(itunesSearch, { headers: { 'User-Agent': 'Harmoniq-Podcast-Resolver/1.0.0' } });
+            if (searchRes.ok) {
+              const data = await searchRes.json();
+              const match = data?.results?.[0];
+              if (match && match.feedUrl && isSafePublicUrl(match.feedUrl)) {
+                const fRes = await fetch(match.feedUrl, { headers: { 'User-Agent': 'Harmoniq-Podcast-Resolver/1.0.0' } });
+                if (fRes.ok) {
+                  const xml = await fRes.text();
+                  const m = parseQuickXmlMeta(xml, match.feedUrl);
+                  if (m) {
+                    return {
+                      success: true,
+                      urlType: 'website',
+                      originalInput: input,
+                      websiteUrl: candidateUrl,
+                      ...m,
+                      artworkUrl: m.artworkUrl || match.artworkUrl600,
+                    };
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      return {
+        success: false,
+        urlType: 'unknown',
+        originalInput: input,
+        title: '',
+        author: '',
+        description: '',
+        episodeCount: 0,
+        error: `Could not fetch or resolve URL: ${err?.message || 'Network error'}`,
+      };
+    }
+
+    return {
+      success: false,
+      urlType: 'unknown',
+      originalInput: input,
+      title: '',
+      author: '',
+      description: '',
+      episodeCount: 0,
+      error: 'Could not find a valid podcast RSS or Atom feed at the provided link.',
+    };
+  });
+
   ipcMain.handle('radio:verifyStream', async (_e, rawUrl: string) => {
     if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
       return { accessible: false, directStreamUrl: rawUrl, error: 'Empty stream URL provided' };

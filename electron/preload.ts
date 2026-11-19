@@ -64,6 +64,7 @@ const harmoniqApi = {
 
   // Online Integrations
   fetchPodcastFeed: (feedUrl: string) => ipcRenderer.invoke('podcast:fetchFeed', feedUrl),
+  resolvePodcastUrl: (urlOrQuery: string) => ipcRenderer.invoke('podcast:resolveUrl', urlOrQuery),
   searchOnlineMusic: (query: string, filter?: string) => ipcRenderer.invoke('online:searchMusic', query, filter),
   verifyRadioStream: (streamUrl: string) => ipcRenderer.invoke('radio:verifyStream', streamUrl),
 
