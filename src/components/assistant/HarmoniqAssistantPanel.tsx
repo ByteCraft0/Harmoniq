@@ -22,17 +22,21 @@ import { HarmoniqPulseOrb } from './HarmoniqPulseOrb';
 import { AssistantAction, AssistantMessage } from '../../types/assistant';
 
 interface HarmoniqAssistantPanelProps {
+  isOpen?: boolean;
+  onClose?: () => void;
   onOpenSettings?: () => void;
 }
 
 export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
+  isOpen: isOpenProp,
+  onClose: onCloseProp,
   onOpenSettings
 }) => {
   const {
     config,
     messages,
     orbState,
-    isOpen,
+    isOpen: hookIsOpen,
     isListening,
     interimTranscript,
     closeAssistant,
@@ -45,6 +49,9 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
     cancelListening
   } = useAssistant();
 
+  const isPanelOpen = isOpenProp !== undefined ? isOpenProp : hookIsOpen;
+  const handleClose = onCloseProp || closeAssistant;
+
   const { activeView, setActiveView } = useLibrary();
 
   const [inputVal, setInputVal] = useState('');
@@ -55,17 +62,17 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
 
   // Auto-scroll chat to bottom
   useEffect(() => {
-    if (isOpen) {
+    if (isPanelOpen) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, interimTranscript, isOpen]);
+  }, [messages, interimTranscript, isPanelOpen]);
 
   // Focus input on panel open
   useEffect(() => {
-    if (isOpen) {
+    if (isPanelOpen) {
       setTimeout(() => inputRef.current?.focus(), 150);
     }
-  }, [isOpen]);
+  }, [isPanelOpen]);
 
   const handleSend = async (textToSend?: string) => {
     const text = (textToSend || inputVal).trim();
@@ -108,17 +115,17 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
 
   const suggestedQuestions = getSuggestedQuestions(activeView);
 
-  if (!isOpen) return null;
+  if (!isPanelOpen) return null;
 
   return (
     <div
       aria-label="Harmoniq Assistant Window"
-      className="fixed bottom-24 right-6 z-40 w-96 max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-8rem)] flex flex-col bg-[#0b0813]/95 backdrop-blur-2xl border border-violet-500/30 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_30px_rgba(139,92,246,0.15)] overflow-hidden transition-all duration-300 animate-in fade-in zoom-in-95"
+      className="fixed bottom-24 right-6 z-50 w-96 max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-8rem)] flex flex-col bg-[#0b0813]/95 backdrop-blur-2xl border border-violet-500/30 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_30px_rgba(139,92,246,0.25)] overflow-hidden transition-all duration-300 animate-assistant-enter"
     >
       {/* Top Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-950/40 via-purple-900/20 to-transparent border-b border-violet-500/20 select-none">
         <div className="flex items-center gap-2.5">
-          <HarmoniqPulseOrb state={orbState} onClick={() => {}} className="!w-7 !h-7" />
+          <HarmoniqPulseOrb state={orbState} onClick={handleClose} className="!w-7 !h-7" />
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-semibold text-violet-100 tracking-wide">
@@ -148,7 +155,7 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
             <button
               onClick={() => {
                 onOpenSettings();
-                closeAssistant();
+                handleClose();
               }}
               title="Assistant Settings"
               aria-label="Assistant Settings"
@@ -158,7 +165,7 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
             </button>
           )}
           <button
-            onClick={closeAssistant}
+            onClick={handleClose}
             title="Close Assistant"
             aria-label="Close Assistant"
             className="p-1.5 hover:text-zinc-200 hover:bg-white/5 rounded-lg transition-colors ml-0.5"

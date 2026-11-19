@@ -8,35 +8,38 @@ export function useAssistant() {
   const [config, setConfig] = useState<AssistantConfig>(assistantService.getConfig());
   const [messages, setMessages] = useState<AssistantMessage[]>(assistantService.getMessages());
   const [orbState, setOrbState] = useState<PulseOrbState>(assistantService.getOrbState());
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState<boolean>(assistantService.getIsOpen());
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
 
   useEffect(() => {
+    // Initial sync
+    setConfig(assistantService.getConfig());
+    setMessages(assistantService.getMessages());
+    setOrbState(assistantService.getOrbState());
+    setIsOpen(assistantService.getIsOpen());
+
     const unsubscribe = assistantService.subscribe(() => {
       setConfig(assistantService.getConfig());
       setMessages(assistantService.getMessages());
       setOrbState(assistantService.getOrbState());
+      setIsOpen(assistantService.getIsOpen());
     });
     return unsubscribe;
   }, []);
 
   const openAssistant = useCallback(() => {
-    setIsOpen(true);
+    assistantService.open();
   }, []);
 
   const closeAssistant = useCallback(() => {
-    setIsOpen(false);
-    if (speechService.isListening()) {
-      speechService.stopRecognition();
-      setIsListening(false);
-      setInterimTranscript('');
-      assistantService.setOrbState('idle');
-    }
+    assistantService.close();
+    setIsListening(false);
+    setInterimTranscript('');
   }, []);
 
   const toggleAssistant = useCallback(() => {
-    setIsOpen(prev => !prev);
+    assistantService.toggle();
   }, []);
 
   const sendMessage = useCallback(async (prompt: string, currentView?: AppView) => {

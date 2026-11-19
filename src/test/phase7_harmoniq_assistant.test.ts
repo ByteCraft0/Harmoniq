@@ -256,5 +256,39 @@ You can start by clicking: [Open Equalizer Studio] or check your output in [Open
       expect(res.success).toBe(true);
       expect(res.message).toContain('Local Grounded Assistant');
     });
+
+    it('manages shared assistant open/close visibility state and notifies listeners', () => {
+      let notifiedOpenState = assistantService.getIsOpen();
+      const unsub = assistantService.subscribe(() => {
+        notifiedOpenState = assistantService.getIsOpen();
+      });
+
+      // Initially closed
+      assistantService.close();
+      expect(assistantService.getIsOpen()).toBe(false);
+      expect(notifiedOpenState).toBe(false);
+
+      // Clicking Pulse Orb triggers open()
+      assistantService.open();
+      expect(assistantService.getIsOpen()).toBe(true);
+      expect(notifiedOpenState).toBe(true);
+
+      // Clicking Close button triggers close()
+      assistantService.close();
+      expect(assistantService.getIsOpen()).toBe(false);
+      expect(notifiedOpenState).toBe(false);
+      expect(assistantService.getOrbState()).toBe('idle');
+
+      // Repeated toggling maintains reliable state
+      assistantService.toggle();
+      expect(assistantService.getIsOpen()).toBe(true);
+      expect(notifiedOpenState).toBe(true);
+
+      assistantService.toggle();
+      expect(assistantService.getIsOpen()).toBe(false);
+      expect(notifiedOpenState).toBe(false);
+
+      unsub();
+    });
   });
 });

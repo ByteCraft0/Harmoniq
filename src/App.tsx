@@ -49,6 +49,7 @@ const MainLayout: React.FC = () => {
     orbState: assistantOrbState,
     isOpen: isAssistantOpen,
     openAssistant,
+    closeAssistant,
   } = useAssistant();
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isMini, setIsMini] = useState(false);
@@ -246,6 +247,8 @@ const MainLayout: React.FC = () => {
         )}
         {assistantConfig.enabled && (
           <HarmoniqAssistantPanel
+            isOpen={isAssistantOpen}
+            onClose={closeAssistant}
             onOpenSettings={() => setActiveView('settings')}
           />
         )}

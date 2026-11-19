@@ -62,6 +62,7 @@ class AssistantService {
   private config: AssistantConfig = { ...DEFAULT_ASSISTANT_CONFIG };
   private messages: AssistantMessage[] = [];
   private orbState: PulseOrbState = 'idle';
+  private isOpen: boolean = false;
   private listeners: Set<() => void> = new Set();
   private isInitialized = false;
 
@@ -177,6 +178,33 @@ class AssistantService {
       this.orbState = state;
       this.notify();
     }
+  }
+
+  public getIsOpen(): boolean {
+    return this.isOpen;
+  }
+
+  public setIsOpen(open: boolean): void {
+    if (this.isOpen !== open) {
+      this.isOpen = open;
+      this.notify();
+    }
+  }
+
+  public open(): void {
+    this.setIsOpen(true);
+  }
+
+  public close(): void {
+    if (speechService.isListening()) {
+      speechService.stopRecognition();
+    }
+    this.setIsOpen(false);
+    this.setOrbState('idle');
+  }
+
+  public toggle(): void {
+    this.setIsOpen(!this.isOpen);
   }
 
   public clearHistory(): void {
