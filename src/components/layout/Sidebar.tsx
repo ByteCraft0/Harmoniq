@@ -89,19 +89,7 @@ export const Sidebar: React.FC = () => {
   };
 
   const handleNavClick = (view: AppView) => {
-    if (view === 'favorites') {
-      const fav = playlists.find((p) => p.smartCriteria === 'favorites');
-      if (fav) {
-        openPlaylistDetail(fav);
-        return;
-      }
-    } else if (view === 'recently_played') {
-      const rec = playlists.find((p) => p.smartCriteria === 'recently_played');
-      if (rec) {
-        openPlaylistDetail(rec);
-        return;
-      }
-    } else if (view === 'playlists') {
+    if (view === 'playlists') {
       const firstCustom = playlists.find((p) => !p.isSmart);
       if (firstCustom) {
         openPlaylistDetail(firstCustom);
@@ -116,10 +104,6 @@ export const Sidebar: React.FC = () => {
     if (view === 'songs' && activeView === 'library') return true;
     if (view === 'albums' && activeView === 'album_detail') return true;
     if (view === 'artists' && activeView === 'artist_detail') return true;
-    if (view === 'favorites' && activeView === 'playlists' && selectedPlaylist?.smartCriteria === 'favorites')
-      return true;
-    if (view === 'recently_played' && activeView === 'playlists' && selectedPlaylist?.smartCriteria === 'recently_played')
-      return true;
     if (view === 'playlists' && activeView === 'playlists' && (!selectedPlaylist || !selectedPlaylist.isSmart))
       return true;
     return false;

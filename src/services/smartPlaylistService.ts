@@ -29,9 +29,29 @@ export const DEFAULT_SMART_PLAYLISTS: SmartPlaylistDefinition[] = [
     isBuiltIn: true,
   },
   {
+    id: 'sp_recently_added',
+    name: 'Recently Added',
+    description: 'Tracks added to the library recently',
+    matchMode: 'all',
+    rules: [
+      {
+        id: 'r_ra',
+        field: 'dateAdded',
+        operator: 'greaterThan',
+        value: 0,
+      },
+    ],
+    sortBy: 'dateAdded',
+    sortOrder: 'desc',
+    limit: 50,
+    dateCreated: 1700000000000,
+    dateModified: 1700000000000,
+    isBuiltIn: true,
+  },
+  {
     id: 'sp_most_played',
-    name: 'Top 50 Most Played',
-    description: 'Tracks with the highest play counts in your library',
+    name: 'Most Played',
+    description: 'Tracks with the highest successful play counts',
     matchMode: 'all',
     rules: [
       {
@@ -49,21 +69,94 @@ export const DEFAULT_SMART_PLAYLISTS: SmartPlaylistDefinition[] = [
     isBuiltIn: true,
   },
   {
-    id: 'sp_recently_added',
-    name: 'Recently Added Tracks',
-    description: 'The 50 newest additions to your library',
+    id: 'sp_recently_played',
+    name: 'Recently Played',
+    description: 'Tracks played most recently in your listening history',
     matchMode: 'all',
     rules: [
       {
-        id: 'r_ra',
-        field: 'dateAdded',
+        id: 'r_rp',
+        field: 'lastPlayed',
         operator: 'greaterThan',
         value: 0,
       },
     ],
-    sortBy: 'dateAdded',
+    sortBy: 'lastPlayed',
     sortOrder: 'desc',
     limit: 50,
+    dateCreated: 1700000000000,
+    dateModified: 1700000000000,
+    isBuiltIn: true,
+  },
+  {
+    id: 'sp_never_played',
+    name: 'Never Played',
+    description: 'Tracks in the local library that have never been played',
+    matchMode: 'all',
+    rules: [
+      {
+        id: 'r_np',
+        field: 'playCount',
+        operator: 'equals',
+        value: 0,
+      },
+    ],
+    sortBy: 'title',
+    sortOrder: 'asc',
+    limit: 0,
+    dateCreated: 1700000000000,
+    dateModified: 1700000000000,
+    isBuiltIn: true,
+  },
+  {
+    id: 'sp_frequently_played',
+    name: 'Frequently Played',
+    description: 'Tracks played repeatedly over your listening history',
+    matchMode: 'all',
+    rules: [
+      {
+        id: 'r_fp',
+        field: 'playCount',
+        operator: 'greaterThan',
+        value: 2,
+      },
+    ],
+    sortBy: 'playCount',
+    sortOrder: 'desc',
+    limit: 50,
+    dateCreated: 1700000000000,
+    dateModified: 1700000000000,
+    isBuiltIn: true,
+  },
+  {
+    id: 'sp_forgotten_favorites',
+    name: 'Forgotten Favorites',
+    description: 'Favorite tracks that have not been played recently',
+    matchMode: 'all',
+    rules: [
+      {
+        id: 'r_ff_fav',
+        field: 'isFavorite',
+        operator: 'equals',
+        value: 'true',
+      },
+    ],
+    sortBy: 'lastPlayed',
+    sortOrder: 'asc',
+    limit: 50,
+    dateCreated: 1700000000000,
+    dateModified: 1700000000000,
+    isBuiltIn: true,
+  },
+  {
+    id: 'sp_discovery_mix',
+    name: 'Discovery Mix',
+    description: 'Tracks from artists and genres you enjoy, prioritizing unplayed or older tracks',
+    matchMode: 'all',
+    rules: [],
+    sortBy: 'title',
+    sortOrder: 'asc',
+    limit: 30,
     dateCreated: 1700000000000,
     dateModified: 1700000000000,
     isBuiltIn: true,
@@ -218,13 +311,62 @@ export function evaluateSmartPlaylist(
   playlist: SmartPlaylistDefinition,
   allTracks: TrackMetadata[]
 ): TrackMetadata[] {
-  let matches = allTracks.filter((track) => {
-    if (!playlist.rules || playlist.rules.length === 0) return true;
-    if (playlist.matchMode === 'any') {
-      return playlist.rules.some((rule) => evaluateRule(rule, track));
+  // Defensive filter: for online tracks, include only tracks with stable identities and valid playback capabilities
+  const validTracks = allTracks.filter((track) => {
+    if (!track || !track.id) return false;
+    if (track.isOnline) {
+      if (
+        track.playbackCapability === 'unavailable' ||
+        track.playbackCapability === 'metadata_only'
+      ) {
+        return false;
+      }
     }
-    return playlist.rules.every((rule) => evaluateRule(rule, track));
+    return true;
   });
+
+  let matches: TrackMetadata[] = [];
+
+  // Special template logic
+  if (playlist.id === 'sp_forgotten_favorites') {
+    const twoWeeksAgo = Date.now() - 14 * 86400 * 1000;
+    matches = validTracks.filter(
+      (t) => t.isFavorite && (!t.lastPlayed || t.lastPlayed < twoWeeksAgo)
+    );
+  } else if (playlist.id === 'sp_never_played') {
+    matches = validTracks.filter((t) => (!t.playCount || t.playCount === 0) && !t.lastPlayed);
+  } else if (playlist.id === 'sp_discovery_mix') {
+    // Collect top artists and genres from played tracks
+    const played = validTracks.filter((t) => (t.playCount || 0) > 0);
+    const topArtists = new Set<string>();
+    const topGenres = new Set<string>();
+    for (const t of played) {
+      if (t.artist) topArtists.add(t.artist.toLowerCase().trim());
+      if (t.genre) topGenres.add(t.genre.toLowerCase().trim());
+    }
+
+    const oneWeekAgo = Date.now() - 7 * 86400 * 1000;
+    matches = validTracks.filter((t) => {
+      const matchArtist = t.artist && topArtists.has(t.artist.toLowerCase().trim());
+      const matchGenre = t.genre && topGenres.has(t.genre.toLowerCase().trim());
+      const notRecentlyPlayed = !t.lastPlayed || t.lastPlayed < oneWeekAgo;
+      return (matchArtist || matchGenre) && notRecentlyPlayed;
+    });
+
+    if (matches.length === 0) {
+      // Fallback: unplayed tracks
+      matches = validTracks.filter((t) => !t.lastPlayed || t.lastPlayed < oneWeekAgo);
+    }
+  } else {
+    // Standard rule evaluation
+    matches = validTracks.filter((track) => {
+      if (!playlist.rules || playlist.rules.length === 0) return true;
+      if (playlist.matchMode === 'any') {
+        return playlist.rules.some((rule) => evaluateRule(rule, track));
+      }
+      return playlist.rules.every((rule) => evaluateRule(rule, track));
+    });
+  }
 
   // Sorting
   const sortBy = playlist.sortBy || 'title';

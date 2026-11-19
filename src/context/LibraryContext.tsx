@@ -4,6 +4,7 @@ import { Album, Artist, Playlist, FolderNode, LibraryStats } from '../types/libr
 import { WatcherSyncStatus } from '../types/electron';
 import { libraryService } from '../services/libraryService';
 import { playlistFolderService } from '../services/playlistFolderService';
+import { favoritesService } from '../services/favoritesService';
 import { useToast } from './ToastContext';
 
 export type AppView =
@@ -67,7 +68,7 @@ interface LibraryContextType {
   addMusicFolders: () => Promise<void>;
   openAudioFiles: () => Promise<void>;
   scanFolder: (path: string) => Promise<void>;
-  toggleFavorite: (trackId: string) => void;
+  toggleFavorite: (trackOrId: TrackMetadata | string) => void;
   createPlaylist: (name: string, desc?: string) => Playlist;
   renamePlaylist: (id: string, newName: string, desc?: string) => boolean;
   deletePlaylist: (id: string) => void;
@@ -160,6 +161,9 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         scheduleSave(5000);
       }
     });
+    const unsubFavorites = favoritesService.subscribe(() => {
+      refreshLibraryState();
+    });
     const flush = () => {
       if (saveTimerRef.current) {
         clearTimeout(saveTimerRef.current);
@@ -169,6 +173,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     window.addEventListener('beforeunload', flush);
     return () => {
       unsubscribe();
+      unsubFavorites();
       if (refreshTimer) clearTimeout(refreshTimer);
       window.removeEventListener('beforeunload', flush);
     };
@@ -337,8 +342,40 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const toggleFavorite = (trackId: string) => {
-    const isFav = libraryService.toggleFavorite(trackId);
+  const toggleFavorite = (trackOrId: TrackMetadata | string) => {
+    let targetTrack: TrackMetadata | undefined;
+    if (typeof trackOrId === 'string') {
+      targetTrack =
+        tracks.find((t) => t.id === trackOrId) ||
+        favoritesService.getFavorites().find((f) => f.id === trackOrId);
+      if (!targetTrack) {
+        targetTrack = {
+          id: trackOrId,
+          filePath: '',
+          fileName: trackOrId,
+          fileSize: 0,
+          dateModified: Date.now(),
+          title: 'Unknown Title',
+          artist: 'Unknown Artist',
+          album: 'Unknown Album',
+          hasArtwork: false,
+          codec: 'MP3',
+          container: 'mp3',
+          duration: 0,
+          sampleRate: 44100,
+          bitrate: 320,
+          channels: 2,
+          isLossless: false,
+          playCount: 0,
+          isFavorite: false,
+        };
+      }
+    } else {
+      targetTrack = trackOrId;
+    }
+
+    const isFav = favoritesService.toggleFavorite(targetTrack);
+    libraryService.syncFavorites(targetTrack.id, isFav);
     refreshLibraryState();
     showToast(isFav ? 'Added to Favorites' : 'Removed from Favorites', 'info');
   };

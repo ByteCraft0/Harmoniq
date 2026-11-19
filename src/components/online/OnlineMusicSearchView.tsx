@@ -7,6 +7,8 @@ import {
   unifiedTrackToTrackMetadata,
 } from '../../types/universalMusic';
 import { usePlayer } from '../../context/PlayerContext';
+import { useLibrary } from '../../context/LibraryContext';
+import { favoritesService } from '../../services/favoritesService';
 import { useToast } from '../../context/ToastContext';
 import { HarmoniqWaveformLoader } from '../brand/HarmoniqWaveformLoader';
 import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
@@ -30,6 +32,7 @@ import {
   Sliders,
   CheckCircle2,
   Disc,
+  Heart,
 } from 'lucide-react';
 
 type FilterType = 'all' | 'song' | 'artist' | 'album';
@@ -54,7 +57,13 @@ const POPULAR_SUGGESTIONS = [
 
 export const OnlineMusicSearchView: React.FC = () => {
   const { playTrack, currentTrack, isPlaying, togglePlayPause, addToQueue, playNext } = usePlayer();
+  const { toggleFavorite } = useLibrary();
   const { showToast } = useToast();
+  const [, setFavTick] = useState(0);
+
+  useEffect(() => {
+    return favoritesService.subscribe(() => setFavTick((t) => t + 1));
+  }, []);
 
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<FilterType>('all');
@@ -234,6 +243,11 @@ export const OnlineMusicSearchView: React.FC = () => {
     const metadata = unifiedTrackToTrackMetadata(item);
     playNext(metadata);
     showToast(`Playing "${item.title}" next`, 'info');
+  };
+
+  const handleToggleFavorite = (item: UnifiedTrack) => {
+    const metadata = unifiedTrackToTrackMetadata(item);
+    toggleFavorite(metadata);
   };
 
   const formatDuration = (seconds?: number) => {
@@ -707,6 +721,26 @@ export const OnlineMusicSearchView: React.FC = () => {
 
                   {/* Actions */}
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Favorite Button */}
+                    <button
+                      onClick={() => handleToggleFavorite(item)}
+                      className={`p-2 hover:bg-[#272733] rounded-xl transition ${
+                        favoritesService.isFavorite(item.id)
+                          ? 'text-rose-500'
+                          : 'text-[#71717A] hover:text-[#F5F3FF]'
+                      }`}
+                      title={
+                        favoritesService.isFavorite(item.id)
+                          ? 'Remove from favorites'
+                          : 'Add to favorites'
+                      }
+                    >
+                      <Heart
+                        size={15}
+                        fill={favoritesService.isFavorite(item.id) ? 'currentColor' : 'none'}
+                      />
+                    </button>
+
                     {canStreamAudio ? (
                       <>
                         {/* Add to Queue */}

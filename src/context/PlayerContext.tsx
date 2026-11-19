@@ -6,6 +6,7 @@ import { audioEngine } from '../services/audioEngine';
 import { libraryService } from '../services/libraryService';
 import { colorExtractionService } from '../services/colorExtractionService';
 import { historyService } from '../services/historyService';
+import { favoritesService } from '../services/favoritesService';
 import { sessionRecoveryService } from '../services/sessionRecoveryService';
 import { queueManagerService } from '../services/queueManagerService';
 import { universalMusicService } from '../services/universalMusicService';
@@ -256,6 +257,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       colorExtractionService.extractFromArtwork(null);
     }
   }, [currentTrack?.artworkDataUrl, currentTrack?.id]);
+
+  // Synchronize active track favorite state with unified favoritesService
+  useEffect(() => {
+    return favoritesService.subscribe(() => {
+      const cur = currentTrackRef.current;
+      if (cur) {
+        const isFav = favoritesService.isFavorite(cur);
+        if (cur.isFavorite !== isFav) {
+          setCurrentTrack((prev) => (prev ? { ...prev, isFavorite: isFav } : null));
+        }
+      }
+    });
+  }, []);
 
   // Push persisted preferences into the engine once (engine stores them until the audio graph exists)
   useEffect(() => {
@@ -563,6 +577,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const startPos = playableTrack.resumePosition && playableTrack.resumePosition > 5 && playableTrack.resumePosition < (playableTrack.duration - 10)
       ? playableTrack.resumePosition
       : 0;
+
+    playableTrack = {
+      ...playableTrack,
+      isFavorite: favoritesService.isFavorite(playableTrack),
+    };
 
     setCurrentTrack(playableTrack);
     await audioEngine.loadAndPlay(playableTrack, startPos);

@@ -18,12 +18,15 @@ import {
   Clock,
   Edit2,
   Check,
+  Globe,
+  Radio,
+  Layers,
 } from 'lucide-react';
 
 export const ListeningStatsDashboard: React.FC = () => {
   const { tracks, albums } = useLibrary();
   const { playTrack } = usePlayer();
-  const [chartRange, setChartRange] = useState<'7days' | '30days' | 'monthly'>('7days');
+  const [chartRange, setChartRange] = useState<'7days' | 'weekly' | '30days' | 'monthly'>('7days');
   const [isEditingGoals, setIsEditingGoals] = useState(false);
 
   // Dynamic goals state
@@ -34,22 +37,23 @@ export const ListeningStatsDashboard: React.FC = () => {
   // Aggregated Statistics
   const totals = useMemo(() => statsService.getListeningTotals(), []);
   const streak = useMemo(() => statsService.calculateStreak(), []);
+  const mostActiveDay = useMemo(() => statsService.getMostActiveDay(), []);
   const dailyPoints = useMemo(
     () => statsService.getDailyActivity(chartRange === '30days' ? 30 : 7),
     [chartRange]
   );
+  const weeklyPoints = useMemo(() => statsService.getWeeklyActivity(8), []);
   const monthlyPoints = useMemo(() => statsService.getMonthlyActivity(6), []);
   const topArtists = useMemo(() => statsService.getTopArtists(5), []);
+  const topAlbums = useMemo(() => statsService.getTopAlbums(5), []);
   const topGenres = useMemo(() => statsService.getGenreDistribution(), [tracks]);
+  const providerDist = useMemo(() => statsService.getProviderDistribution(), []);
+  const favoriteArtists = useMemo(() => statsService.getFavoriteArtists(5), []);
+  const recentlyDiscovered = useMemo(() => statsService.getRecentlyDiscoveredArtists(5), []);
   const milestones = useMemo(() => statsService.getAudiophileMilestones(), [tracks]);
 
   // Top 10 most played tracks
-  const topTracks = useMemo(() => {
-    return [...tracks]
-      .filter((t) => (t.playCount || 0) > 0)
-      .sort((a, b) => (b.playCount || 0) - (a.playCount || 0))
-      .slice(0, 10);
-  }, [tracks]);
+  const topTracks = useMemo(() => statsService.getTopTracks(10), []);
 
   const formatHours = (seconds: number) => {
     if (!seconds) return '0 hrs';
@@ -75,9 +79,13 @@ export const ListeningStatsDashboard: React.FC = () => {
       const maxH = Math.max(...monthlyPoints.map((p) => p.hours), 1);
       return maxH;
     }
+    if (chartRange === 'weekly') {
+      const maxM = Math.max(...weeklyPoints.map((p) => p.minutes), 1);
+      return maxM;
+    }
     const maxM = Math.max(...dailyPoints.map((p) => p.minutes), 1);
     return maxM;
-  }, [chartRange, dailyPoints, monthlyPoints]);
+  }, [chartRange, dailyPoints, weeklyPoints, monthlyPoints]);
 
   const getMilestoneIcon = (iconName: string) => {
     switch (iconName) {
@@ -110,16 +118,16 @@ export const ListeningStatsDashboard: React.FC = () => {
             <div>
               <h1 className="text-2xl font-bold text-white tracking-tight">Listening Statistics</h1>
               <p className="text-xs text-[#A1A1AA]">
-                Personalized listening analytics, goals, streak momentum, and audiophile milestones
+                Personalized listening analytics, goals, streak momentum, and provider distribution
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Overview Metric Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-1">
+      {/* Overview Metric Cards (5 Cards) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="p-5 rounded-2xl bg-[#14141B] border border-[#272733] space-y-1">
           <span className="text-[11px] font-medium text-[#A1A1AA] uppercase tracking-wider">
             All-Time Listening
           </span>
@@ -131,7 +139,7 @@ export const ListeningStatsDashboard: React.FC = () => {
           </span>
         </div>
 
-        <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-1">
+        <div className="p-5 rounded-2xl bg-[#14141B] border border-[#272733] space-y-1">
           <span className="text-[11px] font-medium text-[#A1A1AA] uppercase tracking-wider">
             This Month
           </span>
@@ -143,7 +151,7 @@ export const ListeningStatsDashboard: React.FC = () => {
           </span>
         </div>
 
-        <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 space-y-1">
+        <div className="p-5 rounded-2xl bg-[#14141B] border border-[#272733] space-y-1">
           <span className="text-[11px] font-medium text-[#A1A1AA] uppercase tracking-wider">
             Today
           </span>
@@ -153,23 +161,35 @@ export const ListeningStatsDashboard: React.FC = () => {
           <span className="text-[10px] text-[#71717A]">Active listening session</span>
         </div>
 
+        <div className="p-5 rounded-2xl bg-[#14141B] border border-[#272733] space-y-1">
+          <span className="text-[11px] font-medium text-[#A1A1AA] uppercase tracking-wider">
+            Peak Listening Day
+          </span>
+          <div className="text-2xl font-black text-violet-400 font-mono-numbers truncate">
+            {mostActiveDay ? mostActiveDay.dayOfWeek : 'N/A'}
+          </div>
+          <span className="text-[10px] text-[#71717A] font-mono-numbers">
+            {mostActiveDay ? `${formatHours(mostActiveDay.listeningSeconds)} logged` : 'No history yet'}
+          </span>
+        </div>
+
         <div className="p-5 rounded-2xl bg-gradient-to-br from-amber-500/10 via-amber-900/5 to-transparent border border-amber-500/20 space-y-1">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-medium text-amber-300 uppercase tracking-wider flex items-center gap-1">
-              <Flame size={13} className="text-amber-400 fill-amber-400" /> Listening Streak
+              <Flame size={13} className="text-amber-400 fill-amber-400" /> Streak
             </span>
           </div>
           <div className="text-2xl font-black text-amber-400 font-mono-numbers">
             {streak.currentStreak} Day{streak.currentStreak !== 1 ? 's' : ''}
           </div>
           <span className="text-[10px] text-amber-400/70 font-mono-numbers">
-            Longest record: {streak.longestStreak} days
+            Record: {streak.longestStreak} days
           </span>
         </div>
       </div>
 
-      {/* Harmoniq 2.0 Personalization: Goals & Habit Tracker */}
-      <div className="p-6 rounded-2xl bg-[#101018] border border-white/10 space-y-5">
+      {/* Goals & Habit Tracker */}
+      <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="p-2 rounded-xl bg-violet-600/10 border border-violet-500/20 text-[var(--accent-primary)]">
@@ -293,78 +313,8 @@ export const ListeningStatsDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Harmoniq 2.0 Audiophile Milestones Showcase */}
-      <div className="p-6 rounded-2xl bg-[#101018] border border-white/10 space-y-5">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400">
-              <Trophy size={18} />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white tracking-tight">Audiophile Milestones</h3>
-              <p className="text-xs text-[#A1A1AA]">
-                Earned badges and achievement tracker across fidelity, volume, and habits
-              </p>
-            </div>
-          </div>
-          <span className="text-xs font-mono-numbers text-amber-400/90 font-semibold px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20">
-            {milestones.filter((m) => m.unlocked).length} / {milestones.length} Unlocked
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5">
-          {milestones.map((milestone) => (
-            <div
-              key={milestone.id}
-              className={`p-4 rounded-xl border transition-all relative overflow-hidden group ${
-                milestone.unlocked
-                  ? 'bg-gradient-to-br from-violet-600/10 via-white/[0.02] to-transparent border-[var(--accent-primary)]/40 shadow-[0_0_15px_rgba(167,139,250,0.1)]'
-                  : 'bg-white/[0.01] border-white/5 opacity-60'
-              }`}
-            >
-              <div className="flex items-start justify-between gap-3 mb-2">
-                <div
-                  className={`p-2 rounded-xl border ${
-                    milestone.unlocked
-                      ? 'bg-[var(--accent-primary)]/20 border-[var(--accent-primary)]/40 text-[var(--accent-primary)] shadow-sm'
-                      : 'bg-white/5 border-white/10 text-[#71717A]'
-                  }`}
-                >
-                  {getMilestoneIcon(milestone.icon)}
-                </div>
-                <span
-                  className={`text-[9px] font-mono uppercase px-2 py-0.5 rounded-full border ${
-                    milestone.unlocked
-                      ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400 font-bold'
-                      : 'bg-white/5 border-white/10 text-[#71717A]'
-                  }`}
-                >
-                  {milestone.unlocked ? 'Unlocked' : `${milestone.progress}%`}
-                </span>
-              </div>
-
-              <h4 className="text-xs font-bold text-white tracking-tight mb-1">
-                {milestone.title}
-              </h4>
-              <p className="text-[11px] text-[#A1A1AA] leading-snug line-clamp-2">
-                {milestone.description}
-              </p>
-
-              {!milestone.unlocked && (
-                <div className="mt-3 w-full h-1 rounded-full bg-white/5 overflow-hidden">
-                  <div
-                    className="h-full bg-zinc-600 rounded-full"
-                    style={{ width: `${milestone.progress}%` }}
-                  />
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* Interactive Activity Chart */}
-      <div className="p-6 rounded-2xl bg-[#101018] border border-white/10 space-y-5">
+      <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
@@ -381,17 +331,27 @@ export const ListeningStatsDashboard: React.FC = () => {
               onClick={() => setChartRange('7days')}
               className={`px-3 py-1 rounded-lg font-medium transition-all ${
                 chartRange === '7days'
-                  ? 'bg-[var(--accent-secondary)] text-white shadow-sm'
+                  ? 'bg-[#7C3AED] text-white shadow-sm'
                   : 'text-[#A1A1AA] hover:text-white'
               }`}
             >
               7 Days
             </button>
             <button
+              onClick={() => setChartRange('weekly')}
+              className={`px-3 py-1 rounded-lg font-medium transition-all ${
+                chartRange === 'weekly'
+                  ? 'bg-[#7C3AED] text-white shadow-sm'
+                  : 'text-[#A1A1AA] hover:text-white'
+              }`}
+            >
+              8 Weeks
+            </button>
+            <button
               onClick={() => setChartRange('30days')}
               className={`px-3 py-1 rounded-lg font-medium transition-all ${
                 chartRange === '30days'
-                  ? 'bg-[var(--accent-secondary)] text-white shadow-sm'
+                  ? 'bg-[#7C3AED] text-white shadow-sm'
                   : 'text-[#A1A1AA] hover:text-white'
               }`}
             >
@@ -401,7 +361,7 @@ export const ListeningStatsDashboard: React.FC = () => {
               onClick={() => setChartRange('monthly')}
               className={`px-3 py-1 rounded-lg font-medium transition-all ${
                 chartRange === 'monthly'
-                  ? 'bg-[var(--accent-secondary)] text-white shadow-sm'
+                  ? 'bg-[#7C3AED] text-white shadow-sm'
                   : 'text-[#A1A1AA] hover:text-white'
               }`}
             >
@@ -425,11 +385,33 @@ export const ListeningStatsDashboard: React.FC = () => {
                     </div>
 
                     <div
-                      className="w-full max-w-[48px] rounded-t-lg bg-gradient-to-t from-[var(--accent-secondary)] to-[var(--accent-primary)] group-hover:brightness-125 transition-all"
+                      className="w-full max-w-[48px] rounded-t-lg bg-gradient-to-t from-[#7C3AED] to-[#A78BFA] group-hover:brightness-125 transition-all"
                       style={{ height: `${Math.max(6, heightPercent)}%` }}
                     />
                     <span className="text-[10px] text-[#71717A] font-mono-numbers mt-2 truncate w-full text-center">
                       {pt.monthLabel}
+                    </span>
+                  </div>
+                );
+              })
+            : chartRange === 'weekly'
+            ? weeklyPoints.map((pt, idx) => {
+                const heightPercent = maxChartValue > 0 ? (pt.minutes / maxChartValue) * 100 : 0;
+                return (
+                  <div
+                    key={idx}
+                    className="flex-1 flex flex-col items-center justify-end h-full group relative"
+                  >
+                    <div className="absolute -top-9 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none px-2 py-1 rounded bg-[#1B1B24] border border-white/10 text-[10px] text-white font-mono whitespace-nowrap z-10 shadow-lg">
+                      {pt.minutes} min ({pt.tracksPlayed} plays)
+                    </div>
+
+                    <div
+                      className="w-full max-w-[36px] rounded-t-md bg-gradient-to-t from-sky-600 to-sky-400 group-hover:brightness-125 transition-all"
+                      style={{ height: `${Math.max(5, heightPercent)}%` }}
+                    />
+                    <span className="text-[9px] text-[#71717A] font-mono-numbers mt-2 truncate w-full text-center">
+                      {pt.weekLabel}
                     </span>
                   </div>
                 );
@@ -446,7 +428,7 @@ export const ListeningStatsDashboard: React.FC = () => {
                     </div>
 
                     <div
-                      className="w-full max-w-[28px] rounded-t-md bg-gradient-to-t from-[var(--accent-secondary)] to-[var(--accent-primary)] group-hover:brightness-125 transition-all"
+                      className="w-full max-w-[28px] rounded-t-md bg-gradient-to-t from-[#7C3AED] to-[#A78BFA] group-hover:brightness-125 transition-all"
                       style={{ height: `${Math.max(4, heightPercent)}%` }}
                     />
                     <span className="text-[9px] text-[#71717A] font-mono-numbers mt-2 truncate w-full text-center">
@@ -458,12 +440,12 @@ export const ListeningStatsDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Two Column Layout: Top Artists & Genre Distribution */}
+      {/* Two Column Layout: Top Artists & Top Albums */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Top Artists Horizontal Chart */}
-        <div className="p-6 rounded-2xl bg-[#101018] border border-white/10 space-y-4">
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4">
           <div className="flex items-center gap-2">
-            <Users size={16} className="text-[var(--accent-primary)]" />
+            <Users size={16} className="text-[#A78BFA]" />
             <h3 className="text-base font-bold text-white tracking-tight">Top Artists</h3>
           </div>
 
@@ -487,7 +469,7 @@ export const ListeningStatsDashboard: React.FC = () => {
                     </div>
                     <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
                       <div
-                        className="h-full bg-gradient-to-r from-[var(--accent-secondary)] to-[var(--accent-primary)] rounded-full"
+                        className="h-full bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] rounded-full"
                         style={{ width: `${widthPct}%` }}
                       />
                     </div>
@@ -498,10 +480,91 @@ export const ListeningStatsDashboard: React.FC = () => {
           </div>
         </div>
 
-        {/* Top Genres Breakdown */}
-        <div className="p-6 rounded-2xl bg-[#101018] border border-white/10 space-y-4">
+        {/* Top Albums Horizontal Chart */}
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4">
           <div className="flex items-center gap-2">
-            <Disc size={16} className="text-[var(--accent-primary)]" />
+            <Disc size={16} className="text-sky-400" />
+            <h3 className="text-base font-bold text-white tracking-tight">Top Albums</h3>
+          </div>
+
+          <div className="space-y-3">
+            {topAlbums.length === 0 ? (
+              <p className="text-xs text-[#71717A]">No album playback recorded yet</p>
+            ) : (
+              topAlbums.map((album, idx) => {
+                const maxSec = topAlbums[0].listeningSeconds || 1;
+                const widthPct = Math.max(5, (album.listeningSeconds / maxSec) * 100);
+
+                return (
+                  <div key={idx} className="space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-semibold text-white truncate max-w-[220px]">
+                        {idx + 1}. {album.title}
+                        <span className="text-zinc-500 font-normal ml-1">by {album.artist}</span>
+                      </span>
+                      <span className="text-[11px] font-mono-numbers text-[#A1A1AA]">
+                        {formatHours(album.listeningSeconds)} ({album.playCount} plays)
+                      </span>
+                    </div>
+                    <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-sky-600 to-sky-400 rounded-full"
+                        style={{ width: `${widthPct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Two Column Layout: Provider Distribution & Top Genres */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Provider Distribution */}
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4">
+          <div className="flex items-center gap-2">
+            <Globe size={16} className="text-emerald-400" />
+            <h3 className="text-base font-bold text-white tracking-tight">
+              Provider-Wise Listening Share
+            </h3>
+          </div>
+
+          <div className="space-y-3">
+            {providerDist.length === 0 ? (
+              <p className="text-xs text-[#71717A]">No provider activity recorded yet</p>
+            ) : (
+              providerDist.map((p, idx) => (
+                <div key={idx} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-medium text-white flex items-center gap-2">
+                      <span
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ backgroundColor: p.color }}
+                      />
+                      {p.provider}
+                    </span>
+                    <span className="text-[11px] font-mono-numbers text-[#A1A1AA]">
+                      {p.percentage}% ({p.count} tracks • {formatHours(p.seconds)})
+                    </span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-white/5 overflow-hidden">
+                    <div
+                      className="h-full rounded-full"
+                      style={{ width: `${Math.max(4, p.percentage)}%`, backgroundColor: p.color }}
+                    />
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Top Genres Breakdown */}
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4">
+          <div className="flex items-center gap-2">
+            <Disc size={16} className="text-[#A78BFA]" />
             <h3 className="text-base font-bold text-white tracking-tight">Genre Distribution</h3>
           </div>
 
@@ -537,37 +600,40 @@ export const ListeningStatsDashboard: React.FC = () => {
       </div>
 
       {/* Top 10 Most-Played Tracks */}
-      <div className="p-6 rounded-2xl bg-[#101018] border border-white/10 space-y-4">
+      <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4">
         <div className="flex items-center gap-2">
-          <Music size={16} className="text-[var(--accent-primary)]" />
+          <Music size={16} className="text-[#A78BFA]" />
           <h3 className="text-base font-bold text-white tracking-tight">
             Top 10 Most-Played Tracks
           </h3>
         </div>
 
-        <div className="divide-y divide-white/[0.03]">
+        <div className="divide-y divide-[#272733]/50">
           {topTracks.length === 0 ? (
             <p className="text-xs text-[#71717A] py-4">No completed track plays recorded yet</p>
           ) : (
             topTracks.map((track, idx) => (
               <div
                 key={track.id}
-                onClick={() => playTrack(track, topTracks)}
+                onClick={() => {
+                  const match = tracks.find((t) => t.id === track.id);
+                  if (match) playTrack(match);
+                }}
                 className="group flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-white/[0.03] transition-colors cursor-pointer text-xs"
               >
                 <div className="flex items-center gap-3 truncate">
                   <span className="w-5 text-right font-mono-numbers text-[#71717A] font-bold">
                     {idx + 1}
                   </span>
-                  <div className="w-8 h-8 rounded-lg overflow-hidden bg-white/5 shrink-0 flex items-center justify-center">
-                    {track.artworkDataUrl ? (
-                      <img src={track.artworkDataUrl} alt="" className="w-full h-full object-cover" />
+                  <div className="w-8 h-8 rounded-lg overflow-hidden bg-black/40 border border-[#272733] shrink-0 flex items-center justify-center">
+                    {track.artworkUrl ? (
+                      <img src={track.artworkUrl} alt="" className="w-full h-full object-cover" />
                     ) : (
-                      <Music size={14} className="text-[var(--accent-primary)]" />
+                      <Music size={14} className="text-[#A78BFA]" />
                     )}
                   </div>
                   <div className="truncate">
-                    <div className="font-semibold text-white truncate group-hover:text-[var(--accent-primary)] transition-colors">
+                    <div className="font-semibold text-white truncate group-hover:text-[#A78BFA] transition-colors">
                       {track.title}
                     </div>
                     <div className="text-[11px] text-[#A1A1AA] truncate">
@@ -577,12 +643,11 @@ export const ListeningStatsDashboard: React.FC = () => {
                 </div>
 
                 <div className="flex items-center gap-4 shrink-0 font-mono-numbers text-[#A1A1AA]">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[var(--accent-secondary)]/20 text-[var(--accent-primary)] border border-[var(--accent-primary)]/20">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#7C3AED]/20 text-[#A78BFA] border border-[#7C3AED]/30">
                     {track.playCount} plays
                   </span>
-                  <span>
-                    {Math.floor(track.duration / 60)}:
-                    {Math.floor(track.duration % 60).toString().padStart(2, '0')}
+                  <span className="text-[11px] text-zinc-400">
+                    {formatHours(track.listeningSeconds)}
                   </span>
                 </div>
               </div>

@@ -17,6 +17,8 @@ import { EqualizerStudio } from './components/dsp/EqualizerStudio';
 import { VisualizerView } from './components/views/VisualizerView';
 import { AudioQualityInspector } from './components/inspector/AudioQualityInspector';
 import { PlaylistsView } from './components/views/PlaylistsView';
+import { FavoritesView } from './components/views/FavoritesView';
+import { ListeningHistoryView } from './components/library/ListeningHistoryView';
 import { LyricsView } from './components/views/LyricsView';
 import { AudioOutputView } from './components/views/AudioOutputView';
 import { SettingsView } from './components/views/SettingsView';
@@ -145,7 +147,9 @@ const MainLayout: React.FC = () => {
       case 'folders':
         return <LibraryView initialTab="folders" />;
       case 'favorites':
+        return <FavoritesView />;
       case 'recently_played':
+        return <ListeningHistoryView />;
       case 'playlists':
         return <PlaylistsView />;
       case 'library':

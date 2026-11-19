@@ -11,9 +11,26 @@ export interface HistoryEntry {
   duration: number; // Track length in seconds
   playbackDuration: number; // Seconds actually listened
   completionStatus: HistoryCompletionStatus;
+  // Provider and online metadata
+  isOnline?: boolean;
+  providerId?: string;
+  providerTrackId?: string;
+  playbackCapability?: string;
+  genre?: string;
+  filePath?: string;
 }
 
-export type HistoryDateFilter = 'today' | '7days' | '30days' | 'all';
+export type HistoryDateFilter = 'today' | 'yesterday' | '7days' | '30days' | 'all';
+
+export interface HistoryQueryOptions {
+  dateFilter?: HistoryDateFilter;
+  searchQuery?: string;
+  sortBy?: 'playedAt' | 'playbackDuration';
+  sortOrder?: 'asc' | 'desc';
+  statusFilter?: 'all' | HistoryCompletionStatus;
+  providerId?: string;
+  artist?: string;
+}
 
 // Harmoniq 2.0 Personalization: Goals & Milestones
 export interface ListeningGoal {

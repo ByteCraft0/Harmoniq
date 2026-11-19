@@ -1,6 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
+import { historyService } from '../../services/historyService';
+import { favoritesService } from '../../services/favoritesService';
+import { discoveryService, RecommendationItem } from '../../services/discoveryService';
+import { statsService } from '../../services/statsService';
 import { QualityBadge } from '../inspector/QualityBadge';
 import { AudioQualityInspectorService } from '../../services/inspectorService';
 import { TrackContextMenu, ContextMenuState } from '../layout/TrackContextMenu';
@@ -9,18 +13,19 @@ import { TrackMetadata } from '../../types/audio';
 import {
   FolderPlus,
   Play,
+  Pause,
   Heart,
   Clock,
   Sparkles,
   Music,
   Disc,
   Users,
-  HardDrive,
-  Speaker,
   Flame,
   ArrowRight,
-  ShieldCheck,
+  Compass,
+  Radio,
   Headphones,
+  RotateCcw,
 } from 'lucide-react';
 
 export const HomeView: React.FC = () => {
@@ -33,477 +38,501 @@ export const HomeView: React.FC = () => {
     addMusicFolders,
     openAudioFiles,
     openAlbumDetail,
-    openPlaylistDetail,
+    openArtistDetail,
     setActiveView,
+    toggleFavorite,
   } = useLibrary();
 
-  const { playTrack, currentTrack, isPlaying } = usePlayer();
+  const { playTrack, currentTrack, isPlaying, togglePlayPause } = usePlayer();
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [playlistModalTracks, setPlaylistModalTracks] = useState<TrackMetadata[] | null>(null);
+  const [tick, setTick] = useState(0);
 
-  const favoritePlaylist = playlists.find((p) => p.smartCriteria === 'favorites');
-  const recentlyPlayedPlaylist = playlists.find((p) => p.smartCriteria === 'recently_played');
-  const recentlyAddedPlaylist = playlists.find((p) => p.smartCriteria === 'recently_added');
-  const mostPlayedPlaylist = playlists.find((p) => p.smartCriteria === 'most_played');
+  // Re-render when history or favorites update
+  useEffect(() => {
+    const unsubH = historyService.subscribe(() => setTick((t) => t + 1));
+    const unsubF = favoritesService.subscribe(() => setTick((t) => t + 1));
+    return () => {
+      unsubH();
+      unsubF();
+    };
+  }, []);
 
-  const favoriteTracks = favoritePlaylist
-    ? tracks.filter((t) => favoritePlaylist.trackIds.includes(t.id))
-    : [];
+  // Time-based greeting
+  const greeting = useMemo(() => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  }, []);
 
-  const recentlyPlayedTracks = recentlyPlayedPlaylist
-    ? recentlyPlayedPlaylist.trackIds
-        .map((id) => tracks.find((t) => t.id === id))
-        .filter((t): t is typeof tracks[0] => !!t)
-    : [];
+  // Personalized discovery data
+  const discovery = useMemo(() => {
+    return discoveryService.getPersonalizedDiscovery();
+  }, [tick, tracks.length]);
 
-  const recentlyAddedTracks = recentlyAddedPlaylist
-    ? recentlyAddedPlaylist.trackIds
-        .map((id) => tracks.find((t) => t.id === id))
-        .filter((t): t is typeof tracks[0] => !!t)
-    : [];
+  // Favorites
+  const favorites = useMemo(() => {
+    return favoritesService.getFavorites();
+  }, [tick]);
 
-  const mostPlayedTracks = mostPlayedPlaylist
-    ? mostPlayedPlaylist.trackIds
-        .map((id) => tracks.find((t) => t.id === id))
-        .filter((t): t is typeof tracks[0] => !!t)
-    : [];
+  // History entries
+  const recentHistory = useMemo(() => {
+    return historyService.getHistory();
+  }, [tick]);
 
-  const losslessCount = tracks.filter((t) => t.isLossless).length;
-  const hiresCount = tracks.filter((t) => (t.bitDepth && t.bitDepth > 16) || t.sampleRate > 48000).length;
+  // Top artists
+  const topArtists = useMemo(() => {
+    return statsService.getTopArtists(5);
+  }, [tick]);
 
-  const formatHours = (seconds: number) => {
-    const hrs = Math.floor(seconds / 3600);
-    const mins = Math.floor((seconds % 3600) / 60);
-    return `${hrs}h ${mins}m`;
+  // Continue listening candidate
+  const continueTrack = useMemo<TrackMetadata | null>(() => {
+    if (currentTrack) return currentTrack;
+    if (recentHistory.length > 0) {
+      const topHist = recentHistory[0];
+      const match = tracks.find((t) => t.id === topHist.trackId);
+      if (match) return match;
+      return {
+        id: topHist.trackId,
+        filePath: topHist.filePath || '',
+        fileName: topHist.title,
+        fileSize: 0,
+        dateModified: topHist.playedAt,
+        title: topHist.title,
+        artist: topHist.artist,
+        album: topHist.album,
+        hasArtwork: Boolean(topHist.artworkDataUrl),
+        artworkDataUrl: topHist.artworkDataUrl,
+        codec: 'MP3',
+        container: 'mp3',
+        duration: topHist.duration,
+        sampleRate: 44100,
+        bitrate: 320,
+        channels: 2,
+        isLossless: false,
+        playCount: 1,
+        isFavorite: favoritesService.isFavorite(topHist.trackId),
+        isOnline: topHist.isOnline,
+        providerId: topHist.providerId,
+        providerTrackId: topHist.providerTrackId,
+        playbackCapability: topHist.playbackCapability,
+      };
+    }
+    return tracks.length > 0 ? tracks[0] : null;
+  }, [currentTrack, recentHistory, tracks]);
+
+  // Recently added local tracks
+  const recentlyAddedTracks = useMemo(() => {
+    return [...tracks]
+      .sort((a, b) => (b.dateAdded ?? b.dateModified) - (a.dateAdded ?? a.dateModified))
+      .slice(0, 6);
+  }, [tracks]);
+
+  const handleTrackContextMenu = (e: React.MouseEvent, track: TrackMetadata) => {
+    e.preventDefault();
+    setContextMenu({ track, x: e.clientX, y: e.clientY });
   };
 
-  const formatSize = (bytes: number) => {
-    if (bytes >= 1024 * 1024 * 1024) {
-      return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  const handleRefreshDiscovery = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    discoveryService.refreshPersonalizedDiscovery();
+    setTick((t) => t + 1);
   };
 
   return (
-    <div className="h-full overflow-y-auto px-8 py-8 space-y-10 max-w-7xl mx-auto select-none">
-      {/* A. WELCOME SECTION */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#17132B] via-[#12121A] to-[#0D0D12] border border-[#272733] p-8 shadow-xl">
-        <div className="absolute top-0 right-0 w-96 h-96 bg-[#7C3AED]/10 rounded-full blur-3xl pointer-events-none" />
+    <div className="h-full overflow-y-auto px-8 py-8 space-y-10 max-w-7xl mx-auto select-none custom-scrollbar">
+      {/* 1. HERO GREETING & CONTINUE LISTENING BANNER */}
+      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-r from-[#17132B] via-[#12121A] to-[#0D0D12] border border-[#272733] p-8 shadow-xl">
+        <div className="absolute top-0 right-0 w-96 h-96 bg-[#7C3AED]/15 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="max-w-2xl space-y-3 relative z-10">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#1B1B24] border border-[#272733] text-[11px] font-mono-numbers text-[#A78BFA]">
-            <Sparkles size={12} className="text-[#A78BFA]" />
-            <span>Harmoniq Reference Audio Engine</span>
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 relative z-10">
+          <div className="max-w-xl space-y-2.5">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#1B1B24] border border-[#272733] text-[11px] font-mono-numbers text-[#A78BFA]">
+              <Sparkles size={12} className="text-[#A78BFA]" />
+              <span>Harmoniq Listening Intelligence</span>
+            </div>
+
+            <h1 className="text-3xl sm:text-4xl font-black text-[#F5F3FF] tracking-tight">
+              {greeting}, Audiophile
+            </h1>
+
+            <p className="text-xs text-[#A1A1AA] leading-relaxed">
+              Your personalized music space. Rediscover favorites, explore intelligent mixes, and experience bit-perfect sound.
+            </p>
+
+            <div className="flex flex-wrap items-center gap-3 pt-2">
+              <button
+                onClick={addMusicFolders}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] hover:opacity-95 text-[#F5F3FF] text-xs font-bold shadow-glow-sm transition-all active:scale-95"
+              >
+                <FolderPlus size={15} />
+                <span>Add Music Folder</span>
+              </button>
+
+              <button
+                onClick={openAudioFiles}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#F5F3FF] text-xs font-semibold transition-all active:scale-95"
+              >
+                <Music size={15} />
+                <span>Open Audio Files</span>
+              </button>
+            </div>
           </div>
 
-          <h1 className="text-3xl sm:text-4xl font-extrabold text-[#F5F3FF] tracking-tight">
-            Your Music. Your Experience.
-          </h1>
+          {/* Continue Listening Hero Card */}
+          {continueTrack && (
+            <div className="w-full lg:w-80 p-4 rounded-2xl bg-black/40 backdrop-blur-md border border-[#272733] flex items-center gap-4 shadow-card">
+              <div className="relative w-16 h-16 rounded-xl bg-[#09090B] border border-[#272733] overflow-hidden shrink-0 flex items-center justify-center">
+                {continueTrack.artworkDataUrl ? (
+                  <img
+                    src={continueTrack.artworkDataUrl}
+                    alt={continueTrack.title}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <Disc size={28} className="text-zinc-600" />
+                )}
+              </div>
 
-          <p className="text-sm text-[#A1A1AA] leading-relaxed">
-            Minimalist high-fidelity playback with bit-depth transparency, a calibrated 10-band studio EQ, and recursive local library indexing.
-          </p>
+              <div className="min-w-0 flex-1 space-y-0.5">
+                <span className="text-[10px] font-mono-numbers uppercase tracking-wider text-[#A78BFA] font-bold">
+                  Continue Listening
+                </span>
+                <p className="text-xs font-bold text-[#F5F3FF] truncate">{continueTrack.title}</p>
+                <p className="text-[11px] text-[#A1A1AA] truncate">{continueTrack.artist}</p>
+              </div>
 
-          <div className="flex flex-wrap items-center gap-3 pt-3">
-            <button
-              onClick={addMusicFolders}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] hover:opacity-95 text-[#F5F3FF] text-xs font-bold shadow-glow-sm hover:shadow-glow-md transition-all active:scale-95"
-            >
-              <FolderPlus size={16} />
-              <span>Add Music Folder</span>
-            </button>
-
-            <button
-              onClick={openAudioFiles}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#F5F3FF] text-xs font-semibold transition-all active:scale-95"
-            >
-              <Music size={16} />
-              <span>Open Audio Files</span>
-            </button>
-          </div>
+              <button
+                onClick={() => {
+                  if (currentTrack?.id === continueTrack.id) {
+                    togglePlayPause();
+                  } else {
+                    playTrack(continueTrack);
+                  }
+                }}
+                className="p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-white shadow-glow-sm hover:scale-110 active:scale-95 transition-all shrink-0"
+                title={isPlaying && currentTrack?.id === continueTrack.id ? 'Pause' : 'Play'}
+              >
+                {isPlaying && currentTrack?.id === continueTrack.id ? (
+                  <Pause size={16} fill="currentColor" />
+                ) : (
+                  <Play size={16} fill="currentColor" className="ml-0.5" />
+                )}
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* B. STATISTICS CARDS (6 Metrics) */}
-      <div className="space-y-3">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-[#71717A] font-mono-numbers">
-          Library Telemetry
-        </h2>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
-          {/* Total Tracks */}
-          <div className="p-4 rounded-xl bg-[#14141B] border border-[#272733] space-y-1">
-            <div className="flex items-center justify-between text-[#71717A]">
-              <span className="text-[11px] font-medium">Total Tracks</span>
-              <Music size={15} />
+      {/* 2. RECENTLY PLAYED SECTION */}
+      {recentHistory.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-bold text-[#F5F3FF]">Recently Played</h2>
+              <p className="text-xs text-[#A1A1AA]">Pick up where your last session ended</p>
             </div>
-            <p className="text-xl font-bold font-mono-numbers text-[#F5F3FF]">
-              {stats.totalTracks.toLocaleString()}
-            </p>
-            <span className="text-[10px] text-[#71717A] font-mono-numbers">In Database</span>
-          </div>
-
-          {/* Albums */}
-          <div className="p-4 rounded-xl bg-[#14141B] border border-[#272733] space-y-1">
-            <div className="flex items-center justify-between text-[#71717A]">
-              <span className="text-[11px] font-medium">Albums</span>
-              <Disc size={15} />
-            </div>
-            <p className="text-xl font-bold font-mono-numbers text-[#F5F3FF]">
-              {stats.totalAlbums.toLocaleString()}
-            </p>
-            <span className="text-[10px] text-[#71717A] font-mono-numbers">Discography</span>
-          </div>
-
-          {/* Artists */}
-          <div className="p-4 rounded-xl bg-[#14141B] border border-[#272733] space-y-1">
-            <div className="flex items-center justify-between text-[#71717A]">
-              <span className="text-[11px] font-medium">Artists</span>
-              <Users size={15} />
-            </div>
-            <p className="text-xl font-bold font-mono-numbers text-[#F5F3FF]">
-              {stats.totalArtists.toLocaleString()}
-            </p>
-            <span className="text-[10px] text-[#71717A] font-mono-numbers">Catalogued</span>
-          </div>
-
-          {/* Lossless Tracks */}
-          <div className="p-4 rounded-xl bg-[#14141B] border border-[#272733] space-y-1">
-            <div className="flex items-center justify-between text-[#71717A]">
-              <span className="text-[11px] font-medium">Lossless Tracks</span>
-              <Sparkles size={15} className="text-[#A78BFA]" />
-            </div>
-            <p className="text-xl font-bold font-mono-numbers text-[#A78BFA]">
-              {losslessCount.toLocaleString()}
-            </p>
-            <span className="text-[10px] text-[#71717A] font-mono-numbers">
-              {hiresCount > 0 ? `${hiresCount} Hi-Res` : 'CD Quality'}
-            </span>
-          </div>
-
-          {/* Listening Time */}
-          <div className="p-4 rounded-xl bg-[#14141B] border border-[#272733] space-y-1">
-            <div className="flex items-center justify-between text-[#71717A]">
-              <span className="text-[11px] font-medium">Listening Time</span>
-              <Clock size={15} />
-            </div>
-            <p className="text-xl font-bold font-mono-numbers text-[#F5F3FF]">
-              {formatHours(stats.totalDuration)}
-            </p>
-            <span className="text-[10px] text-[#71717A] font-mono-numbers">Total Runtime</span>
-          </div>
-
-          {/* Library Storage */}
-          <div className="p-4 rounded-xl bg-[#14141B] border border-[#272733] space-y-1">
-            <div className="flex items-center justify-between text-[#71717A]">
-              <span className="text-[11px] font-medium">Library Storage</span>
-              <HardDrive size={15} />
-            </div>
-            <p className="text-xl font-bold font-mono-numbers text-[#F5F3FF]">
-              {formatSize(stats.totalSize)}
-            </p>
-            <span className="text-[10px] text-[#71717A] font-mono-numbers">Local Disk</span>
-          </div>
-        </div>
-      </div>
-
-      {/* C. RECENTLY PLAYED HORIZONTAL CARDS */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-bold text-[#F5F3FF]">Recently Played</h2>
-            <p className="text-xs text-[#A1A1AA]">Pick up right where you left off</p>
-          </div>
-          {recentlyPlayedTracks.length > 0 && (
             <button
               onClick={() => setActiveView('recently_played')}
               className="text-xs text-[#A78BFA] hover:text-[#C4B5FD] font-semibold flex items-center gap-1 transition-colors"
             >
-              <span>View All</span>
+              <span>View Full History</span>
               <ArrowRight size={13} />
             </button>
-          )}
-        </div>
-
-        {recentlyPlayedTracks.length === 0 ? (
-          <div className="p-8 rounded-xl bg-[#14141B] border border-[#272733] text-center text-[#71717A] text-xs">
-            <Clock size={28} className="mx-auto mb-2 text-[#3F3F46]" />
-            <p className="font-semibold text-[#A1A1AA]">No playback history yet</p>
-            <p className="mt-1">Play any track from your library to start your history.</p>
           </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            {recentlyPlayedTracks.slice(0, 6).map((track) => {
-              const isCurrent = currentTrack?.id === track.id;
-              const tier = AudioQualityInspectorService.calculateQualityTier(track);
 
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {recentHistory.slice(0, 6).map((entry) => {
+              const isCurrent = currentTrack?.id === entry.trackId;
               return (
                 <div
-                  key={track.id}
-                  onClick={() => playTrack(track, recentlyPlayedTracks)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    setContextMenu({ track, x: e.clientX, y: e.clientY });
+                  key={entry.id}
+                  onClick={() => {
+                    const t = tracks.find((tr) => tr.id === entry.trackId);
+                    if (t) playTrack(t);
                   }}
-                  className="group p-3 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] card-interactive cursor-pointer flex flex-col space-y-2.5 shadow-card"
+                  className="group p-3 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-[#7C3AED]/40 cursor-pointer flex flex-col space-y-2.5 transition-all shadow-card"
                 >
-                  <div className="relative aspect-square w-full rounded-xl bg-[#09090B] overflow-hidden flex items-center justify-center border border-[#272733]">
-                    {track.artworkDataUrl ? (
+                  <div className="relative aspect-square w-full rounded-xl bg-black/40 overflow-hidden flex items-center justify-center border border-[#272733]">
+                    {entry.artworkDataUrl ? (
                       <img
-                        src={track.artworkDataUrl}
-                        alt={track.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = 'none';
-                        }}
+                        src={entry.artworkDataUrl}
+                        alt={entry.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       />
                     ) : (
-                      <Disc size={36} className="text-[#3F3F46]" />
+                      <Disc size={32} className="text-zinc-600" />
                     )}
 
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <button className="floating-play-btn p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] shadow-glow-sm hover:scale-110 active:scale-90 transition-all">
-                        <Play size={18} className="ml-0.5" fill="currentColor" />
+                      <button className="p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-white shadow-glow-sm">
+                        <Play size={16} fill="currentColor" className="ml-0.5" />
                       </button>
                     </div>
 
                     <div className="absolute bottom-1.5 left-1.5">
-                      <QualityBadge tier={tier} size="sm" />
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-mono-numbers bg-black/70 backdrop-blur-md border border-white/10 text-zinc-300 capitalize">
+                        {entry.providerId || 'Local'}
+                      </span>
                     </div>
                   </div>
 
                   <div className="min-w-0">
-                    <h3
-                      className={`font-semibold text-xs truncate ${
+                    <p
+                      className={`font-semibold text-xs truncate transition-colors ${
                         isCurrent ? 'text-[#A78BFA]' : 'text-[#F5F3FF] group-hover:text-[#A78BFA]'
-                      } transition-colors`}
+                      }`}
                     >
-                      {track.title}
-                    </h3>
-                    <p className="text-[11px] text-[#A1A1AA] truncate">{track.artist}</p>
+                      {entry.title}
+                    </p>
+                    <p className="text-[11px] text-[#A1A1AA] truncate mt-0.5">{entry.artist}</p>
                   </div>
                 </div>
               );
             })}
           </div>
-        )}
-      </div>
-
-      {/* D. YOUR LIBRARY: 3 COLUMN BREAKDOWN */}
-      <div className="space-y-4">
-        <div>
-          <h2 className="text-lg font-bold text-[#F5F3FF]">Your Music Collection</h2>
-          <p className="text-xs text-[#A1A1AA]">Curated insights from your local audio library</p>
         </div>
+      )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Column 1: Recently Added */}
-          <div className="p-5 rounded-xl bg-[#14141B] border border-[#272733] space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-[#272733]">
-              <div className="flex items-center gap-2">
-                <Music size={15} className="text-[#A78BFA]" />
-                <h3 className="font-bold text-xs text-[#F5F3FF] uppercase tracking-wider font-mono-numbers">
-                  Recently Added
-                </h3>
+      {/* 3. MADE FOR YOU (PERSONALIZED DISCOVERY) */}
+      {discovery.hasSufficientData && discovery.madeForYou.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="p-1.5 rounded-lg bg-[#7C3AED]/15 text-[#A78BFA]">
+                <Sparkles size={16} />
               </div>
-              <span className="text-[10px] font-mono-numbers text-[#71717A]">
-                {recentlyAddedTracks.length}
-              </span>
-            </div>
-
-            <div className="space-y-1">
-              {recentlyAddedTracks.length === 0 ? (
-                <p className="text-xs text-[#71717A] py-6 text-center">No tracks added</p>
-              ) : (
-                recentlyAddedTracks.slice(0, 5).map((track) => (
-                  <div
-                    key={track.id}
-                    onClick={() => playTrack(track, recentlyAddedTracks)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ track, x: e.clientX, y: e.clientY });
-                    }}
-                    className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1B1B24] cursor-pointer text-xs group transition-colors"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <p className="font-semibold text-[#F5F3FF] truncate group-hover:text-[#A78BFA]">
-                        {track.title}
-                      </p>
-                      <p className="text-[10px] text-[#71717A] truncate">{track.artist}</p>
-                    </div>
-                    <QualityBadge
-                      tier={AudioQualityInspectorService.calculateQualityTier(track)}
-                      size="sm"
-                    />
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          {/* Column 2: Favorite Tracks */}
-          <div className="p-5 rounded-xl bg-[#14141B] border border-[#272733] space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-[#272733]">
-              <div className="flex items-center gap-2">
-                <Heart size={15} className="text-red-400 fill-red-400" />
-                <h3 className="font-bold text-xs text-[#F5F3FF] uppercase tracking-wider font-mono-numbers">
-                  Favorites
-                </h3>
+              <div>
+                <h2 className="text-lg font-bold text-[#F5F3FF]">Made for You</h2>
+                <p className="text-xs text-[#A1A1AA]">Curated from your listening patterns and artist affinities</p>
               </div>
-              <span className="text-[10px] font-mono-numbers text-[#71717A]">
-                {favoriteTracks.length}
-              </span>
             </div>
 
-            <div className="space-y-1">
-              {favoriteTracks.length === 0 ? (
-                <p className="text-xs text-[#71717A] py-6 text-center">Star tracks to add favorites</p>
-              ) : (
-                favoriteTracks.slice(0, 5).map((track) => (
-                  <div
-                    key={track.id}
-                    onClick={() => playTrack(track, favoriteTracks)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ track, x: e.clientX, y: e.clientY });
-                    }}
-                    className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1B1B24] cursor-pointer text-xs group transition-colors"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <p className="font-semibold text-[#F5F3FF] truncate group-hover:text-[#A78BFA]">
-                        {track.title}
-                      </p>
-                      <p className="text-[10px] text-[#71717A] truncate">{track.artist}</p>
-                    </div>
-                    <QualityBadge
-                      tier={AudioQualityInspectorService.calculateQualityTier(track)}
-                      size="sm"
-                    />
-                  </div>
-                ))
-              )}
-            </div>
+            <button
+              onClick={handleRefreshDiscovery}
+              title="Refresh personalized mix"
+              className="p-1.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-zinc-400 hover:text-white transition-colors flex items-center gap-1.5 text-xs font-semibold px-2.5"
+            >
+              <RotateCcw size={13} />
+              <span>Refresh</span>
+            </button>
           </div>
 
-          {/* Column 3: Most Played */}
-          <div className="p-5 rounded-xl bg-[#14141B] border border-[#272733] space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-[#272733]">
-              <div className="flex items-center gap-2">
-                <Flame size={15} className="text-amber-400" />
-                <h3 className="font-bold text-xs text-[#F5F3FF] uppercase tracking-wider font-mono-numbers">
-                  Most Played
-                </h3>
-              </div>
-              <span className="text-[10px] font-mono-numbers text-[#71717A]">
-                {mostPlayedTracks.length}
-              </span>
-            </div>
-
-            <div className="space-y-1">
-              {mostPlayedTracks.length === 0 ? (
-                <p className="text-xs text-[#71717A] py-6 text-center">Play tracks to compute frequency</p>
-              ) : (
-                mostPlayedTracks.slice(0, 5).map((track) => (
-                  <div
-                    key={track.id}
-                    onClick={() => playTrack(track, mostPlayedTracks)}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setContextMenu({ track, x: e.clientX, y: e.clientY });
-                    }}
-                    className="flex items-center justify-between p-2 rounded-lg hover:bg-[#1B1B24] cursor-pointer text-xs group transition-colors"
-                  >
-                    <div className="min-w-0 pr-2">
-                      <p className="font-semibold text-[#F5F3FF] truncate group-hover:text-[#A78BFA]">
-                        {track.title}
-                      </p>
-                      <p className="text-[10px] text-[#71717A] truncate">
-                        {track.artist} • {track.playCount} plays
-                      </p>
-                    </div>
-                    <QualityBadge
-                      tier={AudioQualityInspectorService.calculateQualityTier(track)}
-                      size="sm"
-                    />
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* E. AUDIO QUALITY OVERVIEW */}
-      <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#272733]">
-          <div>
-            <h2 className="text-lg font-bold text-[#F5F3FF]">Audio Quality & Hardware Pipeline</h2>
-            <p className="text-xs text-[#A1A1AA]">
-              Native formats, lossless codecs, and active Windows audio driver status
-            </p>
-          </div>
-          <button
-            onClick={() => setActiveView('inspector')}
-            className="self-start sm:self-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1B1B24] hover:bg-[#242432] border border-[#272733] text-xs font-semibold text-[#A78BFA] transition-colors"
-          >
-            <span>Open Inspector</span>
-            <ArrowRight size={13} />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl bg-[#09090B] border border-[#272733] space-y-1">
-            <span className="text-[11px] font-medium text-[#71717A]">Lossless Master Files</span>
-            <p className="text-2xl font-bold font-mono-numbers text-emerald-400">
-              {losslessCount.toLocaleString()}
-            </p>
-            <span className="text-[10px] text-[#71717A]">FLAC, WAV, ALAC, AIFF</span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-[#09090B] border border-[#272733] space-y-1">
-            <span className="text-[11px] font-medium text-[#71717A]">Hi-Res Lossless (24-bit+)</span>
-            <p className="text-2xl font-bold font-mono-numbers text-[#A78BFA]">
-              {hiresCount.toLocaleString()}
-            </p>
-            <span className="text-[10px] text-[#71717A]">&gt; 48 kHz or &gt; 16-bit</span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-[#09090B] border border-[#272733] space-y-1">
-            <span className="text-[11px] font-medium text-[#71717A]">Supported Codecs</span>
-            <div className="flex flex-wrap gap-1 pt-1">
-              {['FLAC', 'ALAC', 'WAV', 'MP3', 'AAC', 'OPUS'].map((c) => (
-                <span
-                  key={c}
-                  className="px-1.5 py-0.5 rounded bg-[#14141B] border border-[#272733] text-[9px] font-mono-numbers text-[#A1A1AA]"
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {discovery.madeForYou.slice(0, 6).map((item) => {
+              const isCurrent = currentTrack?.id === item.track.id;
+              return (
+                <div
+                  key={item.track.id}
+                  onClick={() => playTrack(item.track)}
+                  onContextMenu={(e) => handleTrackContextMenu(e, item.track)}
+                  className="group p-3 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-[#7C3AED]/40 cursor-pointer flex flex-col space-y-2.5 transition-all shadow-card"
                 >
-                  {c}
-                </span>
-              ))}
-            </div>
-            <span className="text-[10px] text-[#71717A]">Native Stream Decoding</span>
-          </div>
+                  <div className="relative aspect-square w-full rounded-xl bg-black/40 overflow-hidden flex items-center justify-center border border-[#272733]">
+                    {item.track.artworkDataUrl ? (
+                      <img
+                        src={item.track.artworkDataUrl}
+                        alt={item.track.title}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      <Disc size={32} className="text-zinc-600" />
+                    )}
 
-          <div className="p-4 rounded-xl bg-[#09090B] border border-[#272733] space-y-1">
-            <span className="text-[11px] font-medium text-[#71717A]">Output Endpoint</span>
-            <div className="flex items-center gap-1.5 pt-1">
-              <Speaker size={14} className="text-[#A78BFA]" />
-              <span className="text-xs font-semibold text-[#F5F3FF] truncate">WASAPI Endpoint</span>
-            </div>
-            <span className="text-[10px] text-emerald-400 font-mono-numbers">24-bit / 48.0 kHz Active</span>
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button className="p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-white shadow-glow-sm">
+                        <Play size={16} fill="currentColor" className="ml-0.5" />
+                      </button>
+                    </div>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(item.track);
+                      }}
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-black/60 text-rose-500 hover:scale-110 transition-all z-10"
+                    >
+                      <Heart size={13} fill={item.track.isFavorite ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+
+                  <div className="min-w-0">
+                    <p
+                      className={`font-semibold text-xs truncate transition-colors ${
+                        isCurrent ? 'text-[#A78BFA]' : 'text-[#F5F3FF] group-hover:text-[#A78BFA]'
+                      }`}
+                    >
+                      {item.track.title}
+                    </p>
+                    <p className="text-[11px] text-[#A1A1AA] truncate mt-0.5">{item.track.artist}</p>
+                    <p className="text-[9px] text-[#A78BFA] truncate mt-1 italic">{item.reason}</p>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
-      </div>
+      )}
 
-      <TrackContextMenu
-        menu={contextMenu}
-        onClose={() => setContextMenu(null)}
-        onOpenAddToPlaylist={(track) => setPlaylistModalTracks([track])}
-      />
+      {/* 4. YOUR FAVORITES QUICK ROW */}
+      {favorites.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Heart size={18} className="text-rose-400 fill-rose-400" />
+              <h2 className="text-lg font-bold text-[#F5F3FF]">Your Favorites</h2>
+            </div>
+            <button
+              onClick={() => setActiveView('favorites')}
+              className="text-xs text-[#A78BFA] hover:text-[#C4B5FD] font-semibold flex items-center gap-1 transition-colors"
+            >
+              <span>View All ({favorites.length})</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
 
-      <AddToPlaylistModal
-        isOpen={!!playlistModalTracks}
-        onClose={() => setPlaylistModalTracks(null)}
-        tracks={playlistModalTracks || []}
-      />
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {favorites.slice(0, 6).map((track) => (
+              <div
+                key={track.id}
+                onClick={() => playTrack(track, favorites)}
+                onContextMenu={(e) => handleTrackContextMenu(e, track)}
+                className="group p-3 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-rose-500/30 cursor-pointer flex flex-col space-y-2.5 transition-all shadow-card"
+              >
+                <div className="relative aspect-square w-full rounded-xl bg-black/40 overflow-hidden flex items-center justify-center border border-[#272733]">
+                  {track.artworkDataUrl ? (
+                    <img
+                      src={track.artworkDataUrl}
+                      alt={track.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                  ) : (
+                    <Disc size={32} className="text-zinc-600" />
+                  )}
+
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <button className="p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-white shadow-glow-sm">
+                      <Play size={16} fill="currentColor" className="ml-0.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="min-w-0">
+                  <p className="font-semibold text-xs text-[#F5F3FF] group-hover:text-[#A78BFA] truncate transition-colors">
+                    {track.title}
+                  </p>
+                  <p className="text-[11px] text-[#A1A1AA] truncate mt-0.5">{track.artist}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 5. TOP ARTISTS ROTATION */}
+      {topArtists.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-lg font-bold text-[#F5F3FF]">Your Artist Rotation</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+            {topArtists.map((artist) => (
+              <div
+                key={artist.name}
+                onClick={() => {
+                  const match = artists.find((a) => a.name === artist.name);
+                  if (match) openArtistDetail(match);
+                }}
+                className="p-4 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-[#7C3AED]/40 cursor-pointer flex flex-col items-center text-center space-y-2.5 transition-all shadow-card group"
+              >
+                <div className="w-16 h-16 rounded-full bg-black/50 border border-[#272733] overflow-hidden flex items-center justify-center">
+                  {artist.artworkUrl ? (
+                    <img src={artist.artworkUrl} alt={artist.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Users size={24} className="text-zinc-500 group-hover:text-[#A78BFA] transition-colors" />
+                  )}
+                </div>
+                <div className="min-w-0 w-full">
+                  <p className="font-bold text-xs text-[#F5F3FF] truncate group-hover:text-[#A78BFA] transition-colors">
+                    {artist.name}
+                  </p>
+                  <p className="text-[10px] text-zinc-500 font-mono-numbers mt-0.5">
+                    {artist.playCount} Plays
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 6. RECENTLY ADDED */}
+      {recentlyAddedTracks.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-[#F5F3FF]">Recently Added to Library</h2>
+            <button
+              onClick={() => setActiveView('songs')}
+              className="text-xs text-[#A78BFA] hover:text-[#C4B5FD] font-semibold flex items-center gap-1 transition-colors"
+            >
+              <span>View All Songs</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            {recentlyAddedTracks.map((track) => (
+              <div
+                key={track.id}
+                onClick={() => playTrack(track, recentlyAddedTracks)}
+                onContextMenu={(e) => handleTrackContextMenu(e, track)}
+                className="group p-3 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-[#7C3AED]/40 cursor-pointer flex flex-col space-y-2.5 transition-all shadow-card"
+              >
+                <div className="relative aspect-square w-full rounded-xl bg-black/40 overflow-hidden flex items-center justify-center border border-[#272733]">
+                  {track.artworkDataUrl ? (
+                    <img
+                      src={track.artworkDataUrl}
+                      alt={track.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                  ) : (
+                    <Disc size={32} className="text-zinc-600" />
+                  )}
+
+                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <button className="p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-white shadow-glow-sm">
+                      <Play size={16} fill="currentColor" className="ml-0.5" />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="min-w-0">
+                  <p className="font-semibold text-xs text-[#F5F3FF] group-hover:text-[#A78BFA] truncate transition-colors">
+                    {track.title}
+                  </p>
+                  <p className="text-[11px] text-[#A1A1AA] truncate mt-0.5">{track.artist}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Context Menu & Modal */}
+      {contextMenu && (
+        <TrackContextMenu
+          menu={contextMenu}
+          onClose={() => setContextMenu(null)}
+          onOpenAddToPlaylist={(track: TrackMetadata) => setPlaylistModalTracks([track])}
+        />
+      )}
+
+      {playlistModalTracks && (
+        <AddToPlaylistModal
+          isOpen={true}
+          tracks={playlistModalTracks}
+          onClose={() => setPlaylistModalTracks(null)}
+        />
+      )}
     </div>
   );
 };

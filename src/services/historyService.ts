@@ -1,12 +1,19 @@
-import { HistoryEntry, HistoryDateFilter, HistoryCompletionStatus } from '../types/history';
+import {
+  HistoryEntry,
+  HistoryDateFilter,
+  HistoryCompletionStatus,
+  HistoryQueryOptions,
+} from '../types/history';
 import { TrackMetadata } from '../types/audio';
 
 const STORAGE_HISTORY_KEY = 'harmoniq_listening_history_v2';
+const STORAGE_HISTORY_ENABLED_KEY = 'harmoniq_history_recording_enabled';
 const MAX_HISTORY_ENTRIES = 5000;
 
 export class HistoryService {
   private entries: HistoryEntry[] = [];
   private listeners: Set<() => void> = new Set();
+  private historyEnabled: boolean = true;
 
   constructor() {
     this.load();
@@ -22,10 +29,30 @@ export class HistoryService {
             this.entries = parsed;
           }
         }
+        const enabledSetting = localStorage.getItem(STORAGE_HISTORY_ENABLED_KEY);
+        if (enabledSetting !== null) {
+          this.historyEnabled = enabledSetting === 'true';
+        }
       }
     } catch (e) {
       console.warn('Failed to load listening history:', e);
     }
+  }
+
+  public isHistoryEnabled(): boolean {
+    return this.historyEnabled;
+  }
+
+  public setHistoryEnabled(enabled: boolean): void {
+    this.historyEnabled = enabled;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(STORAGE_HISTORY_ENABLED_KEY, String(enabled));
+      }
+    } catch {
+      /* ignore */
+    }
+    this.emit();
   }
 
   public save(): void {
@@ -88,7 +115,17 @@ export class HistoryService {
       duration: Math.round(duration),
       playbackDuration: cleanDuration,
       completionStatus: status,
+      isOnline: Boolean(track.isOnline),
+      providerId: track.providerId || 'local',
+      providerTrackId: track.providerTrackId,
+      playbackCapability: track.playbackCapability,
+      genre: track.genre,
+      filePath: track.filePath,
     };
+
+    if (!this.historyEnabled) {
+      return { entry, isCompleted };
+    }
 
     // Prepend to history
     this.entries.unshift(entry);
@@ -100,34 +137,37 @@ export class HistoryService {
     return { entry, isCompleted };
   }
 
-  public getHistory(options?: {
-    dateFilter?: HistoryDateFilter;
-    searchQuery?: string;
-    sortBy?: 'playedAt' | 'playbackDuration';
-    sortOrder?: 'asc' | 'desc';
-    statusFilter?: 'all' | HistoryCompletionStatus;
-  }): HistoryEntry[] {
+  public getHistory(options?: HistoryQueryOptions): HistoryEntry[] {
     let result = [...this.entries];
 
     // 1. Date filter
     const now = Date.now();
     if (options?.dateFilter && options.dateFilter !== 'all') {
-      let cutoff = 0;
       switch (options.dateFilter) {
         case 'today': {
           const d = new Date();
           d.setHours(0, 0, 0, 0);
-          cutoff = d.getTime();
+          result = result.filter((e) => e.playedAt >= d.getTime());
           break;
         }
-        case '7days':
-          cutoff = now - 7 * 86400 * 1000;
+        case 'yesterday': {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const yesterday = new Date(today.getTime() - 86400 * 1000);
+          result = result.filter((e) => e.playedAt >= yesterday.getTime() && e.playedAt < today.getTime());
           break;
-        case '30days':
-          cutoff = now - 30 * 86400 * 1000;
+        }
+        case '7days': {
+          const cutoff = now - 7 * 86400 * 1000;
+          result = result.filter((e) => e.playedAt >= cutoff);
           break;
+        }
+        case '30days': {
+          const cutoff = now - 30 * 86400 * 1000;
+          result = result.filter((e) => e.playedAt >= cutoff);
+          break;
+        }
       }
-      result = result.filter((e) => e.playedAt >= cutoff);
     }
 
     // 2. Status filter
@@ -135,28 +175,61 @@ export class HistoryService {
       result = result.filter((e) => e.completionStatus === options.statusFilter);
     }
 
-    // 3. Search query
+    // 3. Provider filter
+    if (options?.providerId && options.providerId !== 'all') {
+      const pid = options.providerId.toLowerCase();
+      result = result.filter((e) => {
+        const itemPid = (e.providerId || 'local').toLowerCase();
+        return itemPid === pid;
+      });
+    }
+
+    // 4. Artist filter
+    if (options?.artist && options.artist !== 'all') {
+      const targetArtist = options.artist.toLowerCase().trim();
+      result = result.filter((e) => (e.artist || '').toLowerCase().trim() === targetArtist);
+    }
+
+    // 5. Search query
     if (options?.searchQuery) {
       const q = options.searchQuery.toLowerCase().trim();
       result = result.filter(
         (e) =>
-          e.title.toLowerCase().includes(q) ||
-          e.artist.toLowerCase().includes(q) ||
-          e.album.toLowerCase().includes(q)
+          (e.title || '').toLowerCase().includes(q) ||
+          (e.artist || '').toLowerCase().includes(q) ||
+          (e.album || '').toLowerCase().includes(q)
       );
     }
 
-    // 4. Sorting
+    // 6. Sorting
     const sortBy = options?.sortBy || 'playedAt';
     const isAsc = options?.sortOrder === 'asc';
 
     result.sort((a, b) => {
-      const valA = a[sortBy];
-      const valB = b[sortBy];
-      return isAsc ? valA - valB : valB - valA;
+      const valA = a[sortBy] ?? 0;
+      const valB = b[sortBy] ?? 0;
+      return isAsc ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
     });
 
     return result;
+  }
+
+  public getUniqueProviders(): string[] {
+    const set = new Set<string>();
+    for (const e of this.entries) {
+      set.add(e.providerId || 'local');
+    }
+    return Array.from(set);
+  }
+
+  public getUniqueArtists(): string[] {
+    const set = new Set<string>();
+    for (const e of this.entries) {
+      if (e.artist && e.artist.trim()) {
+        set.add(e.artist.trim());
+      }
+    }
+    return Array.from(set).sort();
   }
 
   public removeEntry(id: string): boolean {

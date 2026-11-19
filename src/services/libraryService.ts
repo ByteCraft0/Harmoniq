@@ -232,6 +232,14 @@ export class LibraryService {
     return track.isFavorite;
   }
 
+  public syncFavorites(trackId: string, isFav: boolean): void {
+    const track = this.tracks.get(trackId);
+    if (track) {
+      track.isFavorite = isFav;
+      this.emit('data');
+    }
+  }
+
   public recordPlay(trackId: string): void {
     const track = this.tracks.get(trackId);
     if (!track) return;

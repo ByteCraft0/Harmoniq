@@ -18,6 +18,7 @@ import {
   Edit2,
   Save,
   Check,
+  Heart,
 } from 'lucide-react';
 
 interface QueueDrawerProps {
@@ -39,7 +40,7 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
     toggleShuffle,
     setRepeatMode,
   } = usePlayer();
-  const { tracks: allTracks } = useLibrary();
+  const { tracks: allTracks, toggleFavorite } = useLibrary();
   const { showToast } = useToast();
 
   const [savedQueues, setSavedQueues] = useState<SavedQueue[]>([]);
@@ -340,6 +341,18 @@ export const QueueDrawer: React.FC<QueueDrawerProps> = ({ isOpen, onClose }) => 
 
                   {/* Reordering and remove buttons visible on hover */}
                   <div className="hidden group-hover:flex items-center gap-0.5">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(track);
+                      }}
+                      title={track.isFavorite ? 'Remove favorite' : 'Add favorite'}
+                      className={`p-1 transition-colors ${
+                        track.isFavorite ? 'text-rose-500' : 'text-[#71717A] hover:text-white'
+                      }`}
+                    >
+                      <Heart size={12} fill={track.isFavorite ? 'currentColor' : 'none'} />
+                    </button>
                     {idx > 0 && (
                       <button
                         onClick={() => reorderQueue(idx, idx - 1)}

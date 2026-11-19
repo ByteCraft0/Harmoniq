@@ -1,5 +1,29 @@
 import { TrackMetadata } from '../types/audio';
 import { Artist, Album } from '../types/library';
+import { historyService } from './historyService';
+import { libraryService } from './libraryService';
+import { favoritesService } from './favoritesService';
+
+export interface RecommendationItem {
+  track: TrackMetadata;
+  reason: string;
+  signal: 'frequent_artist' | 'favorite_artist' | 'rediscover' | 'genre_affinity' | 'fresh_discovery';
+  isPlayable: boolean;
+}
+
+export interface PersonalizedDiscoverySections {
+  madeForYou: RecommendationItem[];
+  rediscover: RecommendationItem[];
+  moreLikeThis: RecommendationItem[];
+  artistRotation: {
+    artistName: string;
+    tracks: RecommendationItem[];
+    listenCount: number;
+  }[];
+  freshDiscoveries: RecommendationItem[];
+  hasSufficientData: boolean;
+  totalSignalsCount: number;
+}
 
 export type MoodCategory = 'Relax' | 'Energetic' | 'Focus' | 'Chill' | 'Party' | 'Acoustic';
 
@@ -389,6 +413,227 @@ export class DiscoveryService {
       console.warn('Online metadata search error:', e);
     }
     return results;
+  }
+
+  private refreshSeed = 0;
+
+  public refreshPersonalizedDiscovery(): void {
+    this.refreshSeed += 1;
+  }
+
+  public resetRecommendationProfile(): void {
+    this.refreshSeed = 0;
+  }
+
+  /**
+   * Local-First Personalized Discovery Engine (Phase 4)
+   * Learns from listening history, favorites, skips, and play counts without any external AI API.
+   */
+  public getPersonalizedDiscovery(candidateTracks?: TrackMetadata[]): PersonalizedDiscoverySections {
+    const history = historyService.getHistory();
+    const favorites = favoritesService.getFavorites();
+    const allTracks = candidateTracks || libraryService.getAllTracks();
+
+    // Combine local library tracks and favorites (which may include online favorites)
+    const trackMap = new Map<string, TrackMetadata>();
+    for (const t of allTracks) {
+      if (t && t.id) trackMap.set(t.id, t);
+    }
+    for (const f of favorites) {
+      if (f && f.id && !trackMap.has(f.id)) trackMap.set(f.id, f);
+    }
+    const combinedTracks = Array.from(trackMap.values());
+
+    const totalSignalsCount = history.length + favorites.length + combinedTracks.filter((t) => (t.playCount || 0) > 0).length;
+    const hasSufficientData = totalSignalsCount >= 1 && combinedTracks.length > 0;
+
+    if (!hasSufficientData) {
+      return {
+        madeForYou: [],
+        rediscover: [],
+        moreLikeThis: [],
+        artistRotation: [],
+        freshDiscoveries: [],
+        hasSufficientData: false,
+        totalSignalsCount,
+      };
+    }
+
+    // 1. Calculate Artist & Genre Weights
+    const artistScores = new Map<string, number>();
+    const genreScores = new Map<string, number>();
+    const skippedTracks = new Map<string, number>();
+    const recentlyPlayedIds = new Set<string>();
+
+    const twoDaysAgo = Date.now() - 2 * 86400 * 1000;
+    const oneWeekAgo = Date.now() - 7 * 86400 * 1000;
+    const twoWeeksAgo = Date.now() - 14 * 86400 * 1000;
+
+    for (const e of history) {
+      if (e.playedAt >= twoDaysAgo) {
+        recentlyPlayedIds.add(e.trackId);
+      }
+      const artist = (e.artist || '').toLowerCase().trim();
+      const genre = (e.genre || '').toLowerCase().trim();
+
+      if (e.completionStatus === 'completed') {
+        if (artist) artistScores.set(artist, (artistScores.get(artist) || 0) + 3);
+        if (genre) genreScores.set(genre, (genreScores.get(genre) || 0) + 2);
+      } else if (e.completionStatus === 'skipped') {
+        skippedTracks.set(e.trackId, (skippedTracks.get(e.trackId) || 0) + 1);
+        if (artist) artistScores.set(artist, (artistScores.get(artist) || 0) - 1);
+      }
+    }
+
+    // Favorites give strong positive affinity
+    for (const fav of favorites) {
+      const artist = (fav.artist || '').toLowerCase().trim();
+      const genre = (fav.genre || '').toLowerCase().trim();
+      if (artist) artistScores.set(artist, (artistScores.get(artist) || 0) + 5);
+      if (genre) genreScores.set(genre, (genreScores.get(genre) || 0) + 3);
+    }
+
+    // Track play counts give baseline affinity
+    for (const t of combinedTracks) {
+      if ((t.playCount || 0) > 0) {
+        const artist = (t.artist || '').toLowerCase().trim();
+        const genre = (t.genre || '').toLowerCase().trim();
+        const add = Math.min(10, t.playCount);
+        if (artist) artistScores.set(artist, (artistScores.get(artist) || 0) + add);
+        if (genre) genreScores.set(genre, (genreScores.get(genre) || 0) + Math.ceil(add / 2));
+      }
+    }
+
+    const checkPlayable = (t: TrackMetadata): boolean => {
+      if (!t.isOnline) return true;
+      return t.playbackCapability !== 'external_link' &&
+        t.playbackCapability !== 'unavailable' &&
+        t.playbackCapability !== 'metadata_only';
+    };
+
+    // Filter candidate tracks (excluding heavily skipped tracks)
+    const validCandidates = combinedTracks.filter((t) => (skippedTracks.get(t.id) || 0) < 3);
+
+    // Section 1: Made for You (Tracks from high affinity artists/genres, not played in last 48h)
+    const madeForYou: RecommendationItem[] = validCandidates
+      .filter((t) => !recentlyPlayedIds.has(t.id))
+      .map((t) => {
+        const aScore = artistScores.get((t.artist || '').toLowerCase().trim()) || 0;
+        const gScore = genreScores.get((t.genre || '').toLowerCase().trim()) || 0;
+        const score = aScore * 2 + gScore;
+        let reason = 'Recommended based on your library style';
+        if (aScore >= 5) {
+          reason = `Because you listen to ${t.artist} frequently`;
+        } else if (gScore >= 3 && t.genre) {
+          reason = `Matches your preference for ${t.genre} music`;
+        }
+        return {
+          track: t,
+          reason,
+          signal: (aScore >= 5 ? 'frequent_artist' : 'genre_affinity') as any,
+          isPlayable: checkPlayable(t),
+          score,
+        };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map(({ track, reason, signal, isPlayable }) => ({ track, reason, signal, isPlayable }));
+
+    // Section 2: Rediscover (Played multiple times or completed, but not played in last 7-14 days)
+    const rediscover: RecommendationItem[] = validCandidates
+      .filter((t) => {
+        const playedCount = t.playCount || 0;
+        const lastP = t.lastPlayed || 0;
+        return (playedCount >= 1 || history.some((h) => h.trackId === t.id && h.completionStatus === 'completed')) &&
+          (!lastP || lastP < oneWeekAgo);
+      })
+      .sort((a, b) => (b.playCount || 0) - (a.playCount || 0))
+      .slice(0, 8)
+      .map((t) => ({
+        track: t,
+        reason: t.lastPlayed
+          ? 'You enjoyed this track earlier. Pick it back up.'
+          : 'A favorite from your collection waiting to be rediscovered.',
+        signal: 'rediscover',
+        isPlayable: checkPlayable(t),
+      }));
+
+    // Section 3: More Like This (Similar to user's favorite tracks)
+    const topGenres = Array.from(genreScores.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([g]) => g);
+
+    const moreLikeThis: RecommendationItem[] = validCandidates
+      .filter((t) => {
+        const g = (t.genre || '').toLowerCase().trim();
+        return topGenres.includes(g) && !recentlyPlayedIds.has(t.id);
+      })
+      .slice(0, 8)
+      .map((t) => ({
+        track: t,
+        reason: t.genre
+          ? `Similar sound and energy in ${t.genre}`
+          : 'Curated based on your listening style',
+        signal: 'genre_affinity',
+        isPlayable: checkPlayable(t),
+      }));
+
+    // Section 4: Your Artist Rotation (Top 3-4 artists by score with their tracks)
+    const sortedArtists = Array.from(artistScores.entries())
+      .filter(([name, score]) => name && score > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4);
+
+    const artistRotation = sortedArtists.map(([artistNorm, score]) => {
+      const artistTracks = validCandidates
+        .filter((t) => (t.artist || '').toLowerCase().trim() === artistNorm)
+        .slice(0, 4)
+        .map((t) => ({
+          track: t,
+          reason: `In your active artist rotation (${t.artist})`,
+          signal: 'frequent_artist' as const,
+          isPlayable: checkPlayable(t),
+        }));
+
+      const origTrack = validCandidates.find((t) => (t.artist || '').toLowerCase().trim() === artistNorm);
+      const artistName = origTrack ? origTrack.artist : artistNorm;
+
+      return {
+        artistName,
+        tracks: artistTracks,
+        listenCount: score,
+      };
+    }).filter((r) => r.tracks.length > 0);
+
+    // Section 5: Fresh Discoveries (Tracks from familiar artists or genres that have 0 plays)
+    const freshDiscoveries: RecommendationItem[] = validCandidates
+      .filter((t) => (!t.playCount || t.playCount === 0) && !t.lastPlayed)
+      .filter((t) => {
+        const aScore = artistScores.get((t.artist || '').toLowerCase().trim()) || 0;
+        const gScore = genreScores.get((t.genre || '').toLowerCase().trim()) || 0;
+        return aScore > 0 || gScore > 0;
+      })
+      .slice(0, 8)
+      .map((t) => ({
+        track: t,
+        reason: `Unplayed track from an artist in your circle: ${t.artist}`,
+        signal: 'fresh_discovery',
+        isPlayable: checkPlayable(t),
+      }));
+
+    return {
+      madeForYou,
+      rediscover,
+      moreLikeThis,
+      artistRotation,
+      freshDiscoveries,
+      hasSufficientData: true,
+      totalSignalsCount,
+    };
+  }
+
+  public getPersonalizedSections(candidateTracks?: TrackMetadata[]): PersonalizedDiscoverySections {
+    return this.getPersonalizedDiscovery(candidateTracks);
   }
 }
 

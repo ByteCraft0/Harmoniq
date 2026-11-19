@@ -25,6 +25,7 @@ import { ABRepeatControls } from '../audio/ABRepeatControls';
 import { HotkeyProfilesCard } from '../desktop/HotkeyProfilesCard';
 import { BackupRestoreCard } from '../desktop/BackupRestoreCard';
 import { PortableModeCard } from '../desktop/PortableModeCard';
+import { PersonalizationPrivacyCard } from '../desktop/PersonalizationPrivacyCard';
 import { AssistantSettingsCard } from '../assistant/AssistantSettingsCard';
 import { visualizerSettingsService } from '../../services/visualizerSettingsService';
 import { appearanceService } from '../../services/appearanceService';
@@ -1582,6 +1583,11 @@ export const SettingsView: React.FC = () => {
       {/* Portable Mode (Phase 4) */}
       {(activeTab === 'all' || activeTab === 'system') && (
         <PortableModeCard />
+      )}
+
+      {/* Listening Intelligence & Privacy Controls (Phase 4) */}
+      {(activeTab === 'all' || activeTab === 'system' || activeTab === 'library') && (
+        <PersonalizationPrivacyCard />
       )}
 
       {/* Privacy Guarantee */}

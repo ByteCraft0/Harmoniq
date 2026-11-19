@@ -1,5 +1,6 @@
 import { historyService } from './historyService';
 import { libraryService } from './libraryService';
+import { favoritesService } from './favoritesService';
 import { HistoryEntry, ListeningGoal, AudiophileMilestone } from '../types/history';
 import { TrackMetadata } from '../types/audio';
 
@@ -38,6 +39,25 @@ export interface TopAlbumStat {
   playCount: number;
   listeningSeconds: number;
   artworkUrl?: string;
+}
+
+export interface TopTrackStat {
+  id: string;
+  title: string;
+  artist: string;
+  album: string;
+  playCount: number;
+  listeningSeconds: number;
+  artworkUrl?: string;
+  providerId?: string;
+}
+
+export interface ProviderDistribution {
+  provider: string;
+  count: number;
+  seconds: number;
+  percentage: number;
+  color: string;
 }
 
 export interface GenreDistribution {
@@ -477,6 +497,217 @@ export class StatsService {
     ];
 
     return milestones;
+  }
+
+  /**
+   * Top played tracks ranked by listening duration and count
+   */
+  public getTopTracks(limit = 10): TopTrackStat[] {
+    const history = historyService.getHistory();
+    const trackMap = new Map<string, { id: string; title: string; artist: string; album: string; plays: number; seconds: number; artwork?: string; providerId?: string }>();
+
+    for (const e of history) {
+      const key = e.trackId || `${e.title}:::${e.artist}`.toLowerCase();
+      const existing = trackMap.get(key) || {
+        id: e.trackId,
+        title: e.title || 'Unknown Title',
+        artist: e.artist || 'Unknown Artist',
+        album: e.album || 'Unknown Album',
+        plays: 0,
+        seconds: 0,
+        artwork: e.artworkDataUrl,
+        providerId: e.providerId || 'local',
+      };
+      existing.plays += 1;
+      existing.seconds += e.playbackDuration || 0;
+      if (!existing.artwork && e.artworkDataUrl) existing.artwork = e.artworkDataUrl;
+      trackMap.set(key, existing);
+    }
+
+    return Array.from(trackMap.values())
+      .sort((a, b) => b.seconds - a.seconds || b.plays - a.plays)
+      .slice(0, limit)
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        artist: t.artist,
+        album: t.album,
+        playCount: t.plays,
+        listeningSeconds: t.seconds,
+        artworkUrl: t.artwork,
+        providerId: t.providerId,
+      }));
+  }
+
+  /**
+   * Top albums ranked by listening duration and play count
+   */
+  public getTopAlbums(limit = 5): TopAlbumStat[] {
+    const history = historyService.getHistory();
+    const albumMap = new Map<string, { title: string; artist: string; plays: number; seconds: number; artwork?: string }>();
+
+    for (const e of history) {
+      const title = e.album || 'Unknown Album';
+      const artist = e.artist || 'Unknown Artist';
+      const key = `${title}:::${artist}`.toLowerCase();
+      const existing = albumMap.get(key) || { title, artist, plays: 0, seconds: 0, artwork: e.artworkDataUrl };
+      existing.plays += 1;
+      existing.seconds += e.playbackDuration || 0;
+      if (!existing.artwork && e.artworkDataUrl) existing.artwork = e.artworkDataUrl;
+      albumMap.set(key, existing);
+    }
+
+    return Array.from(albumMap.values())
+      .sort((a, b) => b.seconds - a.seconds || b.plays - a.plays)
+      .slice(0, limit)
+      .map((data) => ({
+        title: data.title,
+        artist: data.artist,
+        playCount: data.plays,
+        listeningSeconds: data.seconds,
+        artworkUrl: data.artwork,
+      }));
+  }
+
+  /**
+   * Favorite artists extracted from favorited tracks
+   */
+  public getFavoriteArtists(limit = 5): string[] {
+    const favorites = favoritesService.getFavorites();
+    const counts = new Map<string, number>();
+
+    for (const fav of favorites) {
+      const a = (fav.artist || '').trim();
+      if (a) {
+        counts.set(a, (counts.get(a) || 0) + 1);
+      }
+    }
+
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([name]) => name);
+  }
+
+  /**
+   * Recently discovered artists ordered by first listen timestamp
+   */
+  public getRecentlyDiscoveredArtists(limit = 5): { name: string; discoveredAt: number; artworkUrl?: string }[] {
+    const history = historyService.getHistory();
+    const firstSeen = new Map<string, { timestamp: number; artworkUrl?: string }>();
+
+    for (let i = history.length - 1; i >= 0; i--) {
+      const e = history[i];
+      const name = (e.artist || '').trim();
+      if (name && !firstSeen.has(name)) {
+        firstSeen.set(name, { timestamp: e.playedAt, artworkUrl: e.artworkDataUrl });
+      }
+    }
+
+    return Array.from(firstSeen.entries())
+      .sort((a, b) => b[1].timestamp - a[1].timestamp)
+      .slice(0, limit)
+      .map(([name, data]) => ({
+        name,
+        discoveredAt: data.timestamp,
+        artworkUrl: data.artworkUrl,
+      }));
+  }
+
+  /**
+   * Weekly listening activity for last N weeks
+   */
+  public getWeeklyActivity(weeks = 8): WeeklyActivityPoint[] {
+    const history = historyService.getHistory();
+    const result: WeeklyActivityPoint[] = [];
+    const now = Date.now();
+
+    for (let i = weeks - 1; i >= 0; i--) {
+      const start = now - (i + 1) * 7 * 86400 * 1000;
+      const end = i === 0 ? now + 60000 : now - i * 7 * 86400 * 1000;
+      const d = new Date(start);
+      const weekLabel = `Wk of ${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}`;
+
+      let sec = 0;
+      let count = 0;
+
+      for (const e of history) {
+        if (e.playedAt >= start && e.playedAt <= end) {
+          sec += e.playbackDuration || 0;
+          count++;
+        }
+      }
+
+      result.push({
+        weekLabel,
+        seconds: sec,
+        minutes: Math.round(sec / 60),
+        tracksPlayed: count,
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Most active day of the week by listening time
+   */
+  public getMostActiveDay(): { dayOfWeek: string; listeningSeconds: number; tracksPlayed: number } | null {
+    const history = historyService.getHistory();
+    if (history.length === 0) return null;
+
+    const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const dayStats = days.map((day) => ({ dayOfWeek: day, listeningSeconds: 0, tracksPlayed: 0 }));
+
+    for (const e of history) {
+      const dayIdx = new Date(e.playedAt).getDay();
+      dayStats[dayIdx].listeningSeconds += e.playbackDuration || 0;
+      dayStats[dayIdx].tracksPlayed += 1;
+    }
+
+    dayStats.sort((a, b) => b.listeningSeconds - a.listeningSeconds);
+    return dayStats[0];
+  }
+
+  /**
+   * Provider-wise listening distribution
+   */
+  public getProviderDistribution(): ProviderDistribution[] {
+    const history = historyService.getHistory();
+    const providerMap = new Map<string, { count: number; seconds: number }>();
+    let totalSec = 0;
+
+    for (const e of history) {
+      const p = (e.providerId || 'local').toLowerCase();
+      const existing = providerMap.get(p) || { count: 0, seconds: 0 };
+      existing.count += 1;
+      const sec = e.playbackDuration || 0;
+      existing.seconds += sec;
+      totalSec += sec;
+      providerMap.set(p, existing);
+    }
+
+    if (providerMap.size === 0) return [];
+
+    const colors: Record<string, string> = {
+      local: '#A78BFA',
+      jamendo: '#38BDF8',
+      audius: '#F472B6',
+      archive: '#FBBF24',
+      apple: '#FB7185',
+      spotify: '#34D399',
+      youtube: '#EF4444',
+    };
+
+    return Array.from(providerMap.entries())
+      .map(([provider, data]) => ({
+        provider: provider.charAt(0).toUpperCase() + provider.slice(1),
+        count: data.count,
+        seconds: data.seconds,
+        percentage: totalSec > 0 ? Math.round((data.seconds / totalSec) * 100) : 0,
+        color: colors[provider.toLowerCase()] || '#818CF8',
+      }))
+      .sort((a, b) => b.seconds - a.seconds);
   }
 }
 
