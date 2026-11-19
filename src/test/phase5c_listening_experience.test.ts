@@ -32,11 +32,18 @@ function createMockTrack(id: string, title = 'Test Track', duration = 240): Trac
     album: 'Test Album',
     duration,
     filePath: `C:/Music/${id}.flac`,
-    format: 'flac',
+    fileName: `${id}.flac`,
+    codec: 'FLAC',
+    container: 'flac',
     sampleRate: 44100,
     bitDepth: 16,
     channels: 2,
-  };
+    hasArtwork: false,
+    fileSize: 1048576,
+    isLossless: true,
+    dateAdded: Date.now(),
+    dateModified: Date.now(),
+  } as TrackMetadata;
 }
 
 describe('Phase 5C — Advanced Listening Experience & Playback Transitions', () => {

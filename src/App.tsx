@@ -23,6 +23,7 @@ import { LyricsView } from './components/views/LyricsView';
 import { AudioOutputView } from './components/views/AudioOutputView';
 import { SettingsView } from './components/views/SettingsView';
 import { MiniPlayer } from './components/layout/MiniPlayer';
+import { ListeningDashboardView } from './components/views/ListeningDashboardView';
 import { ListeningStatsDashboard } from './components/stats/ListeningStatsDashboard';
 import { OnlineMusicSearchView } from './components/online/OnlineMusicSearchView';
 import { RadioView } from './components/online/RadioView';
@@ -240,7 +241,7 @@ const MainLayout: React.FC = () => {
       case 'settings':
         return <SettingsView />;
       case 'stats':
-        return <ListeningStatsDashboard />;
+        return <ListeningDashboardView />;
       case 'calendar':
         return <ListeningCalendarView />;
       case 'vinyl_collection':

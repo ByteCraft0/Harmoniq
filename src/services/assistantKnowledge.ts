@@ -1,6 +1,9 @@
 import { AppView } from '../context/LibraryContext';
 import { AssistantAction, KnowledgeDocument, HarmoniqAssistantContext } from '../types/assistant';
 import { detectContextIntent, formatDurationSeconds } from './assistantContextService';
+import { personalIntelligenceService } from './audio/personalIntelligenceService';
+import { soundRecommendationService } from './audio/soundRecommendationService';
+import { intelligentDiscoveryService } from './audio/intelligentDiscoveryService';
 
 export const HARMONIQ_KNOWLEDGE_BASE: KnowledgeDocument[] = [
   {
@@ -492,6 +495,57 @@ export function generateLocalAnswer(
     const actions: AssistantAction[] = [];
 
     switch (intent) {
+      case 'listening_stats': {
+        const p = personalIntelligenceService.getListeningProfile('30d');
+        const hrs = Math.floor(p.totalListeningSeconds / 3600);
+        const mins = Math.floor((p.totalListeningSeconds % 3600) / 60);
+
+        let content = `### Personal Listening Intelligence 📊\n\n`;
+        content += `- **Total Listening Time (Last 30 Days)**: ${hrs}h ${mins}m (~${p.weeklyListeningHours} hrs/week)\n`;
+        content += `- **Total Plays**: ${p.totalPlays} (${p.completionRate}% completion rate, ${p.skipRate}% skip rate)\n`;
+        content += `- **Peak Listening Window**: ${p.preferredListeningWindow}\n\n`;
+
+        if (p.topArtists.length > 0) {
+          content += `**Top Artists:** ${p.topArtists.slice(0, 3).map((a) => a.name).join(', ')}\n`;
+        }
+        if (p.topGenres.length > 0) {
+          content += `**Top Genres:** ${p.topGenres.slice(0, 3).map((g) => g.genre).join(', ')}\n`;
+        }
+
+        actions.push({ id: 'act_dashboard', label: 'Open Listening Dashboard', actionType: 'navigate', target: 'stats' });
+        return { content, actions };
+      }
+
+      case 'sound_recommendation': {
+        const rec = soundRecommendationService.getRecommendationForContext(context?.currentTrack as any);
+        let content = `### Adaptive Sound Recommendation 🎧\n\n`;
+        if (rec) {
+          content += `**${rec.title}**\n\n${rec.rationale}\n\n`;
+          content += `You can audition this profile non-destructively or open Equalizer Studio to customize it.`;
+        } else {
+          content += `No specific recommendation available. Start playback to receive tailored sound profiles.`;
+        }
+        actions.push({ id: 'act_eq', label: 'Open Equalizer Studio', actionType: 'navigate', target: 'equalizer' });
+        actions.push({ id: 'act_dashboard', label: 'Open Listening Dashboard', actionType: 'navigate', target: 'stats' });
+        return { content, actions };
+      }
+
+      case 'forgotten_favorites': {
+        const disc = intelligentDiscoveryService.generatePersonalizedDiscovery();
+        let content = `### Forgotten Favorites & Discovery 🎶\n\n`;
+        if (disc.forgottenFavorites.length > 0) {
+          content += `Here are tracks you used to love that haven't been in rotation recently:\n\n`;
+          for (const item of disc.forgottenFavorites.slice(0, 3)) {
+            content += `- **"${item.track.title}"** by ${item.track.artist}\n`;
+          }
+          content += `\nYou can explore more in your Personal Listening Dashboard!`;
+        } else {
+          content += `All your favorite tracks have been active recently! Check out your discovery feed in the dashboard.`;
+        }
+        actions.push({ id: 'act_dashboard', label: 'Open Listening Dashboard', actionType: 'navigate', target: 'stats' });
+        return { content, actions };
+      }
+
       case 'current_track': {
         if (context?.currentTrack) {
           const track = context.currentTrack;

@@ -252,10 +252,51 @@ export type ContextQueryIntent =
   | 'queue_status'
   | 'dsp_status'
   | 'bitperfect_status'
-  | 'playback_state';
+  | 'playback_state'
+  | 'listening_stats'
+  | 'sound_recommendation'
+  | 'forgotten_favorites';
 
 export function detectContextIntent(query: string): ContextQueryIntent | null {
   const q = query.toLowerCase().trim();
+
+  // Listening Intelligence & Stats (Phase 5D.7)
+  if (
+    q.includes('how much music') ||
+    q.includes('listening stats') ||
+    q.includes('listening habits') ||
+    q.includes('top artists') ||
+    q.includes('top genres') ||
+    q.includes('when do i listen') ||
+    q.includes('my stats') ||
+    q.includes('my listening profile')
+  ) {
+    return 'listening_stats';
+  }
+
+  // Adaptive Sound & Profile Recommendations (Phase 5D.7)
+  if (
+    q.includes('recommend sound profile') ||
+    q.includes('recommend a sound profile') ||
+    q.includes('recommend eq') ||
+    q.includes('sound profile for this song') ||
+    q.includes('profile for my headphones') ||
+    q.includes('recommend audio profile') ||
+    q.includes('optimize sound') ||
+    q.includes('what sound profile')
+  ) {
+    return 'sound_recommendation';
+  }
+
+  // Forgotten Favorites & Smart Discovery (Phase 5D.7)
+  if (
+    q.includes('forgotten favorites') ||
+    q.includes('what should i discover') ||
+    q.includes('songs i used to love') ||
+    q.includes('recommend from my favorites')
+  ) {
+    return 'forgotten_favorites';
+  }
 
   // Lossless check
   if (
