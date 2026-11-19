@@ -1,18 +1,23 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { onlineMusicService } from '../../services/onlineMusicService';
-import { OnlineSearchResult } from '../../types/online';
-import { TrackMetadata } from '../../types/audio';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { universalMusicService } from '../../services/universalMusicService';
+import {
+  UnifiedTrack,
+  ProviderId,
+  UniversalSearchResponse,
+  unifiedTrackToTrackMetadata,
+} from '../../types/universalMusic';
 import { usePlayer } from '../../context/PlayerContext';
+import { useToast } from '../../context/ToastContext';
 import { HarmoniqWaveformLoader } from '../brand/HarmoniqWaveformLoader';
 import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
 import {
   Search,
   Globe,
   Music,
-  Disc,
-  User,
   Play,
   Pause,
+  Plus,
+  ListPlus,
   ExternalLink,
   ShieldCheck,
   HardDrive,
@@ -21,31 +26,41 @@ import {
   X,
   Clock,
   Sparkles,
+  Radio,
+  Sliders,
+  CheckCircle2,
+  Disc,
 } from 'lucide-react';
 
-export const OnlineMusicSearchView: React.FC = () => {
-  const { playTrack } = usePlayer();
-  const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'song' | 'artist' | 'album'>('all');
-  const [isSearching, setIsSearching] = useState(false);
-  const [localResults, setLocalResults] = useState<TrackMetadata[]>([]);
-  const [onlineResults, setOnlineResults] = useState<OnlineSearchResult[]>([]);
-  const [error, setError] = useState<string | null>(null);
+type FilterType = 'all' | 'song' | 'artist' | 'album';
+type ProviderFilterType = 'all' | 'apple' | 'audius' | 'archive' | 'jamendo' | 'local';
 
-  // Online preview audio element
-  const [previewTrackId, setPreviewTrackId] = useState<string | null>(null);
-  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+const POPULAR_SUGGESTIONS = [
+  'Moonlight',
+  'Arijit Singh',
+  'The Weeknd',
+  'Coldplay',
+  'Imagine Dragons',
+  'Chopin',
+];
+
+export const OnlineMusicSearchView: React.FC = () => {
+  const { playTrack, currentTrack, isPlaying, togglePlayPause, addToQueue, playNext } = usePlayer();
+  const { showToast } = useToast();
+
+  const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<FilterType>('all');
+  const [providerFilter, setProviderFilter] = useState<ProviderFilterType>('all');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResponse, setSearchResponse] = useState<UniversalSearchResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [resolvingTrackId, setResolvingTrackId] = useState<string | null>(null);
+
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<any>(null);
 
   useEffect(() => {
-    previewAudioRef.current = new Audio();
-    const a = previewAudioRef.current;
-    a.onended = () => setPreviewTrackId(null);
-    a.onerror = () => setPreviewTrackId(null);
     return () => {
-      a.pause();
-      a.src = '';
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -55,17 +70,15 @@ export const OnlineMusicSearchView: React.FC = () => {
     };
   }, []);
 
-  const executeSearch = async (searchTerm: string, activeFilter: 'all' | 'song' | 'artist' | 'album') => {
+  const executeSearch = async (searchTerm: string, activeFilter: FilterType) => {
     const q = searchTerm.trim();
     if (!q) {
-      setLocalResults([]);
-      setOnlineResults([]);
+      setSearchResponse(null);
       setError(null);
       setIsSearching(false);
       return;
     }
 
-    // Cancel any previous in-flight request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
@@ -75,19 +88,19 @@ export const OnlineMusicSearchView: React.FC = () => {
     setIsSearching(true);
     setError(null);
 
-    // 1. Instant local search
-    const local = onlineMusicService.searchLocal(q);
-    setLocalResults(local);
-
-    // 2. Online search via IPC / API
     try {
-      const results = await onlineMusicService.searchOnline(q, activeFilter, controller.signal);
+      const resp = await universalMusicService.searchUniversal(q, {
+        filter: activeFilter,
+        signal: controller.signal,
+        limit: 30,
+      });
+
       if (!controller.signal.aborted) {
-        setOnlineResults(results);
+        setSearchResponse(resp);
       }
     } catch (err: any) {
       if (err.name !== 'AbortError') {
-        setError(err.message || 'Failed to search online catalog');
+        setError(err.message || 'Failed to search universal music catalogs');
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -102,8 +115,7 @@ export const OnlineMusicSearchView: React.FC = () => {
       clearTimeout(debounceTimerRef.current);
     }
     if (!val.trim()) {
-      setLocalResults([]);
-      setOnlineResults([]);
+      setSearchResponse(null);
       setError(null);
       setIsSearching(false);
       return;
@@ -113,33 +125,145 @@ export const OnlineMusicSearchView: React.FC = () => {
     }, 350);
   };
 
-  const handleFilterChange = (newFilter: 'all' | 'song' | 'artist' | 'album') => {
+  const handleFilterChange = (newFilter: FilterType) => {
     setFilter(newFilter);
     if (query.trim()) {
       executeSearch(query, newFilter);
     }
   };
 
-  const handleTogglePreview = (item: OnlineSearchResult) => {
-    if (!item.streamUrl || !previewAudioRef.current) return;
-    const a = previewAudioRef.current;
+  // Combine online and local results into a unified list
+  const allTracks = useMemo<UnifiedTrack[]>(() => {
+    if (!searchResponse) return [];
+    return [...searchResponse.localResults, ...searchResponse.results];
+  }, [searchResponse]);
 
-    if (previewTrackId === item.id) {
-      a.pause();
-      setPreviewTrackId(null);
-    } else {
-      a.pause();
-      a.src = item.streamUrl;
-      a.play().catch(console.warn);
-      setPreviewTrackId(item.id);
+  // Filter by provider
+  const filteredTracks = useMemo<UnifiedTrack[]>(() => {
+    if (providerFilter === 'all') return allTracks;
+    return allTracks.filter((t) => t.providerId === providerFilter);
+  }, [allTracks, providerFilter]);
+
+  // Provider track counts
+  const providerCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      all: allTracks.length,
+      apple: 0,
+      audius: 0,
+      archive: 0,
+      jamendo: 0,
+      local: 0,
+    };
+    for (const t of allTracks) {
+      if (counts[t.providerId] !== undefined) {
+        counts[t.providerId] += 1;
+      }
+    }
+    return counts;
+  }, [allTracks]);
+
+  // Provider response health states
+  const providerFailures = useMemo(() => {
+    if (!searchResponse?.providerResponses) return [];
+    const fails: { id: string; name: string; error: string }[] = [];
+    for (const [id, resp] of Object.entries(searchResponse.providerResponses)) {
+      if (!resp.success && resp.errorMessage) {
+        const nameMap: Record<string, string> = {
+          apple: 'Apple Music',
+          audius: 'Audius',
+          archive: 'Internet Archive',
+          jamendo: 'Jamendo',
+          local: 'Local Library',
+        };
+        fails.push({
+          id,
+          name: nameMap[id] || id,
+          error: resp.errorMessage,
+        });
+      }
+    }
+    return fails;
+  }, [searchResponse]);
+
+  // Play button handler with on-demand stream resolution
+  const handlePlayTrack = async (item: UnifiedTrack) => {
+    // If this track is already playing in the audio engine, toggle pause/play
+    if (currentTrack?.id === item.id) {
+      await togglePlayPause();
+      return;
+    }
+
+    try {
+      setResolvingTrackId(item.id);
+      // Resolve fresh on-demand stream URL through main process
+      const { track: resolvedTrack } = await universalMusicService.resolveTrackStream(item);
+      const metadata = unifiedTrackToTrackMetadata(resolvedTrack);
+      await playTrack(metadata);
+
+      if (resolvedTrack.playbackCapability === 'preview_stream') {
+        showToast(`Playing 30s preview: "${resolvedTrack.title}"`, 'info');
+      } else {
+        showToast(`Playing: "${resolvedTrack.title}" (${resolvedTrack.artist})`, 'success');
+      }
+    } catch (err: any) {
+      showToast(err.message || `Unable to stream "${item.title}"`, 'warning');
+    } finally {
+      setResolvingTrackId(null);
     }
   };
 
+  const handleAddToQueue = (item: UnifiedTrack) => {
+    const metadata = unifiedTrackToTrackMetadata(item);
+    addToQueue(metadata);
+    showToast(`Added "${item.title}" to queue`, 'info');
+  };
+
+  const handlePlayNext = (item: UnifiedTrack) => {
+    const metadata = unifiedTrackToTrackMetadata(item);
+    playNext(metadata);
+    showToast(`Playing "${item.title}" next`, 'info');
+  };
+
   const formatDuration = (seconds?: number) => {
-    if (!seconds || isNaN(seconds)) return null;
+    if (!seconds || isNaN(seconds) || seconds <= 0) return null;
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  const getProviderBadge = (providerId: ProviderId) => {
+    switch (providerId) {
+      case 'apple':
+        return {
+          label: 'Apple Music',
+          className: 'bg-violet-950/60 text-violet-300 border-violet-800/40',
+        };
+      case 'audius':
+        return {
+          label: 'Audius',
+          className: 'bg-fuchsia-950/60 text-fuchsia-300 border-fuchsia-800/40',
+        };
+      case 'archive':
+        return {
+          label: 'Internet Archive',
+          className: 'bg-amber-950/60 text-amber-300 border-amber-800/40',
+        };
+      case 'jamendo':
+        return {
+          label: 'Jamendo',
+          className: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/40',
+        };
+      case 'local':
+        return {
+          label: 'Local Library',
+          className: 'bg-sky-950/60 text-sky-300 border-sky-800/40',
+        };
+      default:
+        return {
+          label: providerId,
+          className: 'bg-[#1B1B24] text-[#A1A1AA] border-[#272733]',
+        };
+    }
   };
 
   return (
@@ -147,20 +271,25 @@ export const OnlineMusicSearchView: React.FC = () => {
       {/* Header */}
       <div>
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-600/20 to-sky-500/20 border border-violet-500/30 flex items-center justify-center text-violet-400">
-            <Globe size={22} />
+          <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-violet-600/25 via-indigo-600/20 to-sky-500/20 border border-violet-500/40 flex items-center justify-center text-violet-400 shadow-lg shadow-violet-950/20">
+            <Globe size={24} className="animate-pulse" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-[#F5F3FF]">Online Music Search</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-2xl font-bold text-[#F5F3FF] tracking-tight">Universal Music</h1>
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-gradient-to-r from-violet-600/20 to-indigo-600/20 text-violet-300 border border-violet-500/30">
+                Multi-Source Engine
+              </span>
+            </div>
             <p className="text-xs text-[#A1A1AA] mt-0.5">
-              Search open music catalogs, public domain archives, and your local library with real audio previews
+              Explore music across multiple sources, all in one place.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Search Input & Filter Tabs */}
-      <div className="space-y-3">
+      {/* Search Input & Category Filters */}
+      <div className="space-y-3.5">
         <div className="relative">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-[#71717A]" size={18} />
           <input
@@ -173,21 +302,21 @@ export const OnlineMusicSearchView: React.FC = () => {
                 executeSearch(query, filter);
               }
             }}
-            placeholder="Search by track title, artist name (e.g. Moonlight, Imagine, Coldplay)..."
-            className="w-full bg-[#14141B] border border-[#272733] focus:border-[#A78BFA] text-sm text-[#F5F3FF] rounded-xl pl-12 pr-28 py-3.5 outline-none transition shadow-sm"
+            placeholder="Search by song title, artist, or album across all sources (e.g. Moonlight, Arijit Singh, The Weeknd)..."
+            className="w-full bg-[#14141B] border border-[#272733] focus:border-[#A78BFA] text-sm text-[#F5F3FF] rounded-2xl pl-12 pr-32 py-4 outline-none transition shadow-sm placeholder:text-[#52525B]"
             autoFocus
           />
-          <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+          <div className="absolute right-3.5 top-1/2 -translate-y-1/2 flex items-center gap-2">
             {query && (
               <button
                 onClick={() => {
                   setQuery('');
-                  setLocalResults([]);
-                  setOnlineResults([]);
+                  setSearchResponse(null);
                   setError(null);
                   if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
                 }}
-                className="p-1 hover:bg-[#272733] rounded-md text-[#71717A] hover:text-[#F5F3FF]"
+                className="p-1.5 hover:bg-[#272733] rounded-lg text-[#71717A] hover:text-[#F5F3FF] transition"
+                title="Clear query"
               >
                 <X size={16} />
               </button>
@@ -198,152 +327,270 @@ export const OnlineMusicSearchView: React.FC = () => {
                 executeSearch(query, filter);
               }}
               disabled={isSearching || !query.trim()}
-              className="px-4 py-1.5 bg-[#A78BFA] hover:bg-[#8B5CF6] disabled:opacity-50 text-[#09090B] font-semibold text-xs rounded-lg transition"
+              className="px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 disabled:opacity-40 text-white font-semibold text-xs rounded-xl transition shadow-md shadow-violet-950/30 flex items-center gap-1.5"
             >
               {isSearching ? <Loader2 size={14} className="animate-spin" /> : 'Search'}
             </button>
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex items-center gap-2 pt-1">
-          <span className="text-xs text-[#71717A] mr-2">Filter By:</span>
-          {(['all', 'song', 'artist', 'album'] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => handleFilterChange(mode)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition ${
-                filter === mode
-                  ? 'bg-violet-600/30 text-violet-300 border border-violet-500/40'
-                  : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
-              }`}
-            >
-              {mode}
-            </button>
-          ))}
+        {/* Search Mode Filters */}
+        <div className="flex items-center justify-between flex-wrap gap-2 pt-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#71717A] mr-1 flex items-center gap-1">
+              <Sliders size={12} />
+              Filter By:
+            </span>
+            {(['all', 'song', 'artist', 'album'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => handleFilterChange(mode)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium capitalize transition ${
+                  filter === mode
+                    ? 'bg-violet-600/25 text-violet-300 border border-violet-500/40 shadow-sm'
+                    : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+                }`}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          <span className="text-[11px] text-[#71717A] flex items-center gap-1.5">
+            <ShieldCheck size={14} className="text-emerald-400" />
+            Authorized Multi-Provider Direct Streams & Previews
+          </span>
         </div>
       </div>
 
-      {/* Error Notice */}
+      {/* Provider Health & Quota Notices */}
+      {providerFailures.length > 0 && !error && (
+        <div className="p-3.5 rounded-xl bg-amber-950/20 border border-amber-900/30 space-y-1.5">
+          {providerFailures.map((pf) => (
+            <div key={pf.id} className="flex items-center gap-2 text-xs text-amber-300">
+              <AlertCircle size={14} className="shrink-0 text-amber-400" />
+              <span>
+                <strong>{pf.name}:</strong> {pf.error}. Other active catalogs are displayed below.
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Fatal Error Notice */}
       {error && (
-        <div className="p-4 rounded-xl bg-red-950/30 border border-red-900/50 flex items-center gap-3 text-red-300 text-xs">
-          <AlertCircle size={18} className="shrink-0" />
-          <span>{error}</span>
+        <div className="p-4 rounded-xl bg-red-950/30 border border-red-900/50 flex items-center justify-between gap-3 text-red-300 text-xs">
+          <div className="flex items-center gap-2.5">
+            <AlertCircle size={18} className="shrink-0 text-red-400" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={() => executeSearch(query, filter)}
+            className="px-3 py-1.5 bg-red-900/40 hover:bg-red-800/50 rounded-lg text-red-200 transition"
+          >
+            Retry Search
+          </button>
         </div>
       )}
 
-      {/* Section 1: Local Library Matches */}
-      {localResults.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <HardDrive size={16} className="text-[#38BDF8]" />
-            <h2 className="text-sm font-semibold text-[#F5F3FF]">
-              Local Library Results ({localResults.length})
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {localResults.map((tr) => (
-              <div
-                key={tr.id}
-                className="p-3 bg-[#14141B] border border-[#272733] hover:border-[#38BDF8]/40 rounded-xl flex items-center justify-between group transition"
+      {/* Search Content */}
+      {isSearching ? (
+        <div className="py-24 flex flex-col items-center justify-center">
+          <HarmoniqWaveformLoader
+            label={`Searching open music catalogs for "${query}"...`}
+            size="md"
+          />
+        </div>
+      ) : allTracks.length > 0 ? (
+        <div className="space-y-6">
+          {/* Provider Filter Chips */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 custom-scrollbar">
+            <span className="text-xs text-[#71717A] mr-1 shrink-0">Source:</span>
+            <button
+              onClick={() => setProviderFilter('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-medium transition shrink-0 flex items-center gap-1.5 ${
+                providerFilter === 'all'
+                  ? 'bg-gradient-to-r from-violet-600/30 to-indigo-600/30 text-violet-200 border border-violet-500/50'
+                  : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+              }`}
+            >
+              All Sources
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#272733] text-[#F5F3FF]">
+                {providerCounts.all}
+              </span>
+            </button>
+
+            {providerCounts.apple > 0 && (
+              <button
+                onClick={() => setProviderFilter('apple')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition shrink-0 flex items-center gap-1.5 ${
+                  providerFilter === 'apple'
+                    ? 'bg-violet-600/30 text-violet-200 border border-violet-500/50'
+                    : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+                }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-11 h-11 rounded-lg bg-[#1B1B24] flex items-center justify-center shrink-0 overflow-hidden relative">
-                    <Music size={18} className="text-[#71717A] absolute" />
-                    {tr.artworkDataUrl && (
-                      <img
-                        src={tr.artworkDataUrl}
-                        alt={tr.title}
-                        className="w-full h-full object-cover relative z-10"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    )}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-[#F5F3FF] truncate">{tr.title}</p>
-                    <p className="text-[11px] text-[#A1A1AA] truncate">
-                      {tr.artist} {tr.album ? `• ${tr.album}` : ''}
-                    </p>
-                  </div>
-                </div>
+                Apple Music
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-violet-950 text-violet-300 border border-violet-800/40">
+                  {providerCounts.apple}
+                </span>
+              </button>
+            )}
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950/50 text-sky-300 border border-sky-800/40">
-                    LOCAL
-                  </span>
-                  <button
-                    onClick={() => playTrack(tr)}
-                    className="p-2 bg-[#A78BFA] text-[#09090B] hover:bg-[#8B5CF6] rounded-full transition shadow-sm"
-                  >
-                    <Play size={14} fill="currentColor" />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+            {providerCounts.audius > 0 && (
+              <button
+                onClick={() => setProviderFilter('audius')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition shrink-0 flex items-center gap-1.5 ${
+                  providerFilter === 'audius'
+                    ? 'bg-fuchsia-600/30 text-fuchsia-200 border border-fuchsia-500/50'
+                    : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+                }`}
+              >
+                Audius
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-fuchsia-950 text-fuchsia-300 border border-fuchsia-800/40">
+                  {providerCounts.audius}
+                </span>
+              </button>
+            )}
 
-      {/* Section 2: Online Open Catalogs */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Globe size={16} className="text-[#A78BFA]" />
-            <h2 className="text-sm font-semibold text-[#F5F3FF]">
-              Open Catalogs & Audio Previews {onlineResults.length > 0 && `(${onlineResults.length})`}
-            </h2>
-          </div>
-          <span className="text-[11px] text-[#71717A] flex items-center gap-1.5">
-            <ShieldCheck size={14} className="text-emerald-400" />
-            Legitimate Catalog & Public Domain Previews
-          </span>
-        </div>
+            {providerCounts.archive > 0 && (
+              <button
+                onClick={() => setProviderFilter('archive')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition shrink-0 flex items-center gap-1.5 ${
+                  providerFilter === 'archive'
+                    ? 'bg-amber-600/30 text-amber-200 border border-amber-500/50'
+                    : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+                }`}
+              >
+                Internet Archive
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-amber-950 text-amber-300 border border-amber-800/40">
+                  {providerCounts.archive}
+                </span>
+              </button>
+            )}
 
-        {isSearching ? (
-          <div className="py-16 flex flex-col items-center justify-center">
-            <HarmoniqWaveformLoader
-              label={`Searching open catalogs for "${query}"...`}
-              size="md"
-            />
+            {providerCounts.jamendo > 0 && (
+              <button
+                onClick={() => setProviderFilter('jamendo')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition shrink-0 flex items-center gap-1.5 ${
+                  providerFilter === 'jamendo'
+                    ? 'bg-emerald-600/30 text-emerald-200 border border-emerald-500/50'
+                    : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+                }`}
+              >
+                Jamendo
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-800/40">
+                  {providerCounts.jamendo}
+                </span>
+              </button>
+            )}
+
+            {providerCounts.local > 0 && (
+              <button
+                onClick={() => setProviderFilter('local')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition shrink-0 flex items-center gap-1.5 ${
+                  providerFilter === 'local'
+                    ? 'bg-sky-600/30 text-sky-200 border border-sky-500/50'
+                    : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+                }`}
+              >
+                Local Library
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-sky-950 text-sky-300 border border-sky-800/40">
+                  {providerCounts.local}
+                </span>
+              </button>
+            )}
           </div>
-        ) : onlineResults.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {onlineResults.map((item) => {
-              const isPlayingThis = previewTrackId === item.id;
+
+          {/* Results Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+            {filteredTracks.map((item) => {
+              const isCurrentPlaying = currentTrack?.id === item.id && isPlaying;
+              const isCurrentPaused = currentTrack?.id === item.id && !isPlaying;
+              const isResolving = resolvingTrackId === item.id;
+              const badge = getProviderBadge(item.providerId);
               const durFormatted = formatDuration(item.duration);
+
               return (
                 <div
                   key={item.id}
-                  className={`p-3 bg-[#14141B] border rounded-xl flex items-center justify-between group transition ${
-                    isPlayingThis ? 'border-violet-500/60 shadow-lg shadow-violet-950/20' : 'border-[#272733] hover:border-violet-500/40'
+                  className={`p-3.5 bg-[#14141B] border rounded-2xl flex items-center justify-between group transition relative overflow-hidden ${
+                    isCurrentPlaying
+                      ? 'border-violet-500/60 shadow-lg shadow-violet-950/20 bg-gradient-to-r from-violet-950/20 to-[#14141B]'
+                      : 'border-[#272733] hover:border-violet-500/40'
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-12 h-12 rounded-lg bg-[#1B1B24] border border-[#272733] flex items-center justify-center shrink-0 overflow-hidden relative">
-                      <Music size={18} className="text-[#71717A] absolute" />
+                  <div className="flex items-center gap-3.5 min-w-0 pr-2">
+                    {/* Artwork Container */}
+                    <div className="w-13 h-13 w-[52px] h-[52px] rounded-xl bg-[#1B1B24] border border-[#272733] flex items-center justify-center shrink-0 overflow-hidden relative shadow-sm">
+                      <Music size={20} className="text-[#71717A] absolute" />
                       {item.artworkUrl && (
                         <img
                           src={item.artworkUrl}
                           alt={item.title}
-                          className="w-full h-full object-cover relative z-10"
+                          className="w-full h-full object-cover relative z-10 transition duration-300 group-hover:scale-105"
                           onError={(e) => {
                             (e.currentTarget as HTMLElement).style.display = 'none';
                           }}
                         />
                       )}
+                      {/* Play overlay on artwork hover */}
+                      <button
+                        onClick={() => handlePlayTrack(item)}
+                        className={`absolute inset-0 z-20 flex items-center justify-center transition bg-black/40 ${
+                          isCurrentPlaying || isResolving
+                            ? 'opacity-100'
+                            : 'opacity-0 group-hover:opacity-100'
+                        }`}
+                      >
+                        {isResolving ? (
+                          <Loader2 size={18} className="animate-spin text-white" />
+                        ) : isCurrentPlaying ? (
+                          <Pause size={18} className="text-white" />
+                        ) : (
+                          <Play size={18} fill="currentColor" className="text-white ml-0.5" />
+                        )}
+                      </button>
                     </div>
+
+                    {/* Metadata */}
                     <div className="min-w-0">
-                      <p className="text-xs font-semibold text-[#F5F3FF] truncate">{item.title}</p>
-                      <p className="text-[11px] text-[#A1A1AA] truncate">
+                      <p className="text-xs font-semibold text-[#F5F3FF] truncate group-hover:text-violet-300 transition">
+                        {item.title}
+                      </p>
+                      <p className="text-[11px] text-[#A1A1AA] truncate mt-0.5">
                         {item.artist} {item.album ? `• ${item.album}` : ''}
                       </p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-[10px] text-emerald-400 font-mono">{item.source}</span>
-                        {item.year && (
-                          <span className="text-[10px] text-[#71717A] font-mono">({item.year})</span>
+
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        {/* Provider badge */}
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10px] font-medium border ${badge.className}`}
+                        >
+                          {badge.label}
+                        </span>
+
+                        {/* Capability label */}
+                        {item.playbackCapability === 'full_stream' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-emerald-950/50 text-emerald-300 border border-emerald-800/40">
+                            Full Track
+                          </span>
+                        ) : item.playbackCapability === 'preview_stream' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-950/50 text-violet-300 border border-violet-800/40">
+                            30s Preview
+                          </span>
+                        ) : item.playbackCapability === 'local_file' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950/50 text-sky-300 border border-sky-800/40">
+                            Local File
+                          </span>
+                        ) : null}
+
+                        {/* Bitrate / Quality badge if verified */}
+                        {item.bitrate && (
+                          <span className="text-[10px] text-[#71717A] font-mono">
+                            {item.bitrate}k {item.format || 'MP3'}
+                          </span>
                         )}
+
                         {durFormatted && (
                           <span className="text-[10px] text-[#71717A] font-mono flex items-center gap-0.5">
                             <Clock size={10} />
@@ -354,27 +601,62 @@ export const OnlineMusicSearchView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    {item.streamUrl && (
-                      <button
-                        onClick={() => handleTogglePreview(item)}
-                        className={`p-2.5 rounded-full transition shadow-sm ${
-                          isPlayingThis
-                            ? 'bg-emerald-500 text-[#09090B]'
-                            : 'bg-[#1B1B24] text-[#A78BFA] hover:bg-[#272733]'
-                        }`}
-                        title={isPlayingThis ? 'Pause preview' : 'Stream preview'}
-                      >
-                        {isPlayingThis ? <Pause size={14} /> : <Play size={14} fill="currentColor" />}
-                      </button>
-                    )}
-                    {item.detailUrl && (
+                  {/* Actions */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {/* Add to Queue */}
+                    <button
+                      onClick={() => handleAddToQueue(item)}
+                      className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition"
+                      title="Add to queue"
+                    >
+                      <Plus size={15} />
+                    </button>
+
+                    {/* Play Next */}
+                    <button
+                      onClick={() => handlePlayNext(item)}
+                      className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition"
+                      title="Play next"
+                    >
+                      <ListPlus size={15} />
+                    </button>
+
+                    {/* Play Button */}
+                    <button
+                      onClick={() => handlePlayTrack(item)}
+                      disabled={isResolving}
+                      className={`p-2.5 rounded-full transition shadow-sm ${
+                        isCurrentPlaying
+                          ? 'bg-violet-500 text-white shadow-violet-900/40'
+                          : isCurrentPaused
+                          ? 'bg-violet-600/30 text-violet-300 border border-violet-500/40'
+                          : 'bg-[#1B1B24] text-[#A78BFA] hover:bg-[#272733] hover:text-[#F5F3FF]'
+                      }`}
+                      title={
+                        isCurrentPlaying
+                          ? 'Pause playback'
+                          : isCurrentPaused
+                          ? 'Resume playback'
+                          : 'Play track'
+                      }
+                    >
+                      {isResolving ? (
+                        <Loader2 size={15} className="animate-spin text-[#A78BFA]" />
+                      ) : isCurrentPlaying ? (
+                        <Pause size={15} />
+                      ) : (
+                        <Play size={15} fill="currentColor" />
+                      )}
+                    </button>
+
+                    {/* External Link */}
+                    {item.providerWebUrl && (
                       <a
-                        href={item.detailUrl}
+                        href={item.providerWebUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="p-2 hover:bg-[#272733] rounded-lg text-[#71717A] hover:text-[#F5F3FF] transition"
-                        title="View details"
+                        className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition ml-0.5"
+                        title="View on source website"
                       >
                         <ExternalLink size={14} />
                       </a>
@@ -384,28 +666,111 @@ export const OnlineMusicSearchView: React.FC = () => {
               );
             })}
           </div>
-        ) : query.trim() ? (
-          <div className="py-12">
-            <HarmoniqEmptyState
-              type="empty_search"
-              title="No Online Matches Found"
-              description={`No matching online tracks found for "${query}". Try searching for other artists, songs, or genres.`}
-              action={{
-                label: 'Clear Search',
-                onClick: () => setQuery(''),
-              }}
-            />
+        </div>
+      ) : query.trim() ? (
+        <div className="py-16">
+          <HarmoniqEmptyState
+            type="empty_search"
+            title="No Music Matches Found"
+            description={`No online tracks or local library matches were found for "${query}". Try searching for other song titles, artists, or genres.`}
+            action={{
+              label: 'Clear Search',
+              onClick: () => {
+                setQuery('');
+                setSearchResponse(null);
+                setError(null);
+              },
+            }}
+          />
+        </div>
+      ) : (
+        /* Initial Discovery Hero Screen with Curated Quick Searches */
+        <div className="space-y-6 pt-2">
+          <div className="p-8 rounded-3xl bg-gradient-to-br from-[#14141B] via-[#121217] to-[#101014] border border-[#272733] space-y-6 relative overflow-hidden shadow-card">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-violet-600/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+
+            <div className="space-y-2 relative z-10">
+              <span className="px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-violet-950/60 text-violet-300 border border-violet-800/40 inline-flex items-center gap-1.5">
+                <Sparkles size={12} />
+                Universal Catalog Discovery
+              </span>
+              <h2 className="text-xl font-bold text-[#F5F3FF]">
+                Instant Access to Millions of Free & Open Audio Tracks
+              </h2>
+              <p className="text-xs text-[#A1A1AA] max-w-2xl leading-relaxed">
+                Harmoniq Universal Music aggregates authorized music from Apple Music previews,
+                Audius 320kbps full-track streaming, the Internet Archive historical collection,
+                Jamendo Creative Commons, and your own offline local library.
+              </p>
+            </div>
+
+            {/* Feature Highlights Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 relative z-10">
+              <div className="p-4 rounded-2xl bg-[#1B1B24]/70 border border-[#272733] space-y-1">
+                <div className="flex items-center gap-2 text-violet-400">
+                  <Globe size={16} />
+                  <span className="text-xs font-semibold text-[#F5F3FF]">Apple Music</span>
+                </div>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  30s high-definition previews across Bollywood, Hindi, Punjabi & International charts.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#1B1B24]/70 border border-[#272733] space-y-1">
+                <div className="flex items-center gap-2 text-fuchsia-400">
+                  <Disc size={16} />
+                  <span className="text-xs font-semibold text-[#F5F3FF]">Audius Network</span>
+                </div>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  Full-length 320kbps MP3 audio streams from decentralized creators.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#1B1B24]/70 border border-[#272733] space-y-1">
+                <div className="flex items-center gap-2 text-amber-400">
+                  <Radio size={16} />
+                  <span className="text-xs font-semibold text-[#F5F3FF]">Internet Archive</span>
+                </div>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  Historical public domain audio, vintage recordings, and live concerts.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#1B1B24]/70 border border-[#272733] space-y-1">
+                <div className="flex items-center gap-2 text-sky-400">
+                  <HardDrive size={16} />
+                  <span className="text-xs font-semibold text-[#F5F3FF]">Local Collection</span>
+                </div>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  Instant offline results from your personal library in parallel.
+                </p>
+              </div>
+            </div>
+
+            {/* Quick-Search Prompt Chips */}
+            <div className="space-y-2.5 pt-2 relative z-10 border-t border-[#272733]/60">
+              <span className="text-xs text-[#71717A] block font-medium">
+                Try searching popular songs and artists:
+              </span>
+              <div className="flex flex-wrap gap-2">
+                {POPULAR_SUGGESTIONS.map((sug) => (
+                  <button
+                    key={sug}
+                    onClick={() => {
+                      setQuery(sug);
+                      executeSearch(sug, filter);
+                    }}
+                    className="px-3.5 py-1.5 rounded-xl text-xs bg-[#1B1B24] hover:bg-violet-600/20 text-[#A1A1AA] hover:text-violet-300 border border-[#272733] hover:border-violet-500/40 transition flex items-center gap-1.5"
+                  >
+                    <Search size={11} className="text-[#71717A]" />
+                    {sug}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="py-12">
-            <HarmoniqEmptyState
-              type="empty_search"
-              title="Search Music Catalogs"
-              description="Type a song title, artist, or genre to explore open online music archives alongside your local library."
-            />
-          </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -113,6 +113,23 @@ export interface HarmoniqApi {
   resolvePodcastUrl?: (urlOrQuery: string) => Promise<any>;
   searchOnlineMusic: (query: string, filter?: string) => Promise<any[]>;
   universalSearch?: (request: any) => Promise<any>;
+  resolveUniversalStream?: (request: {
+    providerId: string;
+    providerTrackId: string;
+    currentStreamUrl?: string;
+    jamendoClientId?: string;
+  }) => Promise<{
+    success: boolean;
+    streamUrl?: string;
+    capability?: string;
+    format?: string;
+    bitrate?: number;
+    duration?: number;
+    durationMs?: number;
+    error?: string;
+  }>;
+  getJamendoConfig?: () => Promise<{ clientId: string }>;
+  saveJamendoConfig?: (config: { clientId: string }) => Promise<{ success: boolean; clientId: string }>;
   verifyRadioStream: (streamUrl: string) => Promise<{
     accessible: boolean;
     directStreamUrl: string;

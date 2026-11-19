@@ -130,6 +130,7 @@ export function unifiedTrackToTrackMetadata(ut: UnifiedTrack): TrackMetadata {
   // Attach online metadata descriptors onto the object for UI inspectors
   (metadata as any).isOnline = ut.isOnline;
   (metadata as any).providerId = ut.providerId;
+  (metadata as any).providerTrackId = ut.providerTrackId;
   (metadata as any).playbackCapability = ut.playbackCapability;
   (metadata as any).providerWebUrl = ut.providerWebUrl;
   (metadata as any).attributionText = ut.attributionText;
@@ -142,10 +143,16 @@ export function unifiedTrackToTrackMetadata(ut: UnifiedTrack): TrackMetadata {
  * Converts a local library TrackMetadata item into a UnifiedTrack representation.
  */
 export function trackMetadataToUnifiedTrack(track: TrackMetadata): UnifiedTrack {
+  const isOnline = Boolean((track as any).isOnline || /^https?:\/\//i.test(track.filePath));
+  const providerId: ProviderId = (track as any).providerId || (isOnline ? 'audius' : 'local');
+  const providerTrackId = (track as any).providerTrackId || track.id.replace(/^[a-z]+:/i, '');
+  const playbackCap: PlaybackCapability =
+    (track as any).playbackCapability || (isOnline ? 'full_stream' : 'local_file');
+
   return {
     id: track.id,
-    providerId: 'local',
-    providerTrackId: track.id,
+    providerId,
+    providerTrackId,
     title: track.title,
     artist: track.artist,
     album: track.album,
@@ -153,12 +160,13 @@ export function trackMetadataToUnifiedTrack(track: TrackMetadata): UnifiedTrack 
     artworkUrl: track.artworkDataUrl,
     genre: track.genre,
     releaseYear: track.year,
-    playbackCapability: 'local_file',
+    playbackCapability: playbackCap,
     streamUrl: track.filePath,
     format: track.codec,
     bitrate: track.bitrate,
-    license: 'Local Media File',
-    attributionText: `${track.artist} (Local File)`,
-    isOnline: false,
+    license: (track as any).license || (isOnline ? 'Online Authorized Audio' : 'Local Media File'),
+    attributionText: (track as any).attributionText || `${track.artist} (${isOnline ? providerId : 'Local File'})`,
+    providerWebUrl: (track as any).providerWebUrl,
+    isOnline,
   };
 }

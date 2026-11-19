@@ -1,5 +1,6 @@
 import {
   ProviderId,
+  PlaybackCapability,
   MusicProvider,
   UnifiedTrack,
   ProviderSearchOptions,
@@ -29,14 +30,171 @@ export class UniversalMusicService {
   private searchCache = new Map<string, { timestamp: number; response: UniversalSearchResponse }>();
   private readonly CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
   private activeAbortController: AbortController | null = null;
+  private jamendoClientId: string = '';
 
   constructor() {
     // Register verified Tier 1 foundation providers
-    this.registerProvider(new JamendoProvider());
+    const jamendo = new JamendoProvider();
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const savedKey = window.localStorage.getItem('harmoniq_jamendo_client_id');
+        if (savedKey && savedKey.trim()) {
+          this.jamendoClientId = savedKey.trim();
+          jamendo.setClientId(savedKey.trim());
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    this.registerProvider(jamendo);
     this.registerProvider(new AudiusProvider());
     this.registerProvider(new ArchiveProvider());
     this.registerProvider(new ApplePreviewProvider());
     this.registerProvider(new LocalLibraryProvider());
+  }
+
+  /**
+   * Get configured Jamendo Client ID (or default open demo key)
+   */
+  public getJamendoClientId(): string {
+    if (this.jamendoClientId) return this.jamendoClientId;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const stored = window.localStorage.getItem('harmoniq_jamendo_client_id');
+        if (stored && stored.trim()) {
+          this.jamendoClientId = stored.trim();
+          return this.jamendoClientId;
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    const jamendoProv = this.providers.get('jamendo') as JamendoProvider | undefined;
+    return jamendoProv?.getClientId ? jamendoProv.getClientId() : 'b6747d04';
+  }
+
+  /**
+   * Configure custom user Jamendo Client ID for higher quotas and personalized access
+   */
+  public setJamendoClientId(key: string): void {
+    const cleanKey = key ? key.trim() : '';
+    this.jamendoClientId = cleanKey;
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        if (cleanKey) {
+          window.localStorage.setItem('harmoniq_jamendo_client_id', cleanKey);
+        } else {
+          window.localStorage.removeItem('harmoniq_jamendo_client_id');
+        }
+      }
+      if (typeof window !== 'undefined' && (window as any).harmoniqApi?.saveJamendoConfig) {
+        (window as any).harmoniqApi.saveJamendoConfig({ clientId: cleanKey });
+      }
+    } catch {
+      /* ignore */
+    }
+    const jamendoProv = this.providers.get('jamendo') as JamendoProvider | undefined;
+    if (jamendoProv?.setClientId) {
+      jamendoProv.setClientId(cleanKey);
+    }
+    this.clearCache();
+  }
+
+  /**
+   * Resolve an on-demand, validated stream URL for a UnifiedTrack.
+   * Handles ephemeral signed tokens, dynamic archive audio filename resolution,
+   * SSRF and loopback validation, and provider capability validation.
+   */
+  public async resolveTrackStream(
+    track: UnifiedTrack
+  ): Promise<{ track: UnifiedTrack; streamUrl: string; capability: PlaybackCapability }> {
+    if (!track) {
+      throw new Error('Track is required for stream resolution');
+    }
+
+    // 1. Electron IPC Fast-Path (with main-process security validation)
+    const api = typeof window !== 'undefined' ? (window as any).harmoniqApi : (globalThis as any).harmoniqApi;
+    if (api?.resolveUniversalStream) {
+      try {
+        const res = await api.resolveUniversalStream({
+          providerId: track.providerId,
+          providerTrackId: track.providerTrackId,
+          currentStreamUrl: track.streamUrl,
+          jamendoClientId: this.getJamendoClientId(),
+        });
+
+        if (res && res.success && res.streamUrl) {
+          const updatedTrack: UnifiedTrack = {
+            ...track,
+            streamUrl: res.streamUrl,
+            playbackCapability: (res.capability as PlaybackCapability) || track.playbackCapability,
+            format: res.format || track.format,
+            bitrate: res.bitrate || track.bitrate,
+            duration: res.duration && (!track.duration || track.duration === 0) ? res.duration : track.duration,
+          };
+          return {
+            track: updatedTrack,
+            streamUrl: res.streamUrl,
+            capability: updatedTrack.playbackCapability,
+          };
+        } else if (res && !res.success && res.error) {
+          throw new Error(res.error);
+        }
+      } catch (ipcErr: any) {
+        if (ipcErr?.message && !ipcErr.message.includes('not available')) {
+          console.warn('IPC resolveUniversalStream failed, attempting provider fallback:', ipcErr);
+        }
+      }
+    }
+
+    // 2. Direct fallback resolution
+    if (track.providerId === 'archive') {
+      const archiveProv = this.providers.get('archive') as ArchiveProvider | undefined;
+      if (archiveProv?.resolveAudioFile) {
+        try {
+          const resolved = await archiveProv.resolveAudioFile(track.providerTrackId);
+          if (resolved?.streamUrl) {
+            const updated: UnifiedTrack = {
+              ...track,
+              streamUrl: resolved.streamUrl,
+              format: resolved.format || track.format,
+              duration: resolved.duration && (!track.duration || track.duration === 0) ? resolved.duration : track.duration,
+            };
+            return {
+              track: updated,
+              streamUrl: resolved.streamUrl,
+              capability: updated.playbackCapability,
+            };
+          }
+        } catch (archiveErr) {
+          console.warn('Direct archive resolve failed:', archiveErr);
+        }
+      }
+    }
+
+    if (track.providerId === 'audius') {
+      const audiusUrl =
+        track.streamUrl ||
+        `https://discoveryprovider.audius.co/v1/tracks/${encodeURIComponent(track.providerTrackId)}/stream?app_name=HarmoniqAudioPlayer`;
+      return {
+        track: { ...track, streamUrl: audiusUrl },
+        streamUrl: audiusUrl,
+        capability: 'full_stream',
+      };
+    }
+
+    // Default return current stream URL or fallback
+    const finalUrl = track.streamUrl || '';
+    if (!finalUrl && track.providerId !== 'local') {
+      throw new Error(`Unable to resolve stream for track "${track.title}" from provider ${track.providerId}`);
+    }
+
+    return {
+      track,
+      streamUrl: finalUrl,
+      capability: track.playbackCapability,
+    };
   }
 
   /**
@@ -182,6 +340,7 @@ export class UniversalMusicService {
           query: cleanQ,
           filter,
           limit: options?.limit || 25,
+          jamendoClientId: this.getJamendoClientId(),
         });
 
         if (ipcResponse && Array.isArray(ipcResponse.results)) {

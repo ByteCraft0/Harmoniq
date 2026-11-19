@@ -145,7 +145,7 @@ export const Sidebar: React.FC = () => {
     {
       title: 'ONLINE & RADIO',
       items: [
-        { view: 'online_music' as AppView, label: 'Online Search', icon: <Globe size={15} /> },
+        { view: 'online_music' as AppView, label: 'Universal Music', icon: <Globe size={15} /> },
         { view: 'radio' as AppView, label: 'Internet Radio', icon: <Radio size={15} /> },
         { view: 'podcasts' as AppView, label: 'Podcasts', icon: <Podcast size={15} /> },
       ],

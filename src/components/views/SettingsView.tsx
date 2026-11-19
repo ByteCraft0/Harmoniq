@@ -61,7 +61,9 @@ import {
   Wand2,
   Palette,
   Zap,
+  Globe,
 } from 'lucide-react';
+import { universalMusicService } from '../../services/universalMusicService';
 
 export const SettingsView: React.FC = () => {
   const { showToast } = useToast();
@@ -123,6 +125,21 @@ export const SettingsView: React.FC = () => {
   const handleClearSession = () => {
     sessionRecoveryService.clearSession();
     showToast('Saved playback session cleared', 'info');
+  };
+
+  const [jamendoKey, setJamendoKey] = useState<string>(() => {
+    const k = universalMusicService.getJamendoClientId();
+    return k === 'b6747d04' ? '' : k;
+  });
+
+  const handleSaveJamendoKey = () => {
+    universalMusicService.setJamendoClientId(jamendoKey.trim());
+    showToast(
+      jamendoKey.trim()
+        ? 'Jamendo Client ID saved. High-volume searches enabled.'
+        : 'Jamendo Client ID reset to default open catalog mode.',
+      'success'
+    );
   };
 
   useEffect(() => {
@@ -1040,6 +1057,70 @@ export const SettingsView: React.FC = () => {
       {/* Advanced Volume Profiles & Loudness Normalization */}
       {(activeTab === 'all' || activeTab === 'playback') && (
         <VolumeProfilesCard />
+      )}
+
+      {/* Universal Music & Jamendo Integration */}
+      {(activeTab === 'all' || activeTab === 'playback') && (
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-5 shadow-card">
+          <div className="flex items-center justify-between border-b border-[#272733] pb-3">
+            <div>
+              <h3 className="font-bold text-sm text-[#F5F3FF] flex items-center gap-2">
+                <Globe size={16} className="text-emerald-400" />
+                <span>Universal Music — Jamendo API Settings</span>
+              </h3>
+              <p className="text-xs text-[#A1A1AA]">
+                Optional developer Client ID for Jamendo Creative Commons music catalog searches and streaming.
+              </p>
+            </div>
+            <span className="text-[10px] uppercase font-mono px-2.5 py-0.5 rounded-full bg-emerald-950/40 text-emerald-400 border border-emerald-800/30">
+              Creative Commons
+            </span>
+          </div>
+
+          <div className="space-y-4">
+            <div className="p-4 rounded-xl bg-[#1B1B24]/80 border border-[#272733] space-y-2 text-xs text-[#A1A1AA]">
+              <p>
+                <strong className="text-[#F5F3FF]">Multi-Provider Overview:</strong> Apple Music, Audius, and Internet Archive provide direct open searching and streaming without requiring user API keys.
+              </p>
+              <p>
+                Jamendo&apos;s public demo credentials enforce strict rate-limits (&quot;Usage limits exceeded&quot;). Providing your own free Jamendo Client ID ensures uninterrupted full-track streaming across independent artists.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-[#F5F3FF] block">
+                Jamendo Client ID (Optional)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={jamendoKey}
+                  onChange={(e) => setJamendoKey(e.target.value)}
+                  placeholder="Paste your Jamendo developer Client ID (e.g. 5a89b...)..."
+                  className="flex-1 bg-[#101014] border border-[#272733] focus:border-[#A78BFA] text-xs text-[#F5F3FF] rounded-xl px-3.5 py-2.5 outline-none transition font-mono"
+                />
+                <button
+                  onClick={handleSaveJamendoKey}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl transition shrink-0"
+                >
+                  Save Key
+                </button>
+                {jamendoKey && (
+                  <button
+                    onClick={() => {
+                      setJamendoKey('');
+                      universalMusicService.setJamendoClientId('');
+                      showToast('Jamendo Client ID cleared', 'info');
+                    }}
+                    className="px-3 py-2 bg-[#1B1B24] hover:bg-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] text-xs rounded-xl transition shrink-0"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Hotkey Profiles & Shortcuts (Phase 4) */}

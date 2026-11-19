@@ -67,6 +67,9 @@ const harmoniqApi = {
   resolvePodcastUrl: (urlOrQuery: string) => ipcRenderer.invoke('podcast:resolveUrl', urlOrQuery),
   searchOnlineMusic: (query: string, filter?: string) => ipcRenderer.invoke('online:searchMusic', query, filter),
   universalSearch: (request: any) => ipcRenderer.invoke('universal:search', request),
+  resolveUniversalStream: (request: any) => ipcRenderer.invoke('universal:resolveStream', request),
+  getJamendoConfig: () => ipcRenderer.invoke('universal:getJamendoConfig'),
+  saveJamendoConfig: (config: { clientId: string }) => ipcRenderer.invoke('universal:saveJamendoConfig', config),
   verifyRadioStream: (streamUrl: string) => ipcRenderer.invoke('radio:verifyStream', streamUrl),
 
   // Portable Mode

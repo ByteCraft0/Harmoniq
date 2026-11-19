@@ -8,6 +8,8 @@ import { colorExtractionService } from '../services/colorExtractionService';
 import { historyService } from '../services/historyService';
 import { sessionRecoveryService } from '../services/sessionRecoveryService';
 import { queueManagerService } from '../services/queueManagerService';
+import { universalMusicService } from '../services/universalMusicService';
+import { trackMetadataToUnifiedTrack, unifiedTrackToTrackMetadata } from '../types/universalMusic';
 import { useToast } from './ToastContext';
 
 const PREFS_KEY = 'harmoniq_player_prefs';
@@ -526,29 +528,47 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       commitListeningSession();
     }
     playNextCountRef.current = 0;
+
+    let playableTrack = track;
+    // On-demand stream resolution for online tracks (e.g. Audius tokens, Archive file manifests)
+    const isOnline = Boolean((track as any).isOnline || (track as any).providerId || /^https?:\/\//i.test(track.filePath));
+    const providerId = (track as any).providerId;
+
+    if (isOnline && providerId && providerId !== 'local') {
+      try {
+        const ut = trackMetadataToUnifiedTrack(track);
+        if (!ut.streamUrl || ut.providerId === 'audius' || ut.providerId === 'archive') {
+          const res = await universalMusicService.resolveTrackStream(ut);
+          playableTrack = unifiedTrackToTrackMetadata(res.track);
+        }
+      } catch (err: any) {
+        console.warn('Online stream resolution fallback:', err);
+      }
+    }
+
     if (newQueue) {
       setQueue(newQueue);
     } else {
       setQueue((prev) => {
-        if (prev.length === 0) return [track];
-        const exists = prev.some((t) => t.id === track.id);
+        if (prev.length === 0) return [playableTrack];
+        const exists = prev.some((t) => t.id === playableTrack.id);
         if (!exists) {
-          return [track, ...prev];
+          return [playableTrack, ...prev];
         }
         return prev;
       });
     }
 
     // Check resume position (for audiobooks or saved tracks)
-    const startPos = track.resumePosition && track.resumePosition > 5 && track.resumePosition < (track.duration - 10)
-      ? track.resumePosition
+    const startPos = playableTrack.resumePosition && playableTrack.resumePosition > 5 && playableTrack.resumePosition < (playableTrack.duration - 10)
+      ? playableTrack.resumePosition
       : 0;
 
-    setCurrentTrack(track);
-    await audioEngine.loadAndPlay(track, startPos);
+    setCurrentTrack(playableTrack);
+    await audioEngine.loadAndPlay(playableTrack, startPos);
 
     // Add to history
-    setHistory((prev) => [track, ...prev.filter((t) => t.id !== track.id)].slice(0, 50));
+    setHistory((prev) => [playableTrack, ...prev.filter((t) => t.id !== playableTrack.id)].slice(0, 50));
   };
 
   const playNow = async (track: TrackMetadata) => {

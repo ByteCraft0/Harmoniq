@@ -169,7 +169,7 @@ Harmoniq 2.0 introduces an advanced suite of audiophile tools, Windows desktop p
 - **Phase 7 – Harmoniq Assistant: AI-Powered Chatbot, Voice Interaction & Signature Pulse Orb**: Floating holographic Pulse Orb with 7 visual states, grounded multi-provider AI backend (Google Gemini, OpenAI, Groq, and 100% offline Local Grounded Engine), grounded RAG catalog across all 23 application features, interactive `[Open <Feature>]` navigation buttons, microphone Speech-to-Text (STT) with live interim transcripts, and independent Text-to-Speech (TTS) spoken responses that never interrupt music playback.
 - **Smart Podcast URL Importer**: Universal podcast URL detection and feed resolution supporting Apple Podcasts, Spotify show links, Podcast Index, and custom websites via secure SSRF-guarded Electron IPC with real-time metadata preview and subscription.
 - **Mini Player Visual Redesign (Premium Floating Music Console)**: Deep obsidian glassmorphism console with dynamic album art ambient lighting, 4-bar live audio-reactive FFT visualizer (`MiniLiveVisualizer`), interactive 36-bar acoustic waveform seek bar (`MiniWaveformProgressBar`), centerpiece 40px circular Play/Pause button, and compact 380x100px pill mode.
-- **Universal Music Engine (Phase 1 Foundation)**: Extensible multi-provider audio discovery and streaming engine supporting Jamendo (full CC MP3), Audius (320kbps streams), Internet Archive (historical/classical archives), and Apple Music Catalog (universal Bollywood, Punjabi, and International discovery + 30s previews) routed directly into the 32-bit Web Audio DSP pipeline.
+- **Universal Music Engine (Phase 1 & Phase 2)**: Extensible multi-provider audio discovery and streaming engine supporting Jamendo (full CC MP3), Audius (320kbps streams), Internet Archive (historical/classical archives), Apple Music Catalog (universal Bollywood, Punjabi, and International discovery + 30s previews), and Local Library. Upgraded with in-place sidebar navigation, premium obsidian UI, on-demand stream resolution (handling ephemeral Audius tokens and archive metadata file matching), and real playback/queue integration directly routed into the 32-bit Web Audio DSP pipeline.
 
 Full technical phase reports are available in [`docs/phases/`](file:///C:/Users/a2301/Desktop/harmoniq/docs/phases/).
 
@@ -179,7 +179,7 @@ Full technical phase reports are available in [`docs/phases/`](file:///C:/Users/
 
 | Feature | Implementation Status | Technical Mechanism |
 | :--- | :--- | :--- |
-| **Universal Music Engine** | Phase 1 Foundation | Modular provider architecture (`Jamendo`, `Audius`, `Archive`, `Apple`) with direct Web Audio DSP stream routing |
+| **Universal Music Engine** | Fully Implemented (Phases 1 & 2) | Multi-provider architecture (`Apple`, `Audius`, `Archive`, `Jamendo`, `Local`) with on-demand stream resolution & direct Web Audio DSP playback |
 | **Harmoniq Pulse Orb** | Fully Implemented | Floating holographic SVG/CSS orb with luminous core, triple frequency rings, orbital particles & 7 visual states |
 | **Harmoniq Assistant Panel**| Fully Implemented | Obsidian-glass chat window with message thread, suggestion chips, live STT transcript & action buttons |
 | **Multi-Provider AI Backend**| Fully Implemented | Modular provider routing (Google Gemini 1.5, OpenAI GPT-4o, Groq Llama-3.1) with protected Electron IPC |

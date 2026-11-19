@@ -2030,7 +2030,11 @@ function setupIpc() {
     const jamendoTask = (async () => {
       const t0 = Date.now();
       try {
-        const url = `https://api.jamendo.com/v3.0/tracks/?client_id=b6747d04&format=jsonpretty&limit=${limit}&namesearch=${encodeURIComponent(
+        const jamendoKey =
+          (typeof request?.jamendoClientId === 'string' && request.jamendoClientId.trim())
+            ? request.jamendoClientId.trim()
+            : (loadStoredDataSync<string>('jamendo_client_id', '') || 'b6747d04');
+        const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${encodeURIComponent(jamendoKey)}&format=jsonpretty&limit=${limit}&namesearch=${encodeURIComponent(
           cleanQ
         )}&include=musicinfo`;
         const controller = new AbortController();
@@ -2042,6 +2046,15 @@ function setupIpc() {
         clearTimeout(timeout);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        if (data?.headers?.status === 'failed') {
+          return {
+            providerId: 'jamendo',
+            success: false,
+            tracks: [],
+            errorMessage: data?.headers?.error_message || 'Jamendo API usage limit reached',
+            durationMs: Date.now() - t0,
+          };
+        }
         const results = data?.results || [];
         const tracks = results.map((item: any) => ({
           id: `jamendo:${item.id}`,
@@ -2172,6 +2185,265 @@ function setupIpc() {
       totalResults: deduplicated.length,
       searchedAt: Date.now(),
     };
+  });
+
+  // Universal Music Engine: Stream URL Resolver & Validator (Phase 2)
+  ipcMain.handle('universal:resolveStream', async (_e, request: any) => {
+    const { providerId, providerTrackId, currentStreamUrl } = request || {};
+    if (!providerId || !providerTrackId) {
+      return { success: false, error: 'Invalid provider or track ID' };
+    }
+
+    const t0 = Date.now();
+    try {
+      if (providerId === 'audius') {
+        const discoveryHost = 'https://discoveryprovider.audius.co';
+        const streamEndpoint = `${discoveryHost}/v1/tracks/${encodeURIComponent(providerTrackId)}/stream?app_name=HarmoniqAudioPlayer`;
+        if (!isSafePublicUrl(streamEndpoint)) {
+          return { success: false, error: 'Unsafe stream endpoint' };
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        try {
+          const res = await fetch(streamEndpoint, {
+            method: 'GET',
+            redirect: 'manual',
+            signal: controller.signal,
+            headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          });
+          clearTimeout(timeout);
+
+          const redirectLocation = res.headers.get('location');
+          if (res.status === 302 && redirectLocation) {
+            if (!isSafePublicUrl(redirectLocation)) {
+              return { success: false, error: 'Redirected to unsafe URL' };
+            }
+            return {
+              success: true,
+              streamUrl: redirectLocation,
+              capability: 'full_stream',
+              format: 'MP3',
+              bitrate: 320,
+              durationMs: Date.now() - t0,
+            };
+          } else if (res.ok) {
+            return {
+              success: true,
+              streamUrl: streamEndpoint,
+              capability: 'full_stream',
+              format: 'MP3',
+              bitrate: 320,
+              durationMs: Date.now() - t0,
+            };
+          } else {
+            return { success: false, error: `Audius stream returned HTTP ${res.status}` };
+          }
+        } catch (fetchErr: any) {
+          clearTimeout(timeout);
+          return {
+            success: true,
+            streamUrl: streamEndpoint,
+            capability: 'full_stream',
+            format: 'MP3',
+            bitrate: 320,
+          };
+        }
+      }
+
+      if (providerId === 'archive') {
+        const filesUrl = `https://archive.org/metadata/${encodeURIComponent(providerTrackId)}/files`;
+        if (!isSafePublicUrl(filesUrl)) {
+          return { success: false, error: 'Unsafe archive identifier' };
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(filesUrl, {
+          headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) {
+          throw new Error(`Internet Archive manifest HTTP ${res.status}`);
+        }
+
+        const data = await res.json();
+        const files: any[] = Array.isArray(data?.result) ? data.result : [];
+
+        const audioFiles = files.filter((f) => {
+          if (!f || !f.name) return false;
+          const name = String(f.name).toLowerCase();
+          const format = String(f.format || '').toLowerCase();
+          if (
+            name.endsWith('.xml') ||
+            name.endsWith('.txt') ||
+            name.endsWith('.png') ||
+            name.endsWith('.jpg') ||
+            name.endsWith('.afpk') ||
+            name.endsWith('.sqlite') ||
+            name.endsWith('.torrent') ||
+            name.endsWith('.cue')
+          ) {
+            return false;
+          }
+          return (
+            format.includes('mp3') ||
+            format.includes('vbr') ||
+            format.includes('ogg') ||
+            format.includes('flac') ||
+            format.includes('m4a') ||
+            name.endsWith('.mp3') ||
+            name.endsWith('.ogg') ||
+            name.endsWith('.flac') ||
+            name.endsWith('.m4a')
+          );
+        });
+
+        if (audioFiles.length === 0) {
+          const fallbackUrl = `https://archive.org/download/${encodeURIComponent(providerTrackId)}/${encodeURIComponent(providerTrackId)}_vbr.mp3`;
+          return {
+            success: true,
+            streamUrl: fallbackUrl,
+            capability: 'full_stream',
+            format: 'MP3',
+          };
+        }
+
+        audioFiles.sort((a, b) => {
+          const aFmt = String(a.format || '').toLowerCase();
+          const bFmt = String(b.format || '').toLowerCase();
+          const aVbr = aFmt.includes('vbr') ? 3 : aFmt.includes('mp3') ? 2 : 1;
+          const bVbr = bFmt.includes('vbr') ? 3 : bFmt.includes('mp3') ? 2 : 1;
+          return bVbr - aVbr;
+        });
+
+        const chosen = audioFiles[0];
+        const streamUrl = `https://archive.org/download/${encodeURIComponent(providerTrackId)}/${encodeURIComponent(chosen.name).replace(/%2F/g, '/')}`;
+
+        if (!isSafePublicUrl(streamUrl)) {
+          return { success: false, error: 'Unsafe resolved archive stream URL' };
+        }
+
+        const dur = chosen.length ? Math.round(parseFloat(chosen.length)) : undefined;
+
+        return {
+          success: true,
+          streamUrl,
+          capability: 'full_stream',
+          format: chosen.format?.includes('MP3') ? 'MP3' : (chosen.format || 'MP3'),
+          duration: dur,
+          durationMs: Date.now() - t0,
+        };
+      }
+
+      if (providerId === 'apple') {
+        if (currentStreamUrl && isSafePublicUrl(currentStreamUrl)) {
+          return {
+            success: true,
+            streamUrl: currentStreamUrl,
+            capability: 'preview_stream',
+            format: 'AAC',
+            bitrate: 256,
+          };
+        }
+
+        const lookupUrl = `https://itunes.apple.com/lookup?id=${encodeURIComponent(providerTrackId)}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(lookupUrl, {
+          headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) throw new Error(`Apple Music lookup HTTP ${res.status}`);
+        const data = await res.json();
+        const item = data?.results?.[0];
+        const previewUrl = item?.previewUrl;
+
+        if (previewUrl && isSafePublicUrl(previewUrl)) {
+          return {
+            success: true,
+            streamUrl: previewUrl,
+            capability: 'preview_stream',
+            format: 'AAC',
+            bitrate: 256,
+            durationMs: Date.now() - t0,
+          };
+        } else {
+          return { success: false, error: 'No audio preview available for this Apple Music track' };
+        }
+      }
+
+      if (providerId === 'jamendo') {
+        if (currentStreamUrl && isSafePublicUrl(currentStreamUrl)) {
+          return {
+            success: true,
+            streamUrl: currentStreamUrl,
+            capability: 'full_stream',
+            format: 'MP3',
+            bitrate: 128,
+          };
+        }
+
+        const key =
+          (typeof request?.jamendoClientId === 'string' && request.jamendoClientId.trim()) ||
+          loadStoredDataSync<string>('jamendo_client_id', '') ||
+          'b6747d04';
+        const url = `https://api.jamendo.com/v3.0/tracks/?client_id=${encodeURIComponent(key)}&id=${encodeURIComponent(providerTrackId)}&format=jsonpretty`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) throw new Error(`Jamendo API HTTP ${res.status}`);
+        const data = await res.json();
+        if (data?.headers?.status === 'failed') {
+          return { success: false, error: data?.headers?.error_message || 'Jamendo API usage limit reached' };
+        }
+        const track = data?.results?.[0];
+        const streamUrl = track?.audio || track?.audiodl;
+
+        if (streamUrl && isSafePublicUrl(streamUrl)) {
+          return {
+            success: true,
+            streamUrl,
+            capability: 'full_stream',
+            format: 'MP3',
+            bitrate: 128,
+            durationMs: Date.now() - t0,
+          };
+        }
+        return { success: false, error: 'Stream URL unavailable from Jamendo' };
+      }
+
+      if (providerId === 'local') {
+        return {
+          success: true,
+          streamUrl: currentStreamUrl || '',
+          capability: 'local_file',
+        };
+      }
+
+      return { success: false, error: `Unsupported provider: ${providerId}` };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Stream resolution failed' };
+    }
+  });
+
+  ipcMain.handle('universal:getJamendoConfig', async () => {
+    return { clientId: loadStoredDataSync<string>('jamendo_client_id', '') };
+  });
+
+  ipcMain.handle('universal:saveJamendoConfig', async (_e, config: { clientId: string }) => {
+    const cleanKey = typeof config?.clientId === 'string' ? config.clientId.trim() : '';
+    saveStoredDataSync('jamendo_client_id', cleanKey);
+    return { success: true, clientId: cleanKey };
   });
 
   // Harmoniq Assistant IPC Handlers (Phase 7)

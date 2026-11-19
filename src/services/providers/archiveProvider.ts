@@ -12,6 +12,83 @@ export class ArchiveProvider extends BaseMusicProvider {
   readonly name: string = 'Internet Archive';
   readonly defaultCapability: PlaybackCapability = 'full_stream';
 
+  /**
+   * Resolves the actual audio file name and direct stream URL from the item's metadata files manifest.
+   * Avoids fragile {id}_vbr.mp3 assumptions and selects the highest quality audio format.
+   */
+  async resolveAudioFile(
+    identifier: string,
+    signal?: AbortSignal
+  ): Promise<{ streamUrl: string; format?: string; duration?: number }> {
+    const cleanId = identifier.trim();
+    if (!cleanId) throw new Error('Invalid Archive identifier');
+
+    try {
+      const filesUrl = `https://archive.org/metadata/${encodeURIComponent(cleanId)}/files`;
+      const res = await fetch(filesUrl, { signal });
+      if (!res.ok) throw new Error(`Archive manifest HTTP ${res.status}`);
+      const data = await res.json();
+      const files: any[] = Array.isArray(data?.result) ? data.result : [];
+
+      const audioFiles = files.filter((f) => {
+        if (!f || !f.name) return false;
+        const name = String(f.name).toLowerCase();
+        const format = String(f.format || '').toLowerCase();
+        if (
+          name.endsWith('.xml') ||
+          name.endsWith('.txt') ||
+          name.endsWith('.png') ||
+          name.endsWith('.jpg') ||
+          name.endsWith('.afpk') ||
+          name.endsWith('.sqlite') ||
+          name.endsWith('.torrent') ||
+          name.endsWith('.cue')
+        ) {
+          return false;
+        }
+        return (
+          format.includes('mp3') ||
+          format.includes('vbr') ||
+          format.includes('ogg') ||
+          format.includes('flac') ||
+          format.includes('m4a') ||
+          name.endsWith('.mp3') ||
+          name.endsWith('.ogg') ||
+          name.endsWith('.flac') ||
+          name.endsWith('.m4a')
+        );
+      });
+
+      if (audioFiles.length === 0) {
+        return {
+          streamUrl: `https://archive.org/download/${cleanId}/${cleanId}_vbr.mp3`,
+          format: 'MP3',
+        };
+      }
+
+      audioFiles.sort((a, b) => {
+        const aFmt = String(a.format || '').toLowerCase();
+        const bFmt = String(b.format || '').toLowerCase();
+        const aVbr = aFmt.includes('vbr') ? 3 : aFmt.includes('mp3') ? 2 : 1;
+        const bVbr = bFmt.includes('vbr') ? 3 : bFmt.includes('mp3') ? 2 : 1;
+        return bVbr - aVbr;
+      });
+
+      const chosen = audioFiles[0];
+      const dur = chosen.length ? Math.round(parseFloat(chosen.length)) : undefined;
+      return {
+        streamUrl: `https://archive.org/download/${cleanId}/${encodeURIComponent(chosen.name).replace(/%2F/g, '/')}`,
+        format: chosen.format?.includes('MP3') ? 'MP3' : (chosen.format || 'MP3'),
+        duration: dur,
+      };
+    } catch {
+      return {
+        streamUrl: `https://archive.org/download/${cleanId}/${cleanId}_vbr.mp3`,
+        format: 'MP3',
+      };
+    }
+  }
+
   normalize(raw: any): UnifiedTrack | null {
     if (!raw || typeof raw !== 'object') return null;
     const rawId = raw.identifier || raw.id;

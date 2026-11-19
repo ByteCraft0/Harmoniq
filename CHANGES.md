@@ -110,6 +110,23 @@
 - **Secure Electron IPC Foundation**: Implemented `universal:search` in `electron/main.ts` with timeout safeguards (9s), input validation (150 chars), and exposed it via `electron/preload.ts`.
 - **Complete Test Verification**: 31 test files, 302 passing tests, zero regressions. All builds verified.
 
+### Universal Music Engine — Phase 2: UI Transformation & Real Playback Integration
+- **In-Place Navigation Upgrade**: Renamed sidebar navigation item in `src/components/layout/Sidebar.tsx` to "Universal Music" while preserving the exact view position and route key `online_music`. Discover remains separate for recommendations and exploration.
+- **Premium Universal Music UI**: Upgraded `src/components/online/OnlineMusicSearchView.tsx` with obsidian aesthetic, ambient violet/lavender glow, 350ms debounced search, category filter tabs (`all`, `song`, `artist`, `album`), and interactive provider chips (`All Sources`, `Apple Music`, `Audius`, `Internet Archive`, `Jamendo`, `Local Library`) with live result counts.
+- **On-Demand Stream Resolution Engine**: Implemented `universal:resolveStream` in `electron/main.ts` and `resolveTrackStream()` in `universalMusicService.ts`:
+  - **Audius**: Resolves ephemeral 300s presigned streaming URLs on-demand from discovery node redirects without storing expiring tokens.
+  - **Internet Archive**: Resolves real audio filenames from item metadata manifest (`/metadata/{id}/files`), prioritizing VBR MP3 and ignoring auxiliary `.xml`, `.png`, `.afpk` files, avoiding 404s on custom file names.
+  - **Apple Music**: Accurately classifies and verifies 30-second AAC previews (`preview_stream`).
+  - **Jamendo**: Verifies full-track streaming with customizable developer Client ID.
+  - **Local**: Resolves offline local files instantly.
+- **Real Playback & Queue Integration**: Connected search results directly to `PlayerContext.tsx` and `audioEngine.ts`:
+  - Play button streams tracks through Harmoniq's 32-bit floating-point Web Audio graph with 10-band EQ, reverb rooms, visualizers, Now Playing, and Mini Player updates.
+  - "Add to Queue" and "Play Next" preserve full online track descriptors (`providerId`, `providerTrackId`, `isOnline`, `playbackCapability`), allowing seamless queue transitions between local and online songs with on-demand stream resolution.
+- **Jamendo Settings Card**: Added developer Client ID configuration in `SettingsView.tsx` with validation, persistence via `localStorage` and Electron storage, and non-blocking failure isolation.
+- **Comprehensive State Architecture**: Designed rich states for initial exploration with quick query chips (`Moonlight`, `Arijit Singh`, `The Weeknd`, etc.), waveform loading, provider failure banners, empty states, and track card loading indicators.
+- **Security & SSRF Hardening**: Enforced HTTP/HTTPS restrictions, private/loopback IP blocking (`isSafePublicUrl`), 9-second request timeouts, and sanitized responses.
+- **Complete Test Coverage**: Created `src/test/universal_music_phase2.test.ts` (14 new tests). Full suite: 32 test files, 316 passed tests, zero regressions. All Vite and Electron builds verified.
+
 ---
 
 ## Known limitations (not changed)

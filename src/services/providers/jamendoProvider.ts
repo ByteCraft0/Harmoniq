@@ -12,11 +12,18 @@ export class JamendoProvider extends BaseMusicProvider {
   readonly name: string = 'Jamendo Music';
   readonly defaultCapability: PlaybackCapability = 'full_stream';
 
-  private clientId = 'b6747d04'; // Official public API client ID for open exploration
+  private defaultClientId = 'b6747d04'; // Official public API client ID for open exploration
+  private clientId = 'b6747d04';
+
+  public getClientId(): string {
+    return this.clientId;
+  }
 
   public setClientId(key: string): void {
     if (key && key.trim()) {
       this.clientId = key.trim();
+    } else {
+      this.clientId = this.defaultClientId;
     }
   }
 
