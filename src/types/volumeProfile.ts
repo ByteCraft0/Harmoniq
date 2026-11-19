@@ -65,7 +65,7 @@ export const DEFAULT_VOLUME_PROFILES: VolumeProfile[] = [
   {
     id: 'vol_party',
     name: 'Party / High Output',
-    description: 'Elevated gain with fast brickwall limiter protection against clipping',
+    description: 'Elevated gain with fast peak limiter protection against clipping',
     targetVolume: 0.95,
     preampGainDb: +2.0,
     replayGainMode: 'track',

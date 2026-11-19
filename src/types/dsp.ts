@@ -65,7 +65,7 @@ export interface DSPSettings {
   balance: number; // -1 (full Left) to +1 (full Right), 0 is Center
   monoMix: boolean; // Backwards-compatible downmix to mono
   channelMode: ChannelMode; // Channel routing mode: stereo, mono, left_only, right_only
-  limiterEnabled: boolean; // Anti-clipping brickwall limiter
+  limiterEnabled: boolean; // Anti-clipping peak limiter protection
   activePresetId: string | null;
   stereoWidth?: number; // 0 to 150 (percentage, default 100)
   stereoWidthEnabled?: boolean; // default false

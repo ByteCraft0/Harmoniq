@@ -129,7 +129,7 @@ export const FirstRunOnboardingModal: React.FC<FirstRunOnboardingModalProps> = (
                     <ShieldCheck size={14} className="text-emerald-400" />
                     Supported Audio Codecs
                   </span>
-                  <span className="text-[11px] text-[#71717A]">Bit-Perfect Extraction</span>
+                  <span className="text-[11px] text-[#71717A]">Native Lossless Extraction</span>
                 </div>
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                   {[

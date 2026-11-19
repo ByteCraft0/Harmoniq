@@ -897,7 +897,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       setVolume(1.0);
       setCrossfadeDuration(0);
       setReplayGainMode('off');
-      showToast('Bit-Perfect Mode engaged: 100% Unity Gain, DSP bypassed, Crossfade & ReplayGain disabled', 'info');
+      showToast('Direct Stream Mode engaged: 100% Unity Gain, DSP bypassed, Crossfade & ReplayGain disabled', 'info');
     }
     setBitPerfectStatus(audioEngine.getBitPerfectStatus());
   };

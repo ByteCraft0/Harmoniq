@@ -28,19 +28,19 @@ export const HARMONIQ_KNOWLEDGE_BASE: KnowledgeDocument[] = [
   },
   {
     id: 'audio_inspector',
-    title: 'Audio Quality Inspector & Bit-Perfect Mode',
+    title: 'Audio Quality Inspector & Signal Transparency',
     category: 'audio',
     keywords: ['bit-perfect', 'wasapi', 'dac', 'sample rate', 'bit depth', 'hi-res', 'flac', 'lossless', 'inspector', 'diagnostics'],
-    summary: 'The Audio Inspector displays comprehensive technical telemetry: exact format (FLAC, ALAC, WAV, MP3, AAC), bit depth (16/24/32-bit), sample rate (44.1kHz to 192kHz), bitrate, channel layout, and WASAPI exclusive capability.',
+    summary: 'The Audio Inspector displays comprehensive technical telemetry: exact format (FLAC, ALAC, WAV, MP3, AAC), bit depth (16/24/32-bit), sample rate (44.1kHz to 192kHz), bitrate, channel layout, and Windows audio endpoint details.',
     steps: [
       'Navigate to Audio Quality Inspector in the sidebar or from the playback bar badge.',
       'Inspect the Active Stream badge showing live playback sample rate and bit depth.',
-      'Check the WASAPI Exclusive capability indicator to see if your Windows DAC supports bit-perfect hardware bypass.',
+      'Inspect the Windows Shared Mode audio pipeline to see exact sample rate conversion and DSP processing details.',
       'Review ReplayGain metadata (Track Gain, Album Gain, Peak ratios) embedded in the current file.'
     ],
     tips: [
       'Hi-Res Lossless files (24-bit/96kHz or 192kHz) sound best through a dedicated external DAC.',
-      'Bit-perfect playback bypasses the Windows audio mixer for pristine acoustic fidelity.'
+      'Direct Stream Mode minimizes digital alterations by bypassing DSP filters and setting unity gain, while routing through Windows Shared Mode.'
     ],
     route: 'inspector',
     actionLabel: 'Open Audio Inspector'

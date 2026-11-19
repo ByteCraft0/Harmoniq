@@ -67,7 +67,7 @@ export const AudioQualityInspector: React.FC = () => {
         </div>
         <h3 className="text-xl font-bold text-[#F5F3FF] mb-1">No Active Audio Stream</h3>
         <p className="text-xs text-[#A1A1AA] max-w-md">
-          Start playback to inspect real stream metadata, sample rate conversion, and bit-perfect DAC delivery.
+          Start playback to inspect real stream metadata, sample rate conversion, and signal transparency.
         </p>
       </div>
     );

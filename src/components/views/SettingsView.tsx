@@ -1597,7 +1597,7 @@ export const SettingsView: React.FC = () => {
           <h3 className="font-bold text-sm text-[#F5F3FF]">Local-First & Privacy Guarantee</h3>
         </div>
         <p className="text-xs text-[#A1A1AA] leading-relaxed">
-          HARMONIQ operates completely offline. No tracking, no advertisements, no forced accounts, and no background telemetry. Your audio metadata, listening history, custom DSP profiles, and playlists are stored exclusively on your local machine.
+          Harmoniq is local-first. Your personal audio files, listening history, custom DSP profiles, and playlists are stored exclusively on your local machine with zero tracking or telemetry. When you explicitly use online features (such as Jamendo music, Internet Radio, podcast feeds, or optional AI companion), Harmoniq connects directly to those providers without transmitting your private listening data.
         </p>
       </div>
 

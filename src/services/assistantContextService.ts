@@ -209,7 +209,7 @@ export function formatContextForPrompt(ctx: HarmoniqAssistantContext): string {
     if (ctx.audio.channels) audioParts.push(ctx.audio.channels === 1 ? 'Mono' : ctx.audio.channels === 2 ? 'Stereo' : `${ctx.audio.channels} ch`);
 
     const losslessStr = ctx.audio.isLossless ? 'Lossless: Yes' : 'Lossless: No (Lossy)';
-    const bitPerfectStr = ctx.audio.isBitPerfect ? 'Bit-Perfect: Active (WASAPI Exclusive bypass)' : 'Bit-Perfect: Inactive';
+    const bitPerfectStr = ctx.audio.isBitPerfect ? 'Bit-Perfect: Active (Direct Pipeline)' : 'Bit-Perfect: Inactive';
     const audioSummary = audioParts.length > 0 ? audioParts.join(' / ') : 'Stream audio';
     lines.push(`Audio Quality: ${audioSummary} | ${losslessStr} | ${bitPerfectStr}`);
 
