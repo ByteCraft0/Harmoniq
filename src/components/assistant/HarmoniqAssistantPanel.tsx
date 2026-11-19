@@ -25,18 +25,23 @@ interface HarmoniqAssistantPanelProps {
   isOpen?: boolean;
   onClose?: () => void;
   onOpenSettings?: () => void;
+  hideHeaderOrb?: boolean;
+  className?: string;
 }
 
 export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
   isOpen: isOpenProp,
   onClose: onCloseProp,
-  onOpenSettings
+  onOpenSettings,
+  hideHeaderOrb = false,
+  className = ''
 }) => {
   const {
     config,
     messages,
     orbState,
     isOpen: hookIsOpen,
+    assistantContext,
     isListening,
     interimTranscript,
     closeAssistant,
@@ -67,12 +72,21 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
     }
   }, [messages, interimTranscript, isPanelOpen]);
 
-  // Focus input on panel open
+  // Focus input on panel open & handle Escape key
   useEffect(() => {
     if (isPanelOpen) {
       setTimeout(() => inputRef.current?.focus(), 150);
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          handleClose();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
     }
-  }, [isPanelOpen]);
+  }, [isPanelOpen, handleClose]);
 
   const handleSend = async (textToSend?: string) => {
     const text = (textToSend || inputVal).trim();
@@ -113,19 +127,23 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
     }
   };
 
-  const suggestedQuestions = getSuggestedQuestions(activeView);
+  const suggestedQuestions = getSuggestedQuestions(activeView, assistantContext || undefined);
 
   if (!isPanelOpen) return null;
 
   return (
     <div
       aria-label="Harmoniq Assistant Window"
-      className="fixed bottom-24 right-6 z-50 w-96 max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-8rem)] flex flex-col bg-[#0b0813]/95 backdrop-blur-2xl border border-violet-500/30 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_30px_rgba(139,92,246,0.25)] overflow-hidden transition-all duration-300 animate-assistant-enter"
+      className={`fixed bottom-24 right-6 z-50 w-96 max-w-[calc(100vw-2rem)] h-[560px] max-h-[calc(100vh-8rem)] flex flex-col bg-[#0b0813]/95 backdrop-blur-2xl border border-violet-500/30 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.8),0_0_30px_rgba(139,92,246,0.25)] overflow-hidden transition-all duration-300 animate-assistant-enter ${className}`}
     >
       {/* Top Header */}
       <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-violet-950/40 via-purple-900/20 to-transparent border-b border-violet-500/20 select-none">
         <div className="flex items-center gap-2.5">
-          <HarmoniqPulseOrb state={orbState} onClick={handleClose} className="!w-7 !h-7" />
+          {hideHeaderOrb ? (
+            <div className="w-8 h-8 flex-shrink-0" aria-hidden="true" />
+          ) : (
+            <HarmoniqPulseOrb state={orbState} onClick={handleClose} docked={true} className="!w-7 !h-7" />
+          )}
           <div>
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-semibold text-violet-100 tracking-wide">

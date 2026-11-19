@@ -1,5 +1,6 @@
 import { AppView } from '../context/LibraryContext';
-import { AssistantAction, KnowledgeDocument } from '../types/assistant';
+import { AssistantAction, KnowledgeDocument, HarmoniqAssistantContext } from '../types/assistant';
+import { detectContextIntent, formatDurationSeconds } from './assistantContextService';
 
 export const HARMONIQ_KNOWLEDGE_BASE: KnowledgeDocument[] = [
   {
@@ -477,11 +478,229 @@ export function searchKnowledge(query: string, currentView?: string): KnowledgeD
 
 /**
  * Generates an accurate, grounded local answer with step-by-step guidance and action buttons.
+ * Phase 5A.1: Now enhanced with live context awareness for playback, audio telemetry, queue, and DSP questions.
  */
 export function generateLocalAnswer(
   query: string,
-  currentView?: string
+  currentView?: string,
+  context?: HarmoniqAssistantContext
 ): { content: string; actions: AssistantAction[] } {
+  // Check if this query is a music context question (what song, lossless, quality, queue, eq)
+  const intent = detectContextIntent(query);
+
+  if (intent) {
+    const actions: AssistantAction[] = [];
+
+    switch (intent) {
+      case 'current_track': {
+        if (context?.currentTrack) {
+          const track = context.currentTrack;
+          const status = context.playback.isPlaying ? 'Playing 🎵' : context.playback.isPaused ? 'Paused ⏸️' : 'Stopped ⏹️';
+          const pos = `${formatDurationSeconds(context.playback.currentTime)} / ${formatDurationSeconds(context.playback.duration)}`;
+          const source = track.source === 'online' ? `Online (${track.provider || 'Universal Music'})${track.isPreview ? ' — 30s Preview' : ''}` : 'Local Library';
+
+          let content = `### Now Playing\n\n`;
+          content += `You are currently listening to **"${track.title}"** by **${track.artist || 'Unknown Artist'}**`;
+          if (track.album) content += ` from the album *"${track.album}"*`;
+          content += `.\n\n`;
+          content += `- **Playback Status**: ${status} (${pos})\n`;
+          content += `- **Audio Source**: ${source}\n`;
+          if (track.genre) content += `- **Genre**: ${track.genre}\n`;
+          if (track.year) content += `- **Year**: ${track.year}\n`;
+
+          actions.push({ id: 'act_now_playing', label: 'Open Now Playing', actionType: 'navigate', target: 'now_playing' });
+          actions.push({ id: 'act_inspector', label: 'Open Audio Inspector', actionType: 'navigate', target: 'inspector' });
+
+          return { content, actions };
+        } else {
+          actions.push({ id: 'act_songs', label: 'Browse Songs', actionType: 'navigate', target: 'songs' });
+          actions.push({ id: 'act_online', label: 'Discover Music', actionType: 'navigate', target: 'online_music' });
+          return {
+            content: `### Playback Idle\n\nNo song is currently playing in Harmoniq.\n\nYou can select a song from your local collection or discover new music in Universal Music.`,
+            actions,
+          };
+        }
+      }
+
+      case 'artist_info': {
+        if (context?.currentTrack?.artist) {
+          const artist = context.currentTrack.artist;
+          const track = context.currentTrack;
+          actions.push({ id: 'act_artists', label: 'Open Artists', actionType: 'navigate', target: 'artists' });
+          actions.push({ id: 'act_online', label: `Search ${artist}`, actionType: 'navigate', target: 'online_music' });
+
+          return {
+            content: `### Artist: ${artist}\n\nCurrently playing **"${track.title}"** by **${artist}**${track.album ? ` on *"${track.album}"*` : ''}.\n\nYou can explore more albums and tracks by this artist in your Library or search across online music catalogs.`,
+            actions,
+          };
+        }
+        return {
+          content: `No track is currently playing to identify an artist. Start playback to view artist details.`,
+          actions: [{ id: 'act_songs', label: 'Open Songs', actionType: 'navigate', target: 'songs' }],
+        };
+      }
+
+      case 'album_info': {
+        if (context?.currentTrack?.album) {
+          const album = context.currentTrack.album;
+          actions.push({ id: 'act_albums', label: 'Open Albums', actionType: 'navigate', target: 'albums' });
+          actions.push({ id: 'act_immersive', label: 'Immersive Album Mode', actionType: 'navigate', target: 'immersive_album' });
+
+          return {
+            content: `### Album: ${album}\n\nThe active track **"${context.currentTrack.title}"** is from **"${album}"** by **${context.currentTrack.artist || 'Unknown'}**${context.currentTrack.year ? ` (${context.currentTrack.year})` : ''}.`,
+            actions,
+          };
+        }
+        return {
+          content: context?.currentTrack
+            ? `The active track **"${context.currentTrack.title}"** does not have album metadata specified.`
+            : `No track is currently playing. Start a song to view album information.`,
+          actions: [{ id: 'act_albums', label: 'Open Albums', actionType: 'navigate', target: 'albums' }],
+        };
+      }
+
+      case 'lossless_check': {
+        if (context?.currentTrack) {
+          actions.push({ id: 'act_inspector', label: 'Open Audio Inspector', actionType: 'navigate', target: 'inspector' });
+          actions.push({ id: 'act_abx', label: 'Open ABX Comparator', actionType: 'navigate', target: 'abx' });
+
+          if (context.audio.isLossless) {
+            let content = `### Lossless Quality Verified 💎\n\n`;
+            content += `Yes! The current track **"${context.currentTrack.title}"** is a verified **Lossless** audio stream.\n\n`;
+            content += `- **Codec**: ${context.audio.codec || 'Lossless'}\n`;
+            if (context.audio.sampleRate) content += `- **Sample Rate**: ${context.audio.sampleRate.toLocaleString()} Hz\n`;
+            if (context.audio.bitDepth) content += `- **Bit Depth**: ${context.audio.bitDepth}-bit\n`;
+            if (context.audio.bitrate) content += `- **Bitrate**: ${context.audio.bitrate} kbps\n`;
+            content += `- **Bit-Perfect Status**: ${context.audio.isBitPerfect ? 'Active (Direct hardware stream)' : 'Inactive'}\n\n`;
+            content += `Lossless files preserve bit-for-bit acoustic fidelity without lossy perceptual compression artifacts.`;
+            return { content, actions };
+          } else {
+            let content = `### Lossy Audio Stream\n\n`;
+            content += `No, the current track **"${context.currentTrack.title}"** is a **lossy compressed** stream (not lossless).\n\n`;
+            content += `- **Codec**: ${context.audio.codec || 'Lossy'}\n`;
+            if (context.audio.bitrate) content += `- **Bitrate**: ${context.audio.bitrate} kbps\n`;
+            if (context.audio.sampleRate) content += `- **Sample Rate**: ${context.audio.sampleRate.toLocaleString()} Hz\n`;
+            content += `- **Quality Tier**: Standard / Perceptually encoded\n\n`;
+            content += `To experience bit-exact lossless listening, import FLAC, ALAC, or WAV files into your library.`;
+            return { content, actions };
+          }
+        }
+        return {
+          content: `No audio track is currently playing. Play a track to inspect lossless status.`,
+          actions: [{ id: 'act_inspector', label: 'Open Audio Inspector', actionType: 'navigate', target: 'inspector' }],
+        };
+      }
+
+      case 'audio_quality': {
+        if (context?.currentTrack) {
+          actions.push({ id: 'act_inspector', label: 'Open Audio Inspector', actionType: 'navigate', target: 'inspector' });
+          actions.push({ id: 'act_eq', label: 'Open Equalizer Studio', actionType: 'navigate', target: 'equalizer' });
+
+          let content = `### Audio Quality Telemetry\n\n`;
+          content += `Real-time audio specifications for **"${context.currentTrack.title}"**:\n\n`;
+          content += `- **Format / Codec**: ${context.audio.codec || context.audio.format || 'Unknown'}\n`;
+          content += `- **Lossless Stream**: ${context.audio.isLossless ? 'Yes (Lossless)' : 'No (Lossy Perceptual)'}\n`;
+          if (context.audio.sampleRate) content += `- **Sample Rate**: ${context.audio.sampleRate.toLocaleString()} Hz\n`;
+          if (context.audio.bitDepth) content += `- **Bit Depth**: ${context.audio.bitDepth}-bit\n`;
+          if (context.audio.bitrate) content += `- **Bitrate**: ${context.audio.bitrate} kbps\n`;
+          if (context.audio.channels) {
+            content += `- **Channels**: ${context.audio.channels === 1 ? 'Mono' : context.audio.channels === 2 ? 'Stereo' : `${context.audio.channels} channels`}\n`;
+          }
+          content += `- **Bit-Perfect WASAPI**: ${context.audio.isBitPerfect ? 'Active (Bit-perfect direct)' : 'Inactive (System Shared)'}\n`;
+          content += `- **Active DSP**: ${context.audio.activeDSP && context.audio.activeDSP.length > 0 ? context.audio.activeDSP.join(', ') : 'None (Flat output)'}\n`;
+
+          return { content, actions };
+        }
+        return {
+          content: `No track is currently playing. Visit the Audio Inspector to review output hardware capabilities and Bit-Perfect WASAPI settings.`,
+          actions: [{ id: 'act_inspector', label: 'Open Audio Inspector', actionType: 'navigate', target: 'inspector' }],
+        };
+      }
+
+      case 'next_track':
+      case 'queue_status': {
+        actions.push({ id: 'act_queue', label: 'Open Queue', actionType: 'navigate', target: 'now_playing' });
+        actions.push({ id: 'act_playlists', label: 'Open Playlists', actionType: 'navigate', target: 'playlists' });
+
+        if (context?.queue && context.queue.totalTracks > 0) {
+          if (context.queue.nextTrack) {
+            let content = `### Next In Queue\n\n`;
+            content += `🎵 Next up: **"${context.queue.nextTrack.title}"**`;
+            if (context.queue.nextTrack.artist) content += ` by **${context.queue.nextTrack.artist}**`;
+            content += `.\n\n`;
+            content += `- **Total Tracks in Queue**: ${context.queue.totalTracks}\n`;
+            if (context.queue.currentIndex !== undefined) {
+              content += `- **Position**: Track #${context.queue.currentIndex + 1} of ${context.queue.totalTracks}\n`;
+            }
+            return { content, actions };
+          } else {
+            return {
+              content: `### Queue Status\n\nYou have reached the end of the current playback queue (${context.queue.totalTracks} total tracks). Add more songs by clicking 'Play Next' or 'Add to Queue', or enable Repeat All.`,
+              actions,
+            };
+          }
+        }
+        return {
+          content: `### Queue Is Empty\n\nThe playback queue is currently empty. You can add tracks from your Library or Universal Music.`,
+          actions,
+        };
+      }
+
+      case 'dsp_status': {
+        actions.push({ id: 'act_eq', label: 'Open Equalizer Studio', actionType: 'navigate', target: 'equalizer' });
+        actions.push({ id: 'act_inspector', label: 'Open Audio Inspector', actionType: 'navigate', target: 'inspector' });
+
+        if (context?.audio.activeDSP && context.audio.activeDSP.length > 0) {
+          let content = `### Active DSP Processing\n\n`;
+          content += `Yes, the following DSP processing is currently active and affecting your audio playback:\n\n`;
+          context.audio.activeDSP.forEach(dsp => {
+            content += `- **${dsp}**\n`;
+          });
+          content += `\nYou can toggle or customize these curves in Equalizer Studio.`;
+          return { content, actions };
+        } else {
+          return {
+            content: `### DSP Status: Flat / Bypass\n\nNo DSP processing is currently active. The Equalizer and audio filters are flat or disabled, providing pure uncolored sound reproduction directly to your audio device.`,
+            actions,
+          };
+        }
+      }
+
+      case 'bitperfect_status': {
+        actions.push({ id: 'act_inspector', label: 'Open Audio Inspector', actionType: 'navigate', target: 'inspector' });
+
+        if (context?.audio.isBitPerfect) {
+          return {
+            content: `### Bit-Perfect Mode: Active 🎯\n\nHarmoniq is streaming directly to your output hardware at the native source sample rate without Windows audio mixer resampling, volume attenuation, or DSP colorations.`,
+            actions,
+          };
+        } else {
+          return {
+            content: `### Bit-Perfect Mode: Inactive\n\nAudio is currently passing through the standard Windows shared audio mixer, or software volume/DSP adjustments are active. To enable Bit-Perfect WASAPI mode, visit the Audio Inspector.`,
+            actions,
+          };
+        }
+      }
+
+      case 'playback_state': {
+        actions.push({ id: 'act_now_playing', label: 'Open Now Playing', actionType: 'navigate', target: 'now_playing' });
+
+        if (context?.currentTrack) {
+          const status = context.playback.isPlaying ? 'Playing ▶️' : context.playback.isPaused ? 'Paused ⏸️' : 'Stopped ⏹️';
+          return {
+            content: `### Playback Status: ${status}\n\nTrack: **"${context.currentTrack.title}"** by **${context.currentTrack.artist || 'Unknown'}**\nPosition: ${formatDurationSeconds(context.playback.currentTime)} / ${formatDurationSeconds(context.playback.duration)}\nRepeat: ${context.playback.repeatMode || 'off'} | Shuffle: ${context.playback.shuffleEnabled ? 'On' : 'Off'}`,
+            actions,
+          };
+        }
+        return {
+          content: `Playback is currently idle (no song active).`,
+          actions: [{ id: 'act_songs', label: 'Open Songs', actionType: 'navigate', target: 'songs' }],
+        };
+      }
+    }
+  }
+
+  // Fallback to Knowledge Base grounded RAG
   const docs = searchKnowledge(query, currentView);
   const primaryDoc = docs[0] || HARMONIQ_KNOWLEDGE_BASE[0];
 
@@ -526,8 +745,20 @@ export function generateLocalAnswer(
 
 /**
  * Returns context-aware suggested questions for the chat interface.
+ * Phase 5A.1: Now dynamically incorporates questions about the active track and queue when playing.
  */
-export function getSuggestedQuestions(currentView?: string): string[] {
+export function getSuggestedQuestions(currentView?: string, context?: HarmoniqAssistantContext): string[] {
+  // If track is currently active, surface contextual suggestions first
+  if (context?.currentTrack) {
+    return [
+      'What song am I listening to?',
+      'What is the audio quality of this track?',
+      'Is this track lossless?',
+      'Which song is playing next?',
+      'Is my equalizer affecting this track?'
+    ];
+  }
+
   switch (currentView) {
     case 'equalizer':
       return [

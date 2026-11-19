@@ -72,3 +72,60 @@ export interface SpeechRecognitionResultState {
   transcript: string;
   isFinal: boolean;
 }
+
+// ============================================================================
+// Phase 5A.1: Context-Aware Assistant Telemetry & State Models
+// ============================================================================
+
+export interface HarmoniqPlaybackContext {
+  isPlaying: boolean;
+  isPaused: boolean;
+  currentTime?: number;
+  duration?: number;
+  repeatMode?: string;
+  shuffleEnabled?: boolean;
+}
+
+export interface HarmoniqTrackContext {
+  id?: string;
+  title: string;
+  artist?: string;
+  album?: string;
+  genre?: string;
+  year?: number;
+  duration?: number;
+  source: 'local' | 'online';
+  provider?: string;
+  isPreview?: boolean;
+  playbackCapability?: string;
+}
+
+export interface HarmoniqAudioContext {
+  format?: string;
+  codec?: string;
+  bitrate?: number;
+  sampleRate?: number;
+  bitDepth?: number;
+  channels?: number;
+  isLossless?: boolean;
+  isBitPerfect?: boolean;
+  activeDSP?: string[];
+}
+
+export interface HarmoniqQueueContext {
+  totalTracks: number;
+  currentIndex?: number;
+  nextTrack?: {
+    title: string;
+    artist?: string;
+  };
+}
+
+export interface HarmoniqAssistantContext {
+  playback: HarmoniqPlaybackContext;
+  currentTrack?: HarmoniqTrackContext;
+  audio: HarmoniqAudioContext;
+  queue: HarmoniqQueueContext;
+  contextTimestamp: number;
+}
+

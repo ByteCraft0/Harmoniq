@@ -5,9 +5,11 @@ import {
   AssistantConfig,
   AssistantMessage,
   DEFAULT_ASSISTANT_CONFIG,
+  HarmoniqAssistantContext,
   PulseOrbState,
 } from '../types/assistant';
 import { generateLocalAnswer, searchKnowledge } from './assistantKnowledge';
+import { formatContextForPrompt } from './assistantContextService';
 import { speechService } from './speechService';
 
 const HISTORY_STORAGE_KEY = 'harmoniq_assistant_messages';
@@ -63,6 +65,7 @@ class AssistantService {
   private messages: AssistantMessage[] = [];
   private orbState: PulseOrbState = 'idle';
   private isOpen: boolean = false;
+  private currentContext: HarmoniqAssistantContext | null = null;
   private listeners: Set<() => void> = new Set();
   private isInitialized = false;
 
@@ -169,6 +172,15 @@ class AssistantService {
     return [...this.messages];
   }
 
+  public getAssistantContext(): HarmoniqAssistantContext | null {
+    return this.currentContext ? { ...this.currentContext } : null;
+  }
+
+  public setAssistantContext(ctx: HarmoniqAssistantContext | null): void {
+    this.currentContext = ctx;
+    this.notify();
+  }
+
   public getOrbState(): PulseOrbState {
     return this.orbState;
   }
@@ -272,7 +284,7 @@ class AssistantService {
     this.saveMessagesToStorage();
     this.notify();
 
-    // Grounded RAG retrieval
+    // Grounded RAG retrieval & live playback context injection
     const relevantDocs = searchKnowledge(prompt, currentView);
     const ragContext = relevantDocs
       .map(
@@ -281,6 +293,11 @@ class AssistantService {
             d.steps ? d.steps.join(' -> ') : 'N/A'
           }\nTips: ${d.tips ? d.tips.join('. ') : 'N/A'}`
       )
+      .join('\n\n');
+
+    const formattedPlayback = this.currentContext ? formatContextForPrompt(this.currentContext) : '';
+    const combinedContext = [formattedPlayback, ragContext ? `Harmoniq Feature Documentation:\n${ragContext}` : '']
+      .filter(Boolean)
       .join('\n\n');
 
     let assistantContent = '';
@@ -302,7 +319,8 @@ class AssistantService {
 
         const result = await window.harmoniqApi.sendAssistantChat({
           messages: historyForApi,
-          context: ragContext
+          context: combinedContext,
+          assistantContext: this.currentContext || undefined
         });
 
         if (result && !result.error && result.content) {
@@ -320,19 +338,19 @@ class AssistantService {
           }
         } else {
           // Fallback to local grounded generator
-          const local = generateLocalAnswer(prompt, currentView);
+          const local = generateLocalAnswer(prompt, currentView, this.currentContext || undefined);
           assistantContent = local.content;
           extractedActions = local.actions;
         }
       } catch (err: any) {
         console.warn('API sendAssistantChat failed, using local grounded engine:', err);
-        const local = generateLocalAnswer(prompt, currentView);
+        const local = generateLocalAnswer(prompt, currentView, this.currentContext || undefined);
         assistantContent = local.content;
         extractedActions = local.actions;
       }
     } else {
       // Local Grounded Engine
-      const local = generateLocalAnswer(prompt, currentView);
+      const local = generateLocalAnswer(prompt, currentView, this.currentContext || undefined);
       assistantContent = local.content;
       extractedActions = local.actions;
     }

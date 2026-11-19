@@ -32,9 +32,11 @@ import { ABXComparisonView } from './components/views/ABXComparisonView';
 import { VinylCollectionView } from './components/views/VinylCollectionView';
 import { ImmersiveAlbumView } from './components/views/ImmersiveAlbumView';
 import { NavigationProvider } from './context/NavigationContext';
-import { HarmoniqPulseOrb } from './components/assistant/HarmoniqPulseOrb';
-import { HarmoniqAssistantPanel } from './components/assistant/HarmoniqAssistantPanel';
+import { HarmoniqAssistantContainer } from './components/assistant/HarmoniqAssistantContainer';
 import { useAssistant } from './hooks/useAssistant';
+import { useDSP } from './context/DSPContext';
+import { audioEngine } from './services/audioEngine';
+import { buildAssistantContext } from './services/assistantContextService';
 
 const MainLayout: React.FC = () => {
   const {
@@ -45,16 +47,64 @@ const MainLayout: React.FC = () => {
     selectedPlaylist,
     restoreNavigationState,
   } = useLibrary();
-  const { togglePlayPause, seekTo, currentTime, setVolume, volume, nextTrack, prevTrack, toggleMute } = usePlayer();
   const {
-    config: assistantConfig,
-    orbState: assistantOrbState,
-    isOpen: isAssistantOpen,
-    openAssistant,
-    closeAssistant,
-  } = useAssistant();
+    currentTrack,
+    isPlaying,
+    currentTime,
+    duration,
+    repeatMode,
+    isShuffle,
+    queue,
+    togglePlayPause,
+    seekTo,
+    setVolume,
+    volume,
+    nextTrack,
+    prevTrack,
+    toggleMute,
+  } = usePlayer();
+  const { settings: dspSettings, presets } = useDSP();
+  const { setAssistantContext } = useAssistant();
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isMini, setIsMini] = useState(false);
+
+  // Synchronize live playback context with Harmoniq Assistant (Phase 5A.1)
+  useEffect(() => {
+    const bitPerfectStatus = audioEngine.getBitPerfectStatus();
+    const activePreset = presets.find((p) => p.id === dspSettings?.activePresetId);
+
+    const ctx = buildAssistantContext({
+      track: currentTrack,
+      isPlaying,
+      currentTime,
+      duration,
+      repeatMode,
+      isShuffle,
+      queue,
+      bitPerfectStatus,
+      dspSettings,
+      activePresetName: activePreset?.name,
+    });
+
+    setAssistantContext(ctx);
+  }, [
+    currentTrack?.id,
+    currentTrack?.title,
+    currentTrack?.artist,
+    currentTrack?.album,
+    isPlaying,
+    Math.floor(currentTime / 5), // Throttle to 5-second intervals to prevent unnecessary re-renders
+    duration,
+    repeatMode,
+    isShuffle,
+    queue.length,
+    dspSettings?.enabled,
+    dspSettings?.activePresetId,
+    dspSettings?.preamp,
+    dspSettings?.bassBoost,
+    dspSettings?.treble,
+    setAssistantContext,
+  ]);
 
   useEffect(() => {
     if (window.harmoniqApi?.isMiniPlayer) {
@@ -239,23 +289,10 @@ const MainLayout: React.FC = () => {
           isQueueOpen={isQueueOpen}
         />
 
-        {/* Harmoniq Assistant (Phase 7): Pulse Orb & Floating Assistant Panel */}
-        {assistantConfig.enabled && !isAssistantOpen && (
-          <div className="fixed bottom-24 right-6 z-40">
-            <HarmoniqPulseOrb
-              state={assistantOrbState}
-              onClick={openAssistant}
-              reducedMotion={assistantConfig.reducedMotion}
-            />
-          </div>
-        )}
-        {assistantConfig.enabled && (
-          <HarmoniqAssistantPanel
-            isOpen={isAssistantOpen}
-            onClose={closeAssistant}
-            onOpenSettings={() => setActiveView('settings')}
-          />
-        )}
+        {/* Harmoniq Assistant (Phase 5A.4): Persistent Container with Smoothly Docking Pulse Orb */}
+        <HarmoniqAssistantContainer
+          onOpenSettings={() => setActiveView('settings')}
+        />
       </div>
     </NavigationProvider>
   );

@@ -6,13 +6,15 @@ interface HarmoniqPulseOrbProps {
   onClick: () => void;
   reducedMotion?: boolean;
   className?: string;
+  docked?: boolean;
 }
 
 export const HarmoniqPulseOrb: React.FC<HarmoniqPulseOrbProps> = ({
   state,
   onClick,
   reducedMotion = false,
-  className = ''
+  className = '',
+  docked = false
 }) => {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -23,6 +25,9 @@ export const HarmoniqPulseOrb: React.FC<HarmoniqPulseOrbProps> = ({
   const isProcessing = activeState === 'processing';
   const isResponding = activeState === 'responding';
   const isError = activeState === 'error';
+
+  const defaultDimension = docked ? 'w-8 h-8' : 'w-14 h-14';
+  const label = docked ? 'Minimize Harmoniq Assistant' : 'Ask Harmoniq (AI Assistant)';
 
   return (
     <div
@@ -40,10 +45,11 @@ export const HarmoniqPulseOrb: React.FC<HarmoniqPulseOrbProps> = ({
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      title="Ask Harmoniq (AI Assistant)"
-      aria-label="Ask Harmoniq Assistant"
-      className={`group relative flex items-center justify-center w-14 h-14 cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0813] transition-transform duration-300 ${
-        isHovered ? 'scale-110' : 'scale-100'
+      title={label}
+      aria-label={label}
+      aria-expanded={docked}
+      className={`group relative flex items-center justify-center ${defaultDimension} cursor-pointer select-none outline-none focus-visible:ring-2 focus-visible:ring-violet-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0b0813] transition-all duration-300 ${
+        isHovered ? (docked ? 'scale-105' : 'scale-110') : 'scale-100'
       } ${className}`}
     >
       {/* Ambient Volumetric Backdrop Glow */}

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { AssistantConfig, AssistantMessage, PulseOrbState } from '../types/assistant';
+import { AssistantConfig, AssistantMessage, HarmoniqAssistantContext, PulseOrbState } from '../types/assistant';
 import { assistantService } from '../services/assistantService';
 import { speechService } from '../services/speechService';
 import { AppView } from '../context/LibraryContext';
@@ -9,6 +9,7 @@ export function useAssistant() {
   const [messages, setMessages] = useState<AssistantMessage[]>(assistantService.getMessages());
   const [orbState, setOrbState] = useState<PulseOrbState>(assistantService.getOrbState());
   const [isOpen, setIsOpen] = useState<boolean>(assistantService.getIsOpen());
+  const [assistantContext, setAssistantContextState] = useState<HarmoniqAssistantContext | null>(assistantService.getAssistantContext());
   const [isListening, setIsListening] = useState(false);
   const [interimTranscript, setInterimTranscript] = useState('');
 
@@ -18,12 +19,14 @@ export function useAssistant() {
     setMessages(assistantService.getMessages());
     setOrbState(assistantService.getOrbState());
     setIsOpen(assistantService.getIsOpen());
+    setAssistantContextState(assistantService.getAssistantContext());
 
     const unsubscribe = assistantService.subscribe(() => {
       setConfig(assistantService.getConfig());
       setMessages(assistantService.getMessages());
       setOrbState(assistantService.getOrbState());
       setIsOpen(assistantService.getIsOpen());
+      setAssistantContextState(assistantService.getAssistantContext());
     });
     return unsubscribe;
   }, []);
@@ -130,6 +133,7 @@ export function useAssistant() {
     messages,
     orbState,
     isOpen,
+    assistantContext,
     isListening,
     interimTranscript,
     openAssistant,
@@ -144,6 +148,7 @@ export function useAssistant() {
     startListening,
     stopListening,
     cancelListening,
-    setOrbState: (state: PulseOrbState) => assistantService.setOrbState(state)
+    setOrbState: (state: PulseOrbState) => assistantService.setOrbState(state),
+    setAssistantContext: (ctx: HarmoniqAssistantContext | null) => assistantService.setAssistantContext(ctx),
   };
 }

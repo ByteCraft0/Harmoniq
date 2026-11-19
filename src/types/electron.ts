@@ -161,6 +161,7 @@ export interface HarmoniqApi {
   sendAssistantChat?: (payload: {
     messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
     context?: string;
+    assistantContext?: any;
   }) => Promise<{ content: string; actions?: string[]; error?: string }>;
 
   // Events
