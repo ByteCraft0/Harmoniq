@@ -215,7 +215,7 @@ describe('Harmoniq Universal Music Engine — Phase 3 Commercial Music Discovery
       expect(track.artist).toBe('Diljit Dosanjh');
       expect(track.duration).toBe(195);
       expect(track.artworkUrl).toBe('https://i.ytimg.com/vi/yt_vid_001/hqdefault.jpg');
-      expect(track.playbackCapability).toBe('authorized_embed');
+      expect(track.playbackCapability).toBe('external_link');
       expect(track.providerWebUrl).toBe('https://www.youtube.com/watch?v=yt_vid_001');
     });
 
@@ -223,7 +223,7 @@ describe('Harmoniq Universal Music Engine — Phase 3 Commercial Music Discovery
       const provider = new YouTubeProvider('test-key');
       const audit = provider.getCapabilityAudit();
       expect(audit.providerId).toBe('youtube');
-      expect(audit.playbackCapability).toBe('authorized_embed');
+      expect(audit.playbackCapability).toBe('external_link');
       expect(audit.commercialRestrictions).toContain('Section II.10');
       expect(audit.commercialRestrictions).toContain('Audio extraction, stream ripping');
     });

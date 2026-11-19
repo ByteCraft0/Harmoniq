@@ -10,6 +10,7 @@ import {
   Menu,
   nativeImage,
   globalShortcut,
+  safeStorage,
 } from 'electron';
 import { Readable } from 'stream';
 import * as path from 'path';
@@ -106,6 +107,37 @@ function saveStoredDataSync<T>(key: string, data: T): void {
   } catch (e) {
     console.warn(`Failed to write stored key ${key}:`, e);
   }
+}
+
+/**
+ * OS-backed secure credential encryption using Electron safeStorage (Windows DPAPI)
+ */
+function encryptSecret(plaintext: string): string {
+  if (!plaintext) return '';
+  try {
+    if (safeStorage && safeStorage.isEncryptionAvailable()) {
+      return 'dpapi:' + safeStorage.encryptString(plaintext).toString('base64');
+    }
+  } catch (err) {
+    console.warn('safeStorage encryption failed, using fallback:', err);
+  }
+  return 'b64:' + Buffer.from(plaintext, 'utf8').toString('base64');
+}
+
+function decryptSecret(stored: string): string {
+  if (!stored) return '';
+  try {
+    if (stored.startsWith('dpapi:') && safeStorage && safeStorage.isEncryptionAvailable()) {
+      const buf = Buffer.from(stored.slice(6), 'base64');
+      return safeStorage.decryptString(buf);
+    }
+    if (stored.startsWith('b64:')) {
+      return Buffer.from(stored.slice(4), 'base64').toString('utf8');
+    }
+  } catch (err) {
+    console.warn('safeStorage decryption failed:', err);
+  }
+  return stored;
 }
 
 // Embedded 32x32 Harmoniq purple glowing vinyl icon (Base64 PNG)
@@ -1889,6 +1921,160 @@ function setupIpc() {
     return combined;
   });
 
+  // Spotify Access Token Cache & In-Flight Request Deduplication
+  let spotTokenCache: { token: string; expiresAt: number } = { token: '', expiresAt: 0 };
+  let spotTokenPromise: Promise<string> | null = null;
+
+  async function getSpotifyAccessToken(clientId: string, clientSecret: string): Promise<string> {
+    if (spotTokenCache.token && Date.now() < spotTokenCache.expiresAt - 60000) {
+      return spotTokenCache.token;
+    }
+    if (spotTokenPromise) {
+      return spotTokenPromise;
+    }
+
+    spotTokenPromise = (async () => {
+      try {
+        const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+        const tokenController = new AbortController();
+        const tokenTimeout = setTimeout(() => tokenController.abort(), 9000);
+        const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${basicAuth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'grant_type=client_credentials',
+          signal: tokenController.signal,
+        });
+        clearTimeout(tokenTimeout);
+
+        if (!tokenRes.ok) {
+          const errJson = await tokenRes.json().catch(() => ({}));
+          throw new Error(
+            `Spotify Auth HTTP ${tokenRes.status}: ${
+              errJson.error_description || errJson.error || 'Invalid credentials'
+            }`
+          );
+        }
+        const tokenData = await tokenRes.json();
+        spotTokenCache = {
+          token: tokenData.access_token,
+          expiresAt: Date.now() + (tokenData.expires_in || 3600) * 1000,
+        };
+        return spotTokenCache.token;
+      } finally {
+        spotTokenPromise = null;
+      }
+    })();
+
+    return spotTokenPromise;
+  }
+
+  /**
+   * Cross-provider deduplication prioritizing:
+   * full_stream (10) > preview_stream (8) > authorized_embed (6) > external_link (4) > metadata_only (2)
+   * Matches by definitive ISRC first, secondary by normalized title+artist.
+   * Merges and preserves rich metadata (artwork, album, popularity, isrc) from secondary results.
+   */
+  function deduplicateUnifiedTracks<T extends {
+    title?: string;
+    artist?: string;
+    isrc?: string;
+    playbackCapability?: any;
+    artworkUrl?: string;
+    album?: string;
+    releaseYear?: number;
+    genre?: string;
+    popularity?: number;
+    providerWebUrl?: string;
+  }>(tracks: T[]): T[] {
+    const getCapRank = (cap: string) => {
+      switch (cap) {
+        case 'full_stream':
+        case 'local_file':
+          return 10;
+        case 'preview_stream':
+          return 8;
+        case 'authorized_embed':
+        case 'external_embed':
+          return 6;
+        case 'external_link':
+          return 4;
+        case 'metadata_only':
+          return 2;
+        default:
+          return 0;
+      }
+    };
+
+    const cleanToken = (str?: string) =>
+      (str || '')
+        .toLowerCase()
+        .replace(/[^\w\s]/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const isrcMap = new Map<string, T>();
+    const titleArtistMap = new Map<string, T>();
+    const dedupedList: T[] = [];
+
+    for (const track of tracks) {
+      const isrcKey =
+        track.isrc && typeof track.isrc === 'string' && track.isrc.trim().length >= 10
+          ? track.isrc.trim().toUpperCase()
+          : null;
+      const cleanTitle = cleanToken(track.title);
+      const cleanArtist = cleanToken(track.artist);
+      const titleArtistKey = cleanTitle && cleanArtist ? `${cleanTitle}:::${cleanArtist}` : null;
+
+      let existing: T | undefined = undefined;
+
+      if (isrcKey && isrcMap.has(isrcKey)) {
+        existing = isrcMap.get(isrcKey);
+      } else if (titleArtistKey && titleArtistMap.has(titleArtistKey)) {
+        existing = titleArtistMap.get(titleArtistKey);
+      }
+
+      if (!existing) {
+        if (isrcKey) isrcMap.set(isrcKey, track);
+        if (titleArtistKey) titleArtistMap.set(titleArtistKey, track);
+        dedupedList.push(track);
+      } else {
+        const existingRank = getCapRank(existing.playbackCapability || '');
+        const currentRank = getCapRank(track.playbackCapability || '');
+
+        const winner = currentRank > existingRank ? track : existing;
+        const secondary = currentRank > existingRank ? existing : track;
+
+        const merged: T = {
+          ...winner,
+          artworkUrl: winner.artworkUrl || secondary.artworkUrl,
+          album: winner.album || secondary.album,
+          releaseYear: winner.releaseYear || secondary.releaseYear,
+          genre: winner.genre || secondary.genre,
+          popularity: winner.popularity !== undefined ? winner.popularity : secondary.popularity,
+          isrc: winner.isrc || secondary.isrc,
+          providerWebUrl: winner.providerWebUrl || secondary.providerWebUrl,
+        };
+
+        const index = dedupedList.indexOf(existing);
+        if (index !== -1) {
+          dedupedList[index] = merged;
+        }
+        if (isrcKey) isrcMap.set(isrcKey, merged);
+        if (existing.isrc && existing.isrc.trim().length >= 10) {
+          isrcMap.set(existing.isrc.trim().toUpperCase(), merged);
+        }
+        if (titleArtistKey) titleArtistMap.set(titleArtistKey, merged);
+        const existingTitleArtist = `${cleanToken(existing.title)}:::${cleanToken(existing.artist)}`;
+        if (existingTitleArtist) titleArtistMap.set(existingTitleArtist, merged);
+      }
+    }
+
+    return dedupedList;
+  }
+
   // Universal Music Engine: Multi-Provider Aggregation (Phase 1)
   ipcMain.handle('universal:search', async (_e, request: any) => {
     const rawQuery = request?.query;
@@ -2152,15 +2338,17 @@ function setupIpc() {
     const spotifyTask = (async () => {
       const t0 = Date.now();
       try {
-        const spotConfig = loadStoredDataSync<{ clientId?: string; clientSecret?: string }>('spotify_config', {});
+        const spotConfig = loadStoredDataSync<any>('spotify_config', {});
         const clientId =
-          typeof request?.spotifyClientId === 'string' && request.spotifyClientId.trim()
-            ? request.spotifyClientId.trim()
-            : spotConfig.clientId || '';
-        const clientSecret =
-          typeof request?.spotifyClientSecret === 'string' && request.spotifyClientSecret.trim()
-            ? request.spotifyClientSecret.trim()
-            : spotConfig.clientSecret || '';
+          (typeof request?.spotifyClientId === 'string' && request.spotifyClientId.trim()) ||
+          spotConfig.clientId ||
+          '';
+        const rawSecret =
+          (typeof request?.spotifyClientSecret === 'string' && request.spotifyClientSecret.trim()) ||
+          spotConfig.clientSecretEnc ||
+          spotConfig.clientSecret ||
+          '';
+        const clientSecret = decryptSecret(rawSecret);
 
         if (!clientId || !clientSecret) {
           return {
@@ -2173,23 +2361,7 @@ function setupIpc() {
           };
         }
 
-        const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-        const tokenController = new AbortController();
-        const tokenTimeout = setTimeout(() => tokenController.abort(), 9000);
-        const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
-          method: 'POST',
-          headers: {
-            Authorization: `Basic ${basicAuth}`,
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: 'grant_type=client_credentials',
-          signal: tokenController.signal,
-        });
-        clearTimeout(tokenTimeout);
-
-        if (!tokenRes.ok) throw new Error(`Spotify Auth HTTP ${tokenRes.status}`);
-        const tokenData = await tokenRes.json();
-        const accessToken = tokenData.access_token;
+        const accessToken = await getSpotifyAccessToken(clientId, clientSecret);
 
         const searchController = new AbortController();
         const searchTimeout = setTimeout(() => searchController.abort(), 9000);
@@ -2355,7 +2527,7 @@ function setupIpc() {
             duration: dur,
             artworkUrl: art,
             releaseYear: isNaN(yr!) ? undefined : yr,
-            playbackCapability: 'authorized_embed',
+            playbackCapability: 'external_link',
             providerWebUrl: `https://www.youtube.com/watch?v=${videoId}`,
             license: 'Official YouTube Video',
             attributionText: `${artist} on YouTube`,
@@ -2391,44 +2563,7 @@ function setupIpc() {
       }
     }
 
-    // Rank-based deduplication: full_stream (10) > preview_stream (8) > authorized_embed (6) > external_link (4) > metadata_only (2)
-    const getCapRank = (cap: string) => {
-      switch (cap) {
-        case 'full_stream':
-        case 'local_file':
-          return 10;
-        case 'preview_stream':
-          return 8;
-        case 'authorized_embed':
-        case 'external_embed':
-          return 6;
-        case 'external_link':
-          return 4;
-        case 'metadata_only':
-          return 2;
-        default:
-          return 0;
-      }
-    };
-
-    const seen = new Map<string, any>();
-    for (const track of allTracks) {
-      const key = `${(track.title || '')
-        .toLowerCase()
-        .replace(/[^\w\s]/gi, '')
-        .trim()}:::${(track.artist || '')
-        .toLowerCase()
-        .replace(/[^\w\s]/gi, '')
-        .trim()}`;
-      const existing = seen.get(key);
-      if (!existing) {
-        seen.set(key, track);
-      } else if (getCapRank(track.playbackCapability) > getCapRank(existing.playbackCapability)) {
-        seen.set(key, track);
-      }
-    }
-
-    const deduplicated = Array.from(seen.values());
+    const deduplicated = deduplicateUnifiedTracks(allTracks);
 
     return {
       query: cleanQ,
@@ -2696,7 +2831,7 @@ function setupIpc() {
         return {
           success: true,
           streamUrl: '',
-          capability: 'authorized_embed',
+          capability: 'external_link',
         };
       }
 
@@ -2725,12 +2860,14 @@ function setupIpc() {
   });
 
   ipcMain.handle('universal:getProviderConfigs', async () => {
+    const spot = loadStoredDataSync<any>('spotify_config', {});
+    const hasSecret = Boolean(spot.clientSecretEnc || spot.clientSecret);
     return {
       jamendoClientId: loadStoredDataSync<string>('jamendo_client_id', ''),
-      spotify: loadStoredDataSync<{ clientId: string; clientSecret: string }>('spotify_config', {
-        clientId: '',
-        clientSecret: '',
-      }),
+      spotify: {
+        clientId: spot.clientId || '',
+        hasSecret,
+      },
       youtube: loadStoredDataSync<{ apiKey: string }>('youtube_config', { apiKey: '' }),
     };
   });
@@ -2741,16 +2878,24 @@ function setupIpc() {
     }
     if (configs?.spotifyClientId !== undefined || configs?.spotifyClientSecret !== undefined) {
       const cur = loadStoredDataSync<any>('spotify_config', {});
+      const newClientId =
+        configs.spotifyClientId !== undefined
+          ? String(configs.spotifyClientId).trim()
+          : cur.clientId || '';
+
+      let newSecretEnc = cur.clientSecretEnc || (cur.clientSecret ? encryptSecret(cur.clientSecret) : '');
+      if (configs.spotifyClientSecret !== undefined) {
+        const cleanSecret = String(configs.spotifyClientSecret).trim();
+        newSecretEnc = cleanSecret ? encryptSecret(cleanSecret) : '';
+      }
+
       saveStoredDataSync('spotify_config', {
-        clientId:
-          configs.spotifyClientId !== undefined
-            ? String(configs.spotifyClientId).trim()
-            : cur.clientId || '',
-        clientSecret:
-          configs.spotifyClientSecret !== undefined
-            ? String(configs.spotifyClientSecret).trim()
-            : cur.clientSecret || '',
+        clientId: newClientId,
+        clientSecretEnc: newSecretEnc,
       });
+
+      // Invalidate cached token on credential update
+      spotTokenCache = { token: '', expiresAt: 0 };
     }
     if (configs?.youtubeApiKey !== undefined) {
       saveStoredDataSync('youtube_config', {
@@ -3012,24 +3157,98 @@ ${payload.context ? `\nApplication Feature Context:\n${payload.context}` : ''}`;
 }
 
 function isSafePublicUrl(urlString: string): boolean {
+  if (!urlString || typeof urlString !== 'string') return false;
   try {
-    const parsed = new URL(urlString);
+    const parsed = new URL(urlString.trim());
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-    const hostname = parsed.hostname.toLowerCase();
+
+    let host = parsed.hostname.toLowerCase().trim();
+    if (!host) return false;
+
+    // Handle bracketed IPv6 literals (e.g. [::1], [fe80::1])
+    if (host.startsWith('[') && host.endsWith(']')) {
+      host = host.slice(1, -1).trim();
+    }
+
+    // 1. Hostname domain blacklist
     if (
-      !hostname ||
-      hostname === 'localhost' ||
-      hostname.endsWith('.localhost') ||
-      hostname === '127.0.0.1' ||
-      hostname === '0.0.0.0' ||
-      hostname === '::1' ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
-      hostname.startsWith('169.254.')
+      host === 'localhost' ||
+      host.endsWith('.localhost') ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal') ||
+      host.endsWith('.lan') ||
+      host.endsWith('.home') ||
+      host.endsWith('.corp') ||
+      host.endsWith('.invalid')
     ) {
       return false;
     }
+
+    // 2. Disallow raw integer or hex host representations
+    if (/^\d+$/.test(host) || /^0x[0-9a-f]+$/i.test(host)) {
+      return false;
+    }
+
+    // 3. IPv4 address range verification
+    const ipv4Match = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const o0 = parseInt(ipv4Match[1], 10);
+      const o1 = parseInt(ipv4Match[2], 10);
+      const o2 = parseInt(ipv4Match[3], 10);
+      const o3 = parseInt(ipv4Match[4], 10);
+
+      if (o0 > 255 || o1 > 255 || o2 > 255 || o3 > 255) return false;
+
+      // 0.0.0.0/8 (current network)
+      if (o0 === 0) return false;
+      // 10.0.0.0/8 (private)
+      if (o0 === 10) return false;
+      // 127.0.0.0/8 (loopback)
+      if (o0 === 127) return false;
+      // 169.254.0.0/16 (link-local, cloud instance metadata)
+      if (o0 === 169 && o1 === 254) return false;
+      // 172.16.0.0/12 (private: 172.16.0.0 - 172.31.255.255)
+      if (o0 === 172 && o1 >= 16 && o1 <= 31) return false;
+      // 192.168.0.0/16 (private)
+      if (o0 === 192 && o1 === 168) return false;
+      // 100.64.0.0/10 (carrier-grade NAT: 100.64.0.0 - 100.127.255.255)
+      if (o0 === 100 && o1 >= 64 && o1 <= 127) return false;
+      // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (TEST-NET documentation)
+      if (o0 === 192 && o1 === 0 && o2 === 2) return false;
+      if (o0 === 198 && o1 === 51 && o2 === 100) return false;
+      if (o0 === 203 && o1 === 0 && o2 === 113) return false;
+      // 224.0.0.0/4 (multicast) & 240.0.0.0/4 (reserved)
+      if (o0 >= 224) return false;
+
+      return true;
+    }
+
+    // 4. IPv6 checks
+    // Check for IPv4-mapped IPv6 (::ffff:127.0.0.1 or ::ffff:7f00:1)
+    if (host.includes('ffff:')) {
+      const parts = host.split('ffff:');
+      const last = parts[parts.length - 1];
+      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(last)) {
+        return isSafePublicUrl(`http://${last}`);
+      }
+      return false;
+    }
+
+    // Loopback IPv6
+    if (host === '::1' || host === '::' || /^0*::0*1?$/.test(host)) return false;
+
+    // IPv6 link-local: fe80::/10 (fe8, fe9, fea, feb)
+    if (/^fe[89ab]/i.test(host)) return false;
+
+    // IPv6 Unique Local Address: fc00::/7 (fc, fd)
+    if (/^f[cd]/i.test(host)) return false;
+
+    // IPv6 documentation prefix: 2001:db8::/32
+    if (/^2001:db8/i.test(host)) return false;
+
+    // IPv6 multicast: ff00::/8
+    if (/^ff[0-9a-f]{2}:/i.test(host)) return false;
+
     return true;
   } catch {
     return false;

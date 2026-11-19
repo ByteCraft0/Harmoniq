@@ -93,6 +93,8 @@ export class UniversalMusicService {
 
   /**
    * Configure custom user Spotify Client ID & Secret
+   * Note: Client Secret is securely sent to Electron main process for OS-backed DPAPI encryption
+   * and is NEVER persisted in renderer localStorage.
    */
   public setSpotifyCredentials(clientId: string, clientSecret: string): void {
     this.spotifyClientId = (clientId || '').trim();
@@ -104,15 +106,8 @@ export class UniversalMusicService {
         } else {
           window.localStorage.removeItem('harmoniq_spotify_client_id');
         }
-
-        if (this.spotifyClientSecret) {
-          window.localStorage.setItem(
-            'harmoniq_spotify_client_secret',
-            this.spotifyClientSecret
-          );
-        } else {
-          window.localStorage.removeItem('harmoniq_spotify_client_secret');
-        }
+        // Strictly purge any legacy plaintext secret from browser storage
+        window.localStorage.removeItem('harmoniq_spotify_client_secret');
       }
       const api =
         typeof window !== 'undefined'
@@ -347,9 +342,9 @@ export class UniversalMusicService {
 
     if (track.providerId === 'youtube') {
       return {
-        track: { ...track, playbackCapability: 'authorized_embed' },
+        track: { ...track, playbackCapability: 'external_link' },
         streamUrl: '',
-        capability: 'authorized_embed',
+        capability: 'external_link',
       };
     }
 
@@ -449,28 +444,68 @@ export class UniversalMusicService {
   /**
    * Deduplicate track collection across heterogeneous providers.
    * Respects full_stream > preview_stream > authorized_embed > external_link hierarchy.
+   * Matches by definitive ISRC first, secondary by normalized title+artist.
+   * Merges and preserves rich metadata (high-res artwork, album, release year, popularity, isrc) from secondary results.
    */
   public deduplicateTracks(tracks: UnifiedTrack[]): UnifiedTrack[] {
-    const seen = new Map<string, UnifiedTrack>();
+    const isrcMap = new Map<string, UnifiedTrack>();
+    const titleArtistMap = new Map<string, UnifiedTrack>();
+    const dedupedList: UnifiedTrack[] = [];
 
     for (const track of tracks) {
+      const isrcKey =
+        track.isrc && typeof track.isrc === 'string' && track.isrc.trim().length >= 10
+          ? track.isrc.trim().toUpperCase()
+          : null;
       const cleanTitle = this.cleanToken(track.title);
       const cleanArtist = this.cleanToken(track.artist);
-      const key = `${cleanTitle}:::${cleanArtist}`;
+      const titleArtistKey = cleanTitle && cleanArtist ? `${cleanTitle}:::${cleanArtist}` : null;
 
-      const existing = seen.get(key);
+      let existing: UnifiedTrack | undefined = undefined;
+
+      if (isrcKey && isrcMap.has(isrcKey)) {
+        existing = isrcMap.get(isrcKey);
+      } else if (titleArtistKey && titleArtistMap.has(titleArtistKey)) {
+        existing = titleArtistMap.get(titleArtistKey);
+      }
+
       if (!existing) {
-        seen.set(key, track);
+        if (isrcKey) isrcMap.set(isrcKey, track);
+        if (titleArtistKey) titleArtistMap.set(titleArtistKey, track);
+        dedupedList.push(track);
       } else {
         const existingRank = this.getCapabilityRank(existing.playbackCapability);
         const currentRank = this.getCapabilityRank(track.playbackCapability);
-        if (currentRank > existingRank) {
-          seen.set(key, track);
+
+        const winner = currentRank > existingRank ? track : existing;
+        const secondary = currentRank > existingRank ? existing : track;
+
+        const merged: UnifiedTrack = {
+          ...winner,
+          artworkUrl: winner.artworkUrl || secondary.artworkUrl,
+          album: winner.album || secondary.album,
+          releaseYear: winner.releaseYear || secondary.releaseYear,
+          genre: winner.genre || secondary.genre,
+          popularity: winner.popularity !== undefined ? winner.popularity : secondary.popularity,
+          isrc: winner.isrc || secondary.isrc,
+          providerWebUrl: winner.providerWebUrl || secondary.providerWebUrl,
+        };
+
+        const index = dedupedList.indexOf(existing);
+        if (index !== -1) {
+          dedupedList[index] = merged;
         }
+        if (isrcKey) isrcMap.set(isrcKey, merged);
+        if (existing.isrc && existing.isrc.trim().length >= 10) {
+          isrcMap.set(existing.isrc.trim().toUpperCase(), merged);
+        }
+        if (titleArtistKey) titleArtistMap.set(titleArtistKey, merged);
+        const existingTitleArtist = `${this.cleanToken(existing.title)}:::${this.cleanToken(existing.artist)}`;
+        if (existingTitleArtist) titleArtistMap.set(existingTitleArtist, merged);
       }
     }
 
-    return Array.from(seen.values());
+    return dedupedList;
   }
 
   /**
@@ -532,7 +567,6 @@ export class UniversalMusicService {
           limit: options?.limit || 25,
           jamendoClientId: this.getJamendoClientId(),
           spotifyClientId: this.spotifyClientId,
-          spotifyClientSecret: this.spotifyClientSecret,
           youtubeApiKey: this.youtubeApiKey,
         });
 

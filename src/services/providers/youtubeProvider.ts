@@ -24,7 +24,7 @@ export function parseIsoDuration(isoDuration?: string): number {
 export class YouTubeProvider extends BaseMusicProvider {
   readonly id: ProviderId = 'youtube';
   readonly name: string = 'YouTube';
-  readonly defaultCapability: PlaybackCapability = 'authorized_embed';
+  readonly defaultCapability: PlaybackCapability = 'external_link';
 
   private apiKey: string = '';
 
@@ -55,9 +55,9 @@ export class YouTubeProvider extends BaseMusicProvider {
       geographicAvailability: 'Global',
       rateLimits: '10,000 units/day default project quota (100 units per search query)',
       commercialRestrictions:
-        'Audio extraction, stream ripping, or playing audio without video is strictly prohibited by YouTube Terms of Service Section II.10. Authorized IFrame or official video destination playback only.',
+        'Audio extraction, stream ripping, or playing audio without video is strictly prohibited by YouTube Terms of Service Section II.10. Playback is available via official YouTube destination watch links.',
       desktopCompatibility:
-        'Authorized embedded video player modal or official YouTube web link. Zero audio stream extraction.',
+        'Official YouTube destination watch link. Audio stream extraction is strictly prohibited and not supported.',
     };
   }
 
@@ -111,7 +111,7 @@ export class YouTubeProvider extends BaseMusicProvider {
       duration,
       artworkUrl,
       releaseYear: isNaN(year!) ? undefined : year,
-      playbackCapability: 'authorized_embed',
+      playbackCapability: 'external_link',
       providerWebUrl: `https://www.youtube.com/watch?v=${rawId}`,
       license: 'Official YouTube Video',
       attributionText: `${artist} on YouTube`,

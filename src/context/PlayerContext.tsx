@@ -787,6 +787,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Queue actions
   const addToQueue = (track: TrackMetadata) => {
+    if (track.playbackCapability === 'external_link' || track.playbackCapability === 'metadata_only') {
+      showToast('External link items cannot be added to audio playback queue', 'info');
+      return;
+    }
     setQueue((prev) => {
       const curTrack = currentTrackRef.current;
       if (prev.length === 0 && curTrack) {
@@ -797,6 +801,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const playNext = (track: TrackMetadata) => {
+    if (track.playbackCapability === 'external_link' || track.playbackCapability === 'metadata_only') {
+      showToast('External link items cannot be added to audio playback queue', 'info');
+      return;
+    }
     setQueue((prev) => {
       const copy = [...prev];
       const curTrack = currentTrackRef.current;

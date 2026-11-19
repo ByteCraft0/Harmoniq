@@ -144,6 +144,28 @@ export const SettingsView: React.FC = () => {
     return universalMusicService.getYouTubeApiKey() || '';
   });
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && window.harmoniqApi?.getProviderConfigs) {
+      window.harmoniqApi
+        .getProviderConfigs()
+        .then((cfg) => {
+          if (cfg) {
+            if (cfg.spotify) {
+              if (cfg.spotify.clientId) setSpotifyClientId(cfg.spotify.clientId);
+              setHasSpotifySecret(Boolean(cfg.spotify.hasSecret));
+            }
+            if (cfg.youtube?.apiKey) {
+              setYoutubeApiKey(cfg.youtube.apiKey);
+            }
+            if (cfg.jamendoClientId) {
+              setJamendoKey(cfg.jamendoClientId === 'b6747d04' ? '' : cfg.jamendoClientId);
+            }
+          }
+        })
+        .catch(() => {});
+    }
+  }, []);
+
   const handleSaveJamendoKey = () => {
     universalMusicService.setJamendoClientId(jamendoKey.trim());
     showToast(

@@ -17,6 +17,7 @@ export class SpotifyProvider extends BaseMusicProvider {
   private clientSecret: string = '';
   private accessToken: string | null = null;
   private tokenExpiresAt: number = 0;
+  private tokenPromise: Promise<string> | null = null;
 
   constructor(clientId = '', clientSecret = '') {
     super();
@@ -29,6 +30,7 @@ export class SpotifyProvider extends BaseMusicProvider {
     this.clientSecret = (clientSecret || '').trim();
     this.accessToken = null;
     this.tokenExpiresAt = 0;
+    this.tokenPromise = null;
   }
 
   public getCredentials(): { clientId: string; hasSecret: boolean } {
@@ -63,38 +65,52 @@ export class SpotifyProvider extends BaseMusicProvider {
       return this.accessToken;
     }
 
+    if (this.tokenPromise) {
+      return this.tokenPromise;
+    }
+
     if (!this.clientId || !this.clientSecret) {
       throw new Error(
         'Spotify Client ID and Client Secret not configured. Add your developer credentials in Settings to search Spotify.'
       );
     }
 
-    const basicAuth =
-      typeof btoa !== 'undefined'
-        ? btoa(`${this.clientId}:${this.clientSecret}`)
-        : Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
+    this.tokenPromise = (async () => {
+      try {
+        const basicAuth =
+          typeof btoa !== 'undefined'
+            ? btoa(`${this.clientId}:${this.clientSecret}`)
+            : Buffer.from(`${this.clientId}:${this.clientSecret}`).toString('base64');
 
-    const res = await fetch('https://accounts.spotify.com/api/token', {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${basicAuth}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: 'grant_type=client_credentials',
-      signal,
-    });
+        const res = await fetch('https://accounts.spotify.com/api/token', {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${basicAuth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'grant_type=client_credentials',
+          signal,
+        });
 
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(
-        `Spotify Authentication failed (HTTP ${res.status}): ${errBody.error_description || errBody.error || 'Invalid credentials'}`
-      );
-    }
+        if (!res.ok) {
+          const errBody = await res.json().catch(() => ({}));
+          throw new Error(
+            `Spotify Authentication failed (HTTP ${res.status}): ${
+              errBody.error_description || errBody.error || 'Invalid credentials'
+            }`
+          );
+        }
 
-    const data = await res.json();
-    this.accessToken = data.access_token;
-    this.tokenExpiresAt = Date.now() + (data.expires_in || 3600) * 1000;
-    return this.accessToken!;
+        const data = await res.json();
+        this.accessToken = data.access_token;
+        this.tokenExpiresAt = Date.now() + (data.expires_in || 3600) * 1000;
+        return this.accessToken!;
+      } finally {
+        this.tokenPromise = null;
+      }
+    })();
+
+    return this.tokenPromise;
   }
 
   normalize(raw: any): UnifiedTrack | null {

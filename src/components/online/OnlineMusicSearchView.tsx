@@ -656,6 +656,10 @@ export const OnlineMusicSearchView: React.FC = () => {
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-950/50 text-violet-300 border border-violet-800/40">
                             30s Preview
                           </span>
+                        ) : item.providerId === 'youtube' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-red-950/50 text-red-300 border border-red-800/40">
+                            Official Video
+                          </span>
                         ) : item.playbackCapability === 'authorized_embed' ? (
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-red-950/50 text-red-300 border border-red-800/40">
                             Authorized Video
@@ -764,14 +768,26 @@ export const OnlineMusicSearchView: React.FC = () => {
                           </a>
                         )}
                       </>
-                    ) : isEmbed ? (
-                      /* Authorized Video Platform action (YouTube) */
+                    ) : item.providerId === 'youtube' ? (
+                      /* Official YouTube Video platform action */
                       <a
                         href={item.providerWebUrl || item.streamUrl}
                         target="_blank"
                         rel="noreferrer"
                         className="px-3 py-1.5 bg-[#3b1212]/80 hover:bg-[#4a1717] text-[#ff4e4e] border border-[#ff4e4e]/30 rounded-xl text-xs font-medium transition flex items-center gap-1.5 shadow-sm"
                         title="Watch video on official YouTube platform"
+                      >
+                        <ExternalLink size={13} />
+                        <span>Watch on YouTube</span>
+                      </a>
+                    ) : isEmbed ? (
+                      /* Authorized Video Platform action */
+                      <a
+                        href={item.providerWebUrl || item.streamUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-3 py-1.5 bg-[#3b1212]/80 hover:bg-[#4a1717] text-[#ff4e4e] border border-[#ff4e4e]/30 rounded-xl text-xs font-medium transition flex items-center gap-1.5 shadow-sm"
+                        title="Watch video on official platform"
                       >
                         <ExternalLink size={13} />
                         <span>Watch Video</span>
