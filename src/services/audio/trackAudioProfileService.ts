@@ -27,8 +27,11 @@ export class TrackAudioProfileService {
     if (!track) return 'track:unknown';
 
     // 1. Valid ISRC (International Standard Recording Code: 12 alphanumeric characters)
-    if (track.isrc && typeof track.isrc === 'string' && /^[A-Z]{2}[A-Z0-9]{3}\d{7}$/i.test(track.isrc.trim())) {
-      return `isrc:${track.isrc.trim().toUpperCase()}`;
+    if (track.isrc && typeof track.isrc === 'string') {
+      const cleanIsrc = track.isrc.replace(/[\s-]/g, '').toUpperCase();
+      if (/^[A-Z]{2}[A-Z0-9]{3}\d{7}$/.test(cleanIsrc)) {
+        return `isrc:${cleanIsrc}`;
+      }
     }
 
     // 2. Stable local library or online track ID

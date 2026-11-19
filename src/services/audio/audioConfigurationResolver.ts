@@ -1,4 +1,4 @@
-import { DSPSettings, ParametricFilterConfig, DEFAULT_SETTINGS } from '../../types/dsp';
+import { DSPSettings, ParametricFilterConfig } from '../../types/dsp';
 import { SoundProfile } from '../../types/soundProfile';
 import { TrackAudioProfile } from '../../types/trackAudioProfile';
 import { DeviceAudioProfile } from '../../types/deviceAudioProfile';

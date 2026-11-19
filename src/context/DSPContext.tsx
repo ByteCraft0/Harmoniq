@@ -8,7 +8,17 @@ import {
   LimiterMetrics,
   ChannelMode,
 } from '../types/dsp';
+import { SoundProfile } from '../types/soundProfile';
+import { TrackAudioProfile } from '../types/trackAudioProfile';
+import { DeviceAudioProfile } from '../types/deviceAudioProfile';
+import { TruthfulAudioQualityReport } from '../types/audioQuality';
+import { TrackMetadata } from '../types/audio';
 import { audioEngine } from '../services/audioEngine';
+import { soundProfileService } from '../services/audio/soundProfileService';
+import { trackAudioProfileService } from '../services/audio/trackAudioProfileService';
+import { audioDeviceProfileService } from '../services/audio/audioDeviceProfileService';
+import { AudioConfigurationResolver } from '../services/audio/audioConfigurationResolver';
+import { AudioQualityService } from '../services/audio/audioQualityService';
 
 interface DSPContextType {
   settings: DSPSettings;
@@ -50,6 +60,33 @@ interface DSPContextType {
   exportPresetsAsJson: () => string;
   importPresetsFromJson: (jsonStr: string) => { success: boolean; count: number; error?: string };
   resetToDefaults: () => void;
+
+  // Sound Profiles System (Phase 5B.3)
+  soundProfiles: SoundProfile[];
+  activeSoundProfileId: string;
+  applySoundProfile: (profileId: string) => void;
+  isProfileModified: boolean;
+  saveCurrentAsProfile: (name: string, description?: string) => SoundProfile;
+  restoreActiveProfile: () => void;
+  deleteCustomProfile: (profileId: string) => boolean;
+  duplicateSoundProfile: (profileId: string, customName?: string) => SoundProfile | null;
+
+  // Per-Track EQ Memory (Phase 5B.4)
+  currentTrackProfile: TrackAudioProfile | null;
+  saveCurrentForTrack: (track: TrackMetadata) => TrackAudioProfile;
+  removeTrackProfile: (track: TrackMetadata | string) => boolean;
+  toggleTrackProfile: (track: TrackMetadata, enabled: boolean) => void;
+  allTrackProfiles: TrackAudioProfile[];
+
+  // Per-Device Audio Profiles (Phase 5B.5)
+  deviceProfiles: DeviceAudioProfile[];
+  saveDevicePreferences: (
+    deviceId: string,
+    updates: { preferredVolume?: number; preferredSoundProfileId?: string; deviceLabel?: string }
+  ) => DeviceAudioProfile;
+
+  // Audio Quality Intelligence (Phase 5B.6)
+  getQualityReport: (track: TrackMetadata | null, volume: number, replayGainActive: boolean) => TruthfulAudioQualityReport | null;
 }
 
 const DSPContext = createContext<DSPContextType | null>(null);
@@ -148,6 +185,19 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [auditionFilterId, setAuditionFilterId] = useState<string | null>(null);
   const auditionFilterIdRef = useRef<string | null>(null);
   auditionFilterIdRef.current = auditionFilterId;
+
+  // Sound Profiles & Device Profiles State
+  const [soundProfiles, setSoundProfiles] = useState<SoundProfile[]>(() => soundProfileService.getAllProfiles());
+  const [activeSoundProfileId, setActiveSoundProfileId] = useState<string>(() => {
+    try {
+      return localStorage.getItem('harmoniq_active_sound_profile_id') || 'neutral_reference';
+    } catch {
+      return 'neutral_reference';
+    }
+  });
+  const [deviceProfiles, setDeviceProfiles] = useState<DeviceAudioProfile[]>(() => audioDeviceProfileService.getAllProfiles());
+  const [allTrackProfiles, setAllTrackProfiles] = useState<TrackAudioProfile[]>(() => trackAudioProfileService.getAllTrackProfiles());
+  const [currentTrackProfile, setCurrentTrackProfile] = useState<TrackAudioProfile | null>(null);
 
   // Load custom presets and settings on mount
   useEffect(() => {
@@ -520,6 +570,207 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Sound Profile Methods
+  const applySoundProfile = useCallback(
+    (profileId: string) => {
+      const profile = soundProfileService.getProfileById(profileId);
+      if (!profile) return;
+
+      setAuditionFilterId(null);
+      auditionFilterIdRef.current = null;
+      setActiveSoundProfileId(profileId);
+      try {
+        localStorage.setItem('harmoniq_active_sound_profile_id', profileId);
+      } catch {}
+
+      const resolved = AudioConfigurationResolver.resolve({
+        globalProfile: profile,
+        currentVolume: 1.0,
+      });
+
+      updateSettings(resolved.settings);
+    },
+    [updateSettings]
+  );
+
+  const saveCurrentAsProfile = useCallback(
+    (name: string, description?: string) => {
+      const s = settingsRef.current;
+      const created = soundProfileService.createCustomProfile({
+        name,
+        description: description || 'Custom user sound profile',
+        category: 'custom',
+        icon: 'Sliders',
+        mode: s.eqMode,
+        bands: [...s.bands],
+        parametricFilters: s.parametricFilters.map((f) => ({ ...f })),
+        preamp: s.preamp,
+        bassBoost: s.bassBoost,
+        treble: s.treble,
+        stereoWidth: s.stereoWidth ?? 100,
+        stereoWidthEnabled: !!s.stereoWidthEnabled,
+        channelMode: s.channelMode,
+      });
+
+      setSoundProfiles(soundProfileService.getAllProfiles());
+      setActiveSoundProfileId(created.id);
+      try {
+        localStorage.setItem('harmoniq_active_sound_profile_id', created.id);
+      } catch {}
+      return created;
+    },
+    []
+  );
+
+  const restoreActiveProfile = useCallback(() => {
+    applySoundProfile(activeSoundProfileId);
+  }, [activeSoundProfileId, applySoundProfile]);
+
+  const duplicateSoundProfile = useCallback((profileId: string, customName?: string) => {
+    const dup = soundProfileService.duplicateProfile(profileId, customName);
+    if (dup) {
+      setSoundProfiles(soundProfileService.getAllProfiles());
+      setActiveSoundProfileId(dup.id);
+      try {
+        localStorage.setItem('harmoniq_active_sound_profile_id', dup.id);
+      } catch {}
+    }
+    return dup;
+  }, []);
+
+  const deleteCustomProfile = useCallback(
+    (profileId: string) => {
+      const deleted = soundProfileService.deleteCustomProfile(profileId);
+      if (deleted) {
+        setSoundProfiles(soundProfileService.getAllProfiles());
+        if (activeSoundProfileId === profileId) {
+          applySoundProfile('neutral_reference');
+        }
+      }
+      return deleted;
+    },
+    [activeSoundProfileId, applySoundProfile]
+  );
+
+  const activeSoundProfile =
+    soundProfileService.getProfileById(activeSoundProfileId) ||
+    soundProfileService.getProfileById('neutral_reference')!;
+
+  const isProfileModified = soundProfileService.isProfileModified(
+    activeSoundProfile,
+    settings.bands,
+    settings.parametricFilters,
+    settings.preamp,
+    settings.bassBoost,
+    settings.treble,
+    settings.stereoWidth ?? 100
+  );
+
+  // Per-Track EQ Methods
+  const saveCurrentForTrack = useCallback((track: TrackMetadata) => {
+    const s = settingsRef.current;
+    const saved = trackAudioProfileService.saveProfileForTrack(track, {
+      mode: s.eqMode,
+      bands: [...s.bands],
+      parametricFilters: s.parametricFilters.map((f) => ({ ...f })),
+      preampOverride: s.preamp,
+      enabled: true,
+    });
+    setCurrentTrackProfile(saved);
+    setAllTrackProfiles(trackAudioProfileService.getAllTrackProfiles());
+    return saved;
+  }, []);
+
+  const removeTrackProfile = useCallback(
+    (track: TrackMetadata | string) => {
+      const ok = trackAudioProfileService.removeProfileForTrack(track);
+      if (ok) {
+        setCurrentTrackProfile(null);
+        setAllTrackProfiles(trackAudioProfileService.getAllTrackProfiles());
+        restoreActiveProfile();
+      }
+      return ok;
+    },
+    [restoreActiveProfile]
+  );
+
+  const toggleTrackProfile = useCallback(
+    (track: TrackMetadata, enabled: boolean) => {
+      const updated = trackAudioProfileService.toggleTrackProfile(track, enabled);
+      setCurrentTrackProfile(updated);
+      setAllTrackProfiles(trackAudioProfileService.getAllTrackProfiles());
+      if (!enabled) {
+        restoreActiveProfile();
+      } else if (updated) {
+        const global =
+          soundProfileService.getProfileById(activeSoundProfileId) ||
+          soundProfileService.getProfileById('neutral_reference')!;
+        const resolved = AudioConfigurationResolver.resolve({
+          globalProfile: global,
+          trackProfile: updated,
+          currentVolume: 1.0,
+        });
+        updateSettings(resolved.settings);
+      }
+    },
+    [activeSoundProfileId, restoreActiveProfile, updateSettings]
+  );
+
+  // Per-Device Preferences Methods
+  const saveDevicePreferences = useCallback(
+    (
+      deviceId: string,
+      updates: { preferredVolume?: number; preferredSoundProfileId?: string; deviceLabel?: string }
+    ) => {
+      const saved = audioDeviceProfileService.saveDevicePreferences(deviceId, updates);
+      setDeviceProfiles(audioDeviceProfileService.getAllProfiles());
+      return saved;
+    },
+    []
+  );
+
+  // Truthful Audio Quality Report
+  const getQualityReport = useCallback(
+    (track: TrackMetadata | null, volume: number, replayGainActive: boolean) => {
+      const audioCtx = (audioEngine as any).audioCtx as AudioContext | null;
+      const activeSink = audioEngine.getCurrentSinkId();
+      const devProfile = audioDeviceProfileService.getProfileForDevice({ deviceId: activeSink });
+      const deviceLabel =
+        devProfile?.deviceLabel || (activeSink === 'default' ? 'Default Windows Audio Endpoint' : activeSink);
+      return AudioQualityService.generateReport(
+        track,
+        audioCtx,
+        settingsRef.current,
+        limiterMetrics,
+        volume,
+        replayGainActive,
+        deviceLabel
+      );
+    },
+    [limiterMetrics]
+  );
+
+  // Listen to track transitions for per-track EQ memory restoration
+  useEffect(() => {
+    const unsub = audioEngine.subscribeTrackTransition((nextTrack) => {
+      const profile = trackAudioProfileService.getProfileForTrack(nextTrack);
+      setCurrentTrackProfile(profile);
+
+      const global =
+        soundProfileService.getProfileById(activeSoundProfileId) ||
+        soundProfileService.getProfileById('neutral_reference')!;
+      const resolved = AudioConfigurationResolver.resolve({
+        globalProfile: global,
+        trackProfile: profile,
+        currentVolume: 1.0,
+      });
+
+      updateSettings(resolved.settings);
+    });
+
+    return () => unsub();
+  }, [activeSoundProfileId, updateSettings]);
+
   const resetToDefaults = () => {
     try {
       localStorage.removeItem(STORAGE_CUSTOM_PRESETS_KEY);
@@ -570,6 +821,26 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         exportPresetsAsJson,
         importPresetsFromJson,
         resetToDefaults,
+        // Sound Profiles System (Phase 5B.3)
+        soundProfiles,
+        activeSoundProfileId,
+        applySoundProfile,
+        isProfileModified,
+        saveCurrentAsProfile,
+        restoreActiveProfile,
+        deleteCustomProfile,
+        duplicateSoundProfile,
+        // Per-Track EQ Memory (Phase 5B.4)
+        currentTrackProfile,
+        saveCurrentForTrack,
+        removeTrackProfile,
+        toggleTrackProfile,
+        allTrackProfiles,
+        // Per-Device Audio Profiles (Phase 5B.5)
+        deviceProfiles,
+        saveDevicePreferences,
+        // Audio Quality Intelligence (Phase 5B.6)
+        getQualityReport,
       }}
     >
       {children}
