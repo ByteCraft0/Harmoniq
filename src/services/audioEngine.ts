@@ -61,33 +61,51 @@ interface AudioDeck {
   id: 'A' | 'B';
   element: HTMLAudioElement;
   sourceNode: MediaElementAudioSourceNode | null;
-  faderGain: GainNode | null;
   replayGain: GainNode | null;
+  preampGain: GainNode | null;
+  eqFilters: BiquadFilterNode[]; // 10 ISO standard graphic EQ bands
+  parametricFilters: BiquadFilterNode[]; // up to 12 parametric filters
+  bassBoostFilter: BiquadFilterNode | null;
+  trebleFilter: BiquadFilterNode | null;
+  faderGain: GainNode | null;
   currentTrack: TrackMetadata | null;
   currentUrl: string;
   isPreloaded: boolean;
+  deckDspSettings: DSPSettings | null;
 }
 
 class AudioEngine {
   private audioCtx: AudioContext | null = null;
 
-  // Dual-Deck Architecture for True Gapless & Seamless Crossfade
+  // Dual-Deck Architecture with Independent Per-Deck EQ Processing
   private deckA: AudioDeck | null = null;
   private deckB: AudioDeck | null = null;
   private activeDeck: AudioDeck | null = null;
   private standbyDeck: AudioDeck | null = null;
 
-  // Master summing node before DSP chain
+  // Master summing node before master DSP chain
   private masterMixGain: GainNode | null = null;
 
-  // Shared DSP Pipeline Nodes
-  private preampGainNode: GainNode | null = null;
-  private monoNode: GainNode | null = null;
-  private eqFilters: BiquadFilterNode[] = [];
-  private parametricFilterNodes: BiquadFilterNode[] = [];
   private maxParametricNodes = 12;
-  private bassBoostFilter: BiquadFilterNode | null = null;
-  private trebleFilter: BiquadFilterNode | null = null;
+
+  // Getters delegating to active deck's independent EQ stage
+  private get eqFilters(): BiquadFilterNode[] {
+    return this.activeDeck?.eqFilters || this.deckA?.eqFilters || [];
+  }
+  private get parametricFilterNodes(): BiquadFilterNode[] {
+    return this.activeDeck?.parametricFilters || this.deckA?.parametricFilters || [];
+  }
+  private get preampGainNode(): GainNode | null {
+    return this.activeDeck?.preampGain || this.deckA?.preampGain || null;
+  }
+  private get bassBoostFilter(): BiquadFilterNode | null {
+    return this.activeDeck?.bassBoostFilter || this.deckA?.bassBoostFilter || null;
+  }
+  private get trebleFilter(): BiquadFilterNode | null {
+    return this.activeDeck?.trebleFilter || this.deckA?.trebleFilter || null;
+  }
+
+  private monoNode: GainNode | null = null;
   private pannerNode: StereoPannerNode | null = null;
 
   // 2x2 Channel Matrix Nodes (Stereo, Mono, Left-Only, Right-Only, Balance)
@@ -105,6 +123,9 @@ class AudioEngine {
 
   // Mid-Side Stereo Width Processor
   private stereoWidthProcessor: StereoWidthProcessor | null = null;
+
+  // Track EQ resolver registered from DSPContext
+  private trackEQResolver: ((track: TrackMetadata) => DSPSettings | null) | null = null;
 
   // State
   private isInitialized = false;
@@ -196,52 +217,7 @@ class AudioEngine {
       if (this.deckA.faderGain) this.deckA.faderGain.gain.value = 1.0;
       if (this.deckB.faderGain) this.deckB.faderGain.gain.value = 0.0;
 
-      // 3. Preamp Gain
-      this.preampGainNode = ctx.createGain();
-      this.preampGainNode.gain.value = 1.0;
-
-      // 4. 10-Band Graphic EQ (Peaking filters)
-      this.eqFilters = EQ_FREQUENCIES.map((freq) => {
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'peaking';
-        filter.frequency.value = freq;
-        filter.Q.value = 1.414; // Standard 1-octave bandwidth
-        filter.gain.value = 0;
-        return filter;
-      });
-
-      // Chain the 10 EQ filters together
-      for (let i = 0; i < this.eqFilters.length - 1; i++) {
-        this.eqFilters[i].connect(this.eqFilters[i + 1]);
-      }
-
-      // 4b. Dynamic Parametric Filter Nodes Chain (up to 12 cascaded biquads)
-      this.parametricFilterNodes = [];
-      for (let i = 0; i < this.maxParametricNodes; i++) {
-        const pFilter = ctx.createBiquadFilter();
-        pFilter.type = 'peaking';
-        pFilter.frequency.value = 1000;
-        pFilter.Q.value = 1.0;
-        pFilter.gain.value = 0;
-        this.parametricFilterNodes.push(pFilter);
-      }
-      for (let i = 0; i < this.parametricFilterNodes.length - 1; i++) {
-        this.parametricFilterNodes[i].connect(this.parametricFilterNodes[i + 1]);
-      }
-
-      // 5. Bass Boost (Low-shelf filter @ 100Hz)
-      this.bassBoostFilter = ctx.createBiquadFilter();
-      this.bassBoostFilter.type = 'lowshelf';
-      this.bassBoostFilter.frequency.value = 100;
-      this.bassBoostFilter.gain.value = 0;
-
-      // 6. Treble Control (High-shelf filter @ 10kHz)
-      this.trebleFilter = ctx.createBiquadFilter();
-      this.trebleFilter.type = 'highshelf';
-      this.trebleFilter.frequency.value = 10000;
-      this.trebleFilter.gain.value = 0;
-
-      // 7. 2x2 Channel Matrix (Stereo, Mono Downmix, Left-Only, Right-Only, Stereo Balance)
+      // 3. 2x2 Channel Matrix (Stereo, Mono Downmix, Left-Only, Right-Only, Stereo Balance)
       this.channelSplitter = ctx.createChannelSplitter(2);
       this.gainLL = ctx.createGain();
       this.gainLR = ctx.createGain();
@@ -269,7 +245,7 @@ class AudioEngine {
         this.pannerNode = ctx.createStereoPanner();
       }
 
-      // 8. Anti-Clipping Brickwall Limiter (DynamicsCompressorNode)
+      // 4. Anti-Clipping Brickwall Limiter (DynamicsCompressorNode)
       this.limiterNode = ctx.createDynamicsCompressor();
       this.limiterNode.threshold.value = -0.5; // Trigger just below 0 dBFS
       this.limiterNode.knee.value = 3.0;
@@ -277,26 +253,21 @@ class AudioEngine {
       this.limiterNode.attack.value = 0.003; // Fast 3ms attack
       this.limiterNode.release.value = 0.1; // 100ms release
 
-      // 9. High-Resolution FFT Analyser
+      // 5. High-Resolution FFT Analyser
       this.analyserNode = ctx.createAnalyser();
       this.analyserNode.fftSize = 2048;
       this.analyserNode.smoothingTimeConstant = 0.8;
 
-      // 10. Mid-Side Stereo Width Processor
+      // 6. Mid-Side Stereo Width Processor
       this.stereoWidthProcessor = new StereoWidthProcessor(ctx);
 
-      // 11. Bypass routing nodes
+      // 7. Bypass routing nodes
       this.dspActiveGain = ctx.createGain();
       this.dspBypassGain = ctx.createGain();
 
-      // Connect DSP chain:
-      // masterMixGain -> Preamp -> EQ[0..9] -> Parametric[0..11] -> BassBoost -> Treble -> StereoWidth -> ChannelMatrix -> Limiter -> dspActiveGain -> Analyser -> Destination
-      this.masterMixGain.connect(this.preampGainNode);
-      this.preampGainNode.connect(this.eqFilters[0]);
-      this.eqFilters[this.eqFilters.length - 1].connect(this.parametricFilterNodes[0]);
-      this.parametricFilterNodes[this.parametricFilterNodes.length - 1].connect(this.bassBoostFilter);
-      this.bassBoostFilter.connect(this.trebleFilter);
-      this.trebleFilter.connect(this.stereoWidthProcessor.getInputNode());
+      // Master DSP chain:
+      // masterMixGain -> StereoWidth -> ChannelMatrix -> Limiter -> dspActiveGain -> Analyser -> Destination
+      this.masterMixGain.connect(this.stereoWidthProcessor.getInputNode());
       this.stereoWidthProcessor.getOutputNode().connect(this.channelSplitter);
       this.channelMerger.connect(this.limiterNode);
 
@@ -343,6 +314,7 @@ class AudioEngine {
 
   private createDeck(id: 'A' | 'B'): AudioDeck {
     if (!this.audioCtx) throw new Error('AudioContext missing');
+    const ctx = this.audioCtx;
 
     const AudioConstructor =
       (typeof Audio !== 'undefined' ? Audio : null) ||
@@ -352,24 +324,77 @@ class AudioEngine {
     element.crossOrigin = 'anonymous';
     element.preload = 'auto';
 
-    const sourceNode = this.audioCtx.createMediaElementSource(element);
-    const faderGain = this.audioCtx.createGain();
-    const replayGain = this.audioCtx.createGain();
+    const sourceNode = ctx.createMediaElementSource(element);
+    const replayGain = ctx.createGain();
+    const preampGain = ctx.createGain();
+    preampGain.gain.value = 1.0;
 
-    // Source -> Fader -> ReplayGain -> MasterMixGain
-    sourceNode.connect(faderGain);
-    faderGain.connect(replayGain);
-    replayGain.connect(this.masterMixGain!);
+    // Independent 10-Band Graphic EQ for this deck
+    const eqFilters = EQ_FREQUENCIES.map((freq) => {
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'peaking';
+      filter.frequency.value = freq;
+      filter.Q.value = 1.414; // Standard 1-octave bandwidth
+      filter.gain.value = 0;
+      return filter;
+    });
+    for (let i = 0; i < eqFilters.length - 1; i++) {
+      eqFilters[i].connect(eqFilters[i + 1]);
+    }
+
+    // Independent 12-Band Parametric Filter Nodes Chain for this deck
+    const parametricFilters: BiquadFilterNode[] = [];
+    for (let i = 0; i < this.maxParametricNodes; i++) {
+      const pFilter = ctx.createBiquadFilter();
+      pFilter.type = 'peaking';
+      pFilter.frequency.value = 1000;
+      pFilter.Q.value = 1.0;
+      pFilter.gain.value = 0;
+      parametricFilters.push(pFilter);
+    }
+    for (let i = 0; i < parametricFilters.length - 1; i++) {
+      parametricFilters[i].connect(parametricFilters[i + 1]);
+    }
+
+    // Independent Tone Controls for this deck
+    const bassBoostFilter = ctx.createBiquadFilter();
+    bassBoostFilter.type = 'lowshelf';
+    bassBoostFilter.frequency.value = 100;
+    bassBoostFilter.gain.value = 0;
+
+    const trebleFilter = ctx.createBiquadFilter();
+    trebleFilter.type = 'highshelf';
+    trebleFilter.frequency.value = 10000;
+    trebleFilter.gain.value = 0;
+
+    const faderGain = ctx.createGain();
+
+    // Connect Deck signal path:
+    // sourceNode -> replayGain -> preampGain -> eqFilters[0..9] -> parametricFilters[0..11] -> bassBoostFilter -> trebleFilter -> faderGain -> masterMixGain
+    sourceNode.connect(replayGain);
+    replayGain.connect(preampGain);
+    preampGain.connect(eqFilters[0]);
+    eqFilters[eqFilters.length - 1].connect(parametricFilters[0]);
+    parametricFilters[parametricFilters.length - 1].connect(bassBoostFilter);
+    bassBoostFilter.connect(trebleFilter);
+    trebleFilter.connect(faderGain);
+    faderGain.connect(this.masterMixGain!);
 
     const deck: AudioDeck = {
       id,
       element,
       sourceNode,
-      faderGain,
       replayGain,
+      preampGain,
+      eqFilters,
+      parametricFilters,
+      bassBoostFilter,
+      trebleFilter,
+      faderGain,
       currentTrack: null,
       currentUrl: '',
       isPreloaded: false,
+      deckDspSettings: null,
     };
 
     this.setupDeckListeners(deck);
@@ -521,6 +546,9 @@ class AudioEngine {
     this.activeDeck = incoming;
     this.standbyDeck = outgoing;
     this.standbyDeck.isPreloaded = false;
+    if (incoming.deckDspSettings) {
+      this.dspSettings = { ...incoming.deckDspSettings };
+    }
 
     // 5. Notify listeners and UI of seamless gapless transition
     this.transitionListeners.forEach((cb) => cb(incomingTrack, 'gapless'));
@@ -574,6 +602,9 @@ class AudioEngine {
         this.standbyDeck = outgoing;
         this.standbyDeck.isPreloaded = false;
         this.isTransitioning = false;
+        if (incoming.deckDspSettings) {
+          this.dspSettings = { ...incoming.deckDspSettings };
+        }
         this.emitStatus();
       }
     }, duration * 1000 + 50);
@@ -607,7 +638,7 @@ class AudioEngine {
   /**
    * Preload and prepare the next track on the standby deck before the current song ends
    */
-  public prepareNextTrack(nextTrack: TrackMetadata | null): void {
+  public prepareNextTrack(nextTrack: TrackMetadata | null, nextTrackDspSettings?: DSPSettings): void {
     this.nextTrackQueued = nextTrack;
     if (!this.standbyDeck || !this.isInitialized) return;
 
@@ -638,6 +669,20 @@ class AudioEngine {
 
     // Apply pre-calculated ReplayGain to standby deck
     this.applyReplayGainToDeck(this.standbyDeck, nextTrack);
+
+    // Apply track-specific EQ to standby deck
+    if (nextTrackDspSettings) {
+      this.applyDSPSettingsToDeck(this.standbyDeck, nextTrackDspSettings);
+    } else if (this.trackEQResolver) {
+      const resolved = this.trackEQResolver(nextTrack);
+      if (resolved) {
+        this.applyDSPSettingsToDeck(this.standbyDeck, resolved);
+      } else {
+        this.applyDSPSettingsToDeck(this.standbyDeck, this.dspSettings);
+      }
+    } else {
+      this.applyDSPSettingsToDeck(this.standbyDeck, this.dspSettings);
+    }
 
     // Set initial fader gain: 1.0 for instant gapless handoff, 0.0 for crossfade ramp
     if (this.audioCtx && this.standbyDeck.faderGain) {
@@ -733,6 +778,19 @@ class AudioEngine {
     }
 
     this.applyReplayGainToDeck(this.activeDeck, track);
+
+    // Apply track-specific EQ to active deck
+    if (this.trackEQResolver) {
+      const resolved = this.trackEQResolver(track);
+      if (resolved) {
+        this.applyDSPSettingsToDeck(this.activeDeck, resolved);
+        this.dspSettings = { ...resolved };
+      } else {
+        this.applyDSPSettingsToDeck(this.activeDeck, this.dspSettings);
+      }
+    } else {
+      this.applyDSPSettingsToDeck(this.activeDeck, this.dspSettings);
+    }
 
     // Reset faders
     if (this.activeDeck.faderGain) {
@@ -930,28 +988,75 @@ class AudioEngine {
     };
   }
 
-  private applyPreamp(): void {
-    if (!this.preampGainNode || !this.audioCtx) return;
-    const linear = Math.pow(10, (this.dspSettings.preamp ?? 0) / 20);
+  private applyPreamp(deck: AudioDeck | null = this.activeDeck): void {
+    if (!deck?.preampGain || !this.audioCtx) return;
+    const preampDb = deck.deckDspSettings?.preamp ?? this.dspSettings.preamp ?? 0;
+    const linear = Math.pow(10, preampDb / 20);
     AudioParameterAutomation.smoothTransition(
-      this.preampGainNode.gain,
+      deck.preampGain.gain,
       linear,
       this.audioCtx,
       { timeConstant: AUTOMATION_TIME_CONSTANTS.PREAMP, min: 0.0, max: 4.0 }
     );
   }
 
-  // Real-time DSP Controls
-  public applyDSPSettings(settings: DSPSettings): void {
-    this.dspSettings = { ...settings };
-    if (!this.audioCtx) return;
+  /**
+   * Apply DSP settings (Preamp, 10-band Graphic EQ, Parametric Filters, Tone Controls)
+   * to a specific deck independently, allowing genuine dual-deck independent EQ during crossfade.
+   */
+  public applyDSPSettingsToDeck(deck: AudioDeck | null, settings: DSPSettings): void {
+    if (!deck || !this.audioCtx) return;
+    deck.deckDspSettings = { ...settings };
 
-    // 1. Preamp gain
-    this.applyPreamp();
+    // 1. Deck Preamp
+    if (deck.preampGain) {
+      const preampDb = settings.enabled ? (settings.preamp ?? 0) : 0;
+      const linear = Math.pow(10, preampDb / 20);
+      AudioParameterAutomation.smoothTransition(
+        deck.preampGain.gain,
+        linear,
+        this.audioCtx,
+        { timeConstant: AUTOMATION_TIME_CONSTANTS.PREAMP, min: 0.0, max: 4.0 }
+      );
+    }
+
+    // 2. EQ Filters
+    if (!settings.enabled) {
+      // Flat unity when DSP disabled
+      deck.eqFilters.forEach((filter) => {
+        AudioParameterAutomation.smoothTransition(filter.gain, 0, this.audioCtx, {
+          timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND,
+          min: -12,
+          max: 12,
+        });
+      });
+      deck.parametricFilters.forEach((node) => {
+        AudioParameterAutomation.smoothTransition(node.gain, 0, this.audioCtx, {
+          timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND,
+          min: -18,
+          max: 18,
+        });
+      });
+      if (deck.bassBoostFilter) {
+        AudioParameterAutomation.smoothTransition(deck.bassBoostFilter.gain, 0, this.audioCtx, {
+          timeConstant: AUTOMATION_TIME_CONSTANTS.TONE_SHELF,
+          min: 0,
+          max: 12,
+        });
+      }
+      if (deck.trebleFilter) {
+        AudioParameterAutomation.smoothTransition(deck.trebleFilter.gain, 0, this.audioCtx, {
+          timeConstant: AUTOMATION_TIME_CONSTANTS.TONE_SHELF,
+          min: -6,
+          max: 12,
+        });
+      }
+      return;
+    }
 
     if (settings.eqMode === 'graphic') {
       // 2a. 10-Band Graphic EQ Active
-      this.eqFilters.forEach((filter, index) => {
+      deck.eqFilters.forEach((filter, index) => {
         const gainValue = settings.bands[index] ?? 0;
         AudioParameterAutomation.smoothTransition(
           filter.gain,
@@ -962,7 +1067,7 @@ class AudioEngine {
       });
 
       // Parametric nodes set to transparent unity (0 dB gain)
-      this.parametricFilterNodes.forEach((node) => {
+      deck.parametricFilters.forEach((node) => {
         node.type = 'peaking';
         AudioParameterAutomation.smoothTransition(
           node.gain,
@@ -973,7 +1078,7 @@ class AudioEngine {
       });
     } else {
       // 2b. Parametric Mode Active: 10-band graphic filters set to 0 dB unity
-      this.eqFilters.forEach((filter) => {
+      deck.eqFilters.forEach((filter) => {
         AudioParameterAutomation.smoothTransition(
           filter.gain,
           0,
@@ -985,7 +1090,7 @@ class AudioEngine {
       // Parametric filters configured
       const configs = settings.parametricFilters || [];
       for (let i = 0; i < this.maxParametricNodes; i++) {
-        const node = this.parametricFilterNodes[i];
+        const node = deck.parametricFilters[i];
         if (!node) continue;
         const cfg = configs[i];
         if (cfg && cfg.enabled) {
@@ -1022,9 +1127,9 @@ class AudioEngine {
     }
 
     // 3. Bass Boost
-    if (this.bassBoostFilter) {
+    if (deck.bassBoostFilter) {
       AudioParameterAutomation.smoothTransition(
-        this.bassBoostFilter.gain,
+        deck.bassBoostFilter.gain,
         settings.bassBoost ?? 0,
         this.audioCtx,
         { timeConstant: AUTOMATION_TIME_CONSTANTS.TONE_SHELF, min: 0, max: 12 }
@@ -1032,14 +1137,21 @@ class AudioEngine {
     }
 
     // 4. Treble Boost
-    if (this.trebleFilter) {
+    if (deck.trebleFilter) {
       AudioParameterAutomation.smoothTransition(
-        this.trebleFilter.gain,
+        deck.trebleFilter.gain,
         settings.treble ?? 0,
         this.audioCtx,
         { timeConstant: AUTOMATION_TIME_CONSTANTS.TONE_SHELF, min: -6, max: 12 }
       );
     }
+  }
+
+  /**
+   * Apply Master DSP Stages (Stereo Width, Channel Matrix, Limiter, Bypass routing)
+   */
+  public applyMasterDSPStages(settings: DSPSettings): void {
+    if (!this.audioCtx) return;
 
     // 5. Mid-Side Stereo Width Processing
     if (this.stereoWidthProcessor) {
@@ -1101,6 +1213,46 @@ class AudioEngine {
 
     // 8. Master Bypass
     this.updateBypassState();
+  }
+
+  // Real-time DSP Controls
+  public applyDSPSettings(settings: DSPSettings): void {
+    this.dspSettings = { ...settings };
+    if (!this.audioCtx) return;
+
+    // Apply to active deck with smooth transitions
+    if (this.activeDeck) {
+      this.applyDSPSettingsToDeck(this.activeDeck, settings);
+    }
+
+    // Apply master stages: Stereo Width, Channel Matrix, Limiter, Bypass gains
+    this.applyMasterDSPStages(settings);
+  }
+
+  public registerTrackEQResolver(resolver: ((track: TrackMetadata) => DSPSettings | null) | null): void {
+    this.trackEQResolver = resolver;
+  }
+
+  public setStandbyDeckDSPSettings(settings: DSPSettings): void {
+    if (this.standbyDeck) {
+      this.applyDSPSettingsToDeck(this.standbyDeck, settings);
+    }
+  }
+
+  public setDeckDSPSettings(deckId: 'A' | 'B', settings: DSPSettings): void {
+    const deck = deckId === 'A' ? this.deckA : this.deckB;
+    if (deck) {
+      this.applyDSPSettingsToDeck(deck, settings);
+    }
+  }
+
+  public getDeckDSPSettings(deckId: 'A' | 'B'): DSPSettings | null {
+    const deck = deckId === 'A' ? this.deckA : this.deckB;
+    return deck?.deckDspSettings || null;
+  }
+
+  public getDeck(deckId: 'A' | 'B'): AudioDeck | null {
+    return deckId === 'A' ? this.deckA : this.deckB;
   }
 
   private updateBypassState(): void {
@@ -1633,13 +1785,23 @@ class AudioEngine {
       this.analyserNode?.disconnect();
       if (this.deckA) {
         this.deckA.sourceNode?.disconnect();
-        this.deckA.faderGain?.disconnect();
         this.deckA.replayGain?.disconnect();
+        this.deckA.preampGain?.disconnect();
+        this.deckA.eqFilters.forEach((f) => f.disconnect());
+        this.deckA.parametricFilters.forEach((p) => p.disconnect());
+        this.deckA.bassBoostFilter?.disconnect();
+        this.deckA.trebleFilter?.disconnect();
+        this.deckA.faderGain?.disconnect();
       }
       if (this.deckB) {
         this.deckB.sourceNode?.disconnect();
-        this.deckB.faderGain?.disconnect();
         this.deckB.replayGain?.disconnect();
+        this.deckB.preampGain?.disconnect();
+        this.deckB.eqFilters.forEach((f) => f.disconnect());
+        this.deckB.parametricFilters.forEach((p) => p.disconnect());
+        this.deckB.bassBoostFilter?.disconnect();
+        this.deckB.trebleFilter?.disconnect();
+        this.deckB.faderGain?.disconnect();
       }
     } catch {}
 

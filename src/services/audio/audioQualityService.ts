@@ -76,6 +76,20 @@ export class AudioQualityService {
     if (!track) return null;
 
     const outputSampleRateHz = audioCtx?.sampleRate || 48000;
+    const baseLatency = typeof (audioCtx as any)?.baseLatency === 'number' && (audioCtx as any).baseLatency > 0
+      ? (audioCtx as any).baseLatency
+      : undefined;
+    const outputLatency = typeof (audioCtx as any)?.outputLatency === 'number' && (audioCtx as any).outputLatency > 0
+      ? (audioCtx as any).outputLatency
+      : 0;
+
+    const bufferSizeSamples = baseLatency !== undefined
+      ? Math.round(baseLatency * outputSampleRateHz)
+      : 512;
+    const latencyMs = baseLatency !== undefined
+      ? Math.round((baseLatency + outputLatency) * 1000 * 10) / 10
+      : Math.round(((512 / outputSampleRateHz) * 1000) * 10) / 10;
+
     const isLossless = !!track.isLossless;
     const qualityTier = this.calculateQualityTier(track);
     const sourceType = this.determineSourceType(track);
@@ -101,7 +115,7 @@ export class AudioQualityService {
     const decoded: DecodedStreamSpecs = {
       decodedSampleRateHz: track.sampleRate || outputSampleRateHz,
       decodedChannels: track.channels || 2,
-      bufferSizeSamples: 512,
+      bufferSizeSamples,
     };
 
     // 3. Processing Pipeline Specifications
@@ -153,7 +167,7 @@ export class AudioQualityService {
       driverMode: 'Windows Shared Mode (WASAPI Shared) via Chromium Audio Engine',
       outputSampleRateHz,
       outputChannels: 2,
-      latencyMs: Math.round(((512 / outputSampleRateHz) * 1000) * 10) / 10,
+      latencyMs,
     };
 
     // 5. Truthful Bit-Perfect Transparency Check

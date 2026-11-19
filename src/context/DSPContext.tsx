@@ -750,9 +750,29 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [limiterMetrics]
   );
 
+  // Register track EQ resolver with audioEngine so dual-deck playback and preloading always have access to resolved settings
+  useEffect(() => {
+    audioEngine.registerTrackEQResolver((track) => {
+      const profile = trackAudioProfileService.getProfileForTrack(track);
+      const global =
+        soundProfileService.getProfileById(activeSoundProfileId) ||
+        soundProfileService.getProfileById('neutral_reference')!;
+      const resolved = AudioConfigurationResolver.resolve({
+        globalProfile: global,
+        trackProfile: profile,
+        currentVolume: 1.0,
+      });
+      return resolved.settings;
+    });
+
+    return () => {
+      audioEngine.registerTrackEQResolver(null);
+    };
+  }, [activeSoundProfileId]);
+
   // Listen to track transitions for per-track EQ memory restoration
   useEffect(() => {
-    const unsub = audioEngine.subscribeTrackTransition((nextTrack) => {
+    const unsub = audioEngine.subscribeTrackTransition((nextTrack, type) => {
       const profile = trackAudioProfileService.getProfileForTrack(nextTrack);
       setCurrentTrackProfile(profile);
 
@@ -765,7 +785,13 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentVolume: 1.0,
       });
 
-      updateSettings(resolved.settings);
+      if (type === 'crossfade') {
+        // Dual-deck independence: Apply incoming track settings to the standby deck (the incoming deck)!
+        // Outgoing active deck retains its existing track EQ throughout the crossfade fade-out!
+        audioEngine.setStandbyDeckDSPSettings(resolved.settings);
+      } else {
+        updateSettings(resolved.settings);
+      }
     });
 
     return () => unsub();

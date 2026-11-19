@@ -68,9 +68,9 @@ export class AudioDeviceProfileService {
   }
 
   /**
-   * Resolve an existing profile for a given device by exact deviceId, or by normalized label fallback.
+   * Resolve an existing profile for a given device by exact deviceId, or by verified groupId and normalized label fallback.
    */
-  public getProfileForDevice(device: AudioDeviceInfo | { deviceId: string; label?: string }): DeviceAudioProfile | null {
+  public getProfileForDevice(device: AudioDeviceInfo | { deviceId: string; label?: string; groupId?: string }): DeviceAudioProfile | null {
     if (!this.isLoaded) this.loadProfiles();
 
     // 1. Exact deviceId match
@@ -78,11 +78,25 @@ export class AudioDeviceProfileService {
       return this.profiles.get(device.deviceId)!;
     }
 
-    // 2. Normalized label fallback match across app restarts
-    if (device.label) {
-      const norm = this.normalizeLabel(device.label);
+    const norm = this.normalizeLabel(device.label);
+
+    // 2. Verified groupId + normalized label match across sessions
+    if (device.groupId && norm) {
+      for (const p of this.profiles.values()) {
+        if (p.groupId && p.groupId === device.groupId && p.normalizedLabel === norm) {
+          return p;
+        }
+      }
+    }
+
+    // 3. Normalized label fallback match, strictly rejecting conflicting hardware groupIds
+    if (norm) {
       for (const p of this.profiles.values()) {
         if (p.normalizedLabel === norm) {
+          // If both have verified groupIds and they differ, do not falsely conflate different physical devices
+          if (p.groupId && device.groupId && p.groupId !== device.groupId) {
+            continue;
+          }
           return p;
         }
       }
@@ -92,13 +106,19 @@ export class AudioDeviceProfileService {
   }
 
   /**
-   * Get or initialize a device profile with safe defaults.
+   * Get or initialize a device profile with safe defaults and stale ID key pruning.
    */
   public getOrCreateProfile(device: AudioDeviceInfo, currentVolume = 0.85): DeviceAudioProfile {
     const existing = this.getProfileForDevice(device);
     if (existing) {
-      existing.deviceId = device.deviceId; // Refresh deviceId if label matched
+      if (existing.deviceId !== device.deviceId) {
+        // Prune stale old deviceId key so it does not accumulate duplicate entries in localStorage
+        this.profiles.delete(existing.deviceId);
+        existing.deviceId = device.deviceId;
+      }
       existing.deviceLabel = device.label || existing.deviceLabel;
+      existing.normalizedLabel = this.normalizeLabel(device.label);
+      if (device.groupId) existing.groupId = device.groupId;
       existing.lastUsed = Date.now();
       this.profiles.set(device.deviceId, existing);
       this.saveProfiles();
@@ -131,21 +151,27 @@ export class AudioDeviceProfileService {
       preferredVolume?: number;
       preferredSoundProfileId?: string;
       deviceLabel?: string;
+      groupId?: string;
     }
   ): DeviceAudioProfile {
     if (!this.isLoaded) this.loadProfiles();
 
-    let profile = this.profiles.get(deviceId);
+    let profile = this.getProfileForDevice({ deviceId, label: updates.deviceLabel, groupId: updates.groupId });
     if (!profile) {
       profile = {
         deviceId,
         deviceLabel: updates.deviceLabel || 'Audio Endpoint',
         normalizedLabel: this.normalizeLabel(updates.deviceLabel),
+        groupId: updates.groupId,
         preferredVolume: 0.85,
         isDefault: deviceId === 'default',
         lastUsed: Date.now(),
         schemaVersion: 1,
       };
+    } else if (profile.deviceId !== deviceId) {
+      // Key migration: prune old deviceId and update to current
+      this.profiles.delete(profile.deviceId);
+      profile.deviceId = deviceId;
     }
 
     if (typeof updates.preferredVolume === 'number' && Number.isFinite(updates.preferredVolume)) {
