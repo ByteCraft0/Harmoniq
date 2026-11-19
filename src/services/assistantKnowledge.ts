@@ -811,8 +811,15 @@ export function getSuggestedQuestions(currentView?: string, context?: HarmoniqAs
         'Can I customize vinyl disc animation speed?',
         'How do I view detailed album liner notes?'
       ];
-    case 'radio':
     case 'online_music':
+      return [
+        'Find relaxing instrumental music for studying',
+        'Discover energetic electronic music',
+        'Find acoustic songs released after 2020',
+        'Show me underrated indie songs',
+        'How do I stream online music previews?'
+      ];
+    case 'radio':
     case 'podcasts':
       return [
         'How do I add a custom Icecast/Shoutcast radio URL?',

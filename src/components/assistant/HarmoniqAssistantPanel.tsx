@@ -16,10 +16,14 @@ import {
 } from 'lucide-react';
 import { useAssistant } from '../../hooks/useAssistant';
 import { useLibrary } from '../../context/LibraryContext';
+import { usePlayer } from '../../context/PlayerContext';
 import { AppView } from '../../context/LibraryContext';
 import { getSuggestedQuestions } from '../../services/assistantKnowledge';
 import { HarmoniqPulseOrb } from './HarmoniqPulseOrb';
+import { DiscoveryResultsList } from './DiscoveryResultsList';
 import { AssistantAction, AssistantMessage } from '../../types/assistant';
+import { UnifiedTrack, unifiedTrackToTrackMetadata } from '../../types/universalMusic';
+import { assistantService } from '../../services/assistantService';
 
 interface HarmoniqAssistantPanelProps {
   isOpen?: boolean;
@@ -58,12 +62,76 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
   const handleClose = onCloseProp || closeAssistant;
 
   const { activeView, setActiveView } = useLibrary();
+  const { playTrack, addToQueue, playNext, currentTrack, isPlaying } = usePlayer();
 
   const [inputVal, setInputVal] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Register natural language playback handler with assistantService (Phase 5A.2)
+  useEffect(() => {
+    const unregister = assistantService.registerPlaybackHandler(async (command, track, allTracks) => {
+      if (command.action === 'queue_all' && allTracks) {
+        for (const t of allTracks) {
+          if (
+            t.playbackCapability === 'full_stream' ||
+            t.playbackCapability === 'preview_stream' ||
+            t.playbackCapability === 'local_file'
+          ) {
+            addToQueue(unifiedTrackToTrackMetadata(t));
+          }
+        }
+        return { success: true, message: `Queued ${allTracks.length} tracks.` };
+      }
+
+      if (track) {
+        const metadata = unifiedTrackToTrackMetadata(track);
+        if (command.action === 'play_index') {
+          await playTrack(metadata);
+          return { success: true, message: `Playing ${track.title}.` };
+        } else if (command.action === 'queue_index') {
+          addToQueue(metadata);
+          return { success: true, message: `Queued ${track.title}.` };
+        } else if (command.action === 'play_next_index') {
+          playNext(metadata);
+          return { success: true, message: `Playing ${track.title} next.` };
+        }
+      }
+
+      return { success: false, message: 'No valid track target.' };
+    });
+
+    return unregister;
+  }, [playTrack, addToQueue, playNext]);
+
+  const handlePlayDiscoveredTrack = async (ut: UnifiedTrack) => {
+    const metadata = unifiedTrackToTrackMetadata(ut);
+    await playTrack(metadata);
+  };
+
+  const handleAddToQueueDiscoveredTrack = (ut: UnifiedTrack) => {
+    const metadata = unifiedTrackToTrackMetadata(ut);
+    addToQueue(metadata);
+  };
+
+  const handlePlayNextDiscoveredTrack = (ut: UnifiedTrack) => {
+    const metadata = unifiedTrackToTrackMetadata(ut);
+    playNext(metadata);
+  };
+
+  const handleQueueAllDiscoveredTracks = (tracks: UnifiedTrack[]) => {
+    for (const ut of tracks) {
+      if (
+        ut.playbackCapability === 'full_stream' ||
+        ut.playbackCapability === 'preview_stream' ||
+        ut.playbackCapability === 'local_file'
+      ) {
+        addToQueue(unifiedTrackToTrackMetadata(ut));
+      }
+    }
+  };
 
   // Auto-scroll chat to bottom
   useEffect(() => {
@@ -112,6 +180,12 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
   const handleActionClick = (action: AssistantAction) => {
     if (action.actionType === 'navigate' && action.target) {
       setActiveView(action.target);
+    } else if (action.actionType === 'custom' && action.payload?.url) {
+      if (typeof window !== 'undefined' && (window as any).harmoniqApi?.openExternalUrl) {
+        (window as any).harmoniqApi.openExternalUrl(action.payload.url);
+      } else {
+        window.open(action.payload.url, '_blank', 'noopener,noreferrer');
+      }
     }
   };
 
@@ -256,6 +330,19 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
                   return <p key={pIdx}>{paragraph}</p>;
                 })}
               </div>
+
+              {/* Natural Language Music Discovery Results (Phase 5A.2) */}
+              {msg.discoveryResults && msg.discoveryResults.length > 0 && (
+                <DiscoveryResultsList
+                  tracks={msg.discoveryResults}
+                  onPlayTrack={handlePlayDiscoveredTrack}
+                  onAddToQueue={handleAddToQueueDiscoveredTrack}
+                  onPlayNext={handlePlayNextDiscoveredTrack}
+                  onQueueAll={handleQueueAllDiscoveredTracks}
+                  currentTrackId={currentTrack?.id}
+                  isPlaying={isPlaying}
+                />
+              )}
 
               {/* Action Buttons */}
               {msg.actions && msg.actions.length > 0 && (

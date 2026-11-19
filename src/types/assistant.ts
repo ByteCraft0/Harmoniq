@@ -1,4 +1,5 @@
 import { AppView } from '../context/LibraryContext';
+import { UnifiedTrack } from './universalMusic';
 
 export type AIProviderId = 'gemini' | 'openai' | 'groq' | 'local';
 
@@ -27,6 +28,8 @@ export interface AssistantMessage {
   actions?: AssistantAction[];
   error?: boolean;
   audioPlaying?: boolean;
+  discoveryResults?: UnifiedTrack[];
+  discoverySummary?: string;
 }
 
 export interface AssistantConfig {

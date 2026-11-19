@@ -10,7 +10,17 @@ import {
 } from '../types/assistant';
 import { generateLocalAnswer, searchKnowledge } from './assistantKnowledge';
 import { formatContextForPrompt } from './assistantContextService';
+import { discoveryIntentService } from './discoveryIntentService';
+import { musicDiscoveryEngine } from './musicDiscoveryEngine';
+import { UnifiedTrack } from '../types/universalMusic';
+import { PlaybackCommand } from '../types/discovery';
 import { speechService } from './speechService';
+
+export type AssistantPlaybackHandler = (
+  command: PlaybackCommand,
+  track?: UnifiedTrack,
+  allTracks?: UnifiedTrack[]
+) => Promise<{ success: boolean; message: string }>;
 
 const HISTORY_STORAGE_KEY = 'harmoniq_assistant_messages';
 const CONFIG_STORAGE_KEY = 'harmoniq_assistant_config';
@@ -66,6 +76,7 @@ class AssistantService {
   private orbState: PulseOrbState = 'idle';
   private isOpen: boolean = false;
   private currentContext: HarmoniqAssistantContext | null = null;
+  private playbackHandler: AssistantPlaybackHandler | null = null;
   private listeners: Set<() => void> = new Set();
   private isInitialized = false;
 
@@ -181,6 +192,15 @@ class AssistantService {
     this.notify();
   }
 
+  public registerPlaybackHandler(handler: AssistantPlaybackHandler): () => void {
+    this.playbackHandler = handler;
+    return () => {
+      if (this.playbackHandler === handler) {
+        this.playbackHandler = null;
+      }
+    };
+  }
+
   public getOrbState(): PulseOrbState {
     return this.orbState;
   }
@@ -283,6 +303,107 @@ class AssistantService {
     this.setOrbState('processing');
     this.saveMessagesToStorage();
     this.notify();
+
+    // Natural Language Music Discovery & Playback Actions (Phase 5A.2)
+    if (discoveryIntentService.isDiscoveryOrPlaybackIntent(prompt)) {
+      if (discoveryIntentService.isPlaybackCommand(prompt)) {
+        const cmd = discoveryIntentService.extractPlaybackCommand(prompt);
+        const lastResults = discoveryIntentService.getLastResults();
+
+        let replyContent = '';
+        const actions: AssistantAction[] = [];
+
+        if (lastResults.length === 0) {
+          replyContent = `There are no recent discovery results to play. Try asking for music first, like *"Find relaxing acoustic music"* or *"Discover songs similar to my current track"*.`;
+          actions.push({ id: 'act_online', label: 'Open Universal Music', actionType: 'navigate', target: 'online_music' });
+        } else if (cmd.action === 'queue_all') {
+          const playableTracks = lastResults.filter(
+            t => t.playbackCapability === 'full_stream' || t.playbackCapability === 'preview_stream' || t.playbackCapability === 'local_file'
+          );
+          if (playableTracks.length === 0) {
+            replyContent = `None of the ${lastResults.length} recent discovery results have direct audio streaming capabilities (they are external links or catalog metadata).`;
+          } else {
+            if (this.playbackHandler) {
+              await this.playbackHandler(cmd, undefined, playableTracks);
+            }
+            replyContent = `Added **${playableTracks.length} tracks** to your playback queue from the discovery results! 🎶`;
+            actions.push({ id: 'act_queue', label: 'View Queue', actionType: 'navigate', target: 'now_playing' });
+          }
+        } else {
+          const targetIndex = cmd.targetIndex ?? 0;
+          const targetTrack = lastResults[targetIndex];
+
+          if (!targetTrack) {
+            replyContent = `Result #${targetIndex + 1} does not exist. There are currently ${lastResults.length} discovery results displayed.`;
+          } else if (targetTrack.playbackCapability === 'external_link' || targetTrack.playbackCapability === 'metadata_only') {
+            replyContent = `**"${targetTrack.title}"** by **${targetTrack.artist}** is an external destination on ${targetTrack.providerId.toUpperCase()} and cannot be played directly inside Harmoniq.\n\nClick the link button to view it on the official provider platform.`;
+            if (targetTrack.providerWebUrl) {
+              actions.push({ id: `open_${targetTrack.id}`, label: `Open on ${targetTrack.providerId.toUpperCase()}`, actionType: 'custom', payload: { url: targetTrack.providerWebUrl } });
+            }
+          } else {
+            // Playable full_stream, preview_stream, or local_file
+            if (this.playbackHandler) {
+              await this.playbackHandler(cmd, targetTrack, lastResults);
+            }
+            if (cmd.action === 'play_index') {
+              replyContent = `Now playing **"${targetTrack.title}"** by **${targetTrack.artist}** (${targetTrack.providerId.toUpperCase()}${targetTrack.playbackCapability === 'preview_stream' ? ' — 30s Preview' : ''}). 🎵`;
+              actions.push({ id: 'act_now_playing', label: 'Now Playing', actionType: 'navigate', target: 'now_playing' });
+            } else if (cmd.action === 'queue_index') {
+              replyContent = `Added **"${targetTrack.title}"** by **${targetTrack.artist}** to your playback queue.`;
+              actions.push({ id: 'act_queue', label: 'View Queue', actionType: 'navigate', target: 'now_playing' });
+            } else if (cmd.action === 'play_next_index') {
+              replyContent = `Set **"${targetTrack.title}"** by **${targetTrack.artist}** to play next after the current song.`;
+            }
+          }
+        }
+
+        const assistantMsg: AssistantMessage = {
+          id: `ast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+          role: 'assistant',
+          content: replyContent,
+          timestamp: Date.now(),
+          actions,
+        };
+        this.messages.push(assistantMsg);
+        this.saveMessagesToStorage();
+        this.setOrbState('idle');
+        this.notify();
+        return assistantMsg;
+      }
+
+      // Natural Language Discovery Query
+      const intent = discoveryIntentService.parseIntent(prompt);
+      const discoveryResult = await musicDiscoveryEngine.discoverMusic(intent, this.currentContext);
+      discoveryIntentService.setSession(intent, discoveryResult.tracks);
+
+      let content = `### Music Discovery 🎵\n\n${discoveryResult.summary}\n\n`;
+      if (discoveryResult.appliedFilters.length > 0) {
+        content += `**Filters Applied:** ${discoveryResult.appliedFilters.join(' • ')}\n\n`;
+      }
+      if (discoveryResult.tracks.length > 0) {
+        content += `You can play, queue, or view details for any track below, or ask follow-ups like *"more acoustic"* or *"play the first song"*.`;
+      }
+
+      const actions: AssistantAction[] = [
+        { id: 'act_online', label: 'Open in Universal Music', actionType: 'navigate', target: 'online_music' },
+      ];
+
+      const assistantMsg: AssistantMessage = {
+        id: `ast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        role: 'assistant',
+        content,
+        timestamp: Date.now(),
+        actions,
+        discoveryResults: discoveryResult.tracks,
+        discoverySummary: discoveryResult.summary,
+      };
+
+      this.messages.push(assistantMsg);
+      this.saveMessagesToStorage();
+      this.setOrbState('idle');
+      this.notify();
+      return assistantMsg;
+    }
 
     // Grounded RAG retrieval & live playback context injection
     const relevantDocs = searchKnowledge(prompt, currentView);
