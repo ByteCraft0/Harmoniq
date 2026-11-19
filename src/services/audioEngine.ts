@@ -670,6 +670,12 @@ class AudioEngine {
     this.statusListeners.forEach((cb) => cb(status));
   }
 
+  public isPlaying(): boolean {
+    if (!this.activeDeck) return false;
+    const el = this.activeDeck.element;
+    return !el.paused && !el.ended;
+  }
+
   // Playback Control
   public async loadAndPlay(track: TrackMetadata, startTime = 0): Promise<void> {
     const token = ++this.loadToken;
