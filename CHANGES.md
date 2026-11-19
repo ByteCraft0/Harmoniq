@@ -71,6 +71,17 @@
 - **Unified Empty/Loading States**: Standardized vector feedback across Library, Playlists, Queue, Lyrics, Search, Radio, and Podcasts.
 - **Complete Test Coverage**: 27 test files, 248 passing tests, zero regressions.
 
+### Phase 7: Harmoniq Assistant: AI-Powered Chatbot, Voice Interaction & Signature Pulse Orb
+- **Harmoniq Pulse Orb**: Created a signature floating holographic orb at `fixed bottom-24 right-6 z-40` with 7 distinct interactive states (`idle`, `hover`, `listening`, `processing`, `responding`, `error`, `inactive`), luminous central energy core, triple audio frequency rings, orbital particles, and reduced-motion support. Automatically hidden in Mini-Player mode.
+- **Harmoniq Assistant Panel**: Floating obsidian-glass chat window with conversation thread, user and assistant message styling, suggested question chips, multiline input (`Enter` sends, `Shift+Enter` for newline), response copy button, and live interim speech transcript preview.
+- **Multi-Provider AI Architecture**: Configurable connectivity to Google Gemini (`gemini-1.5-flash`), OpenAI (`gpt-4o-mini`), Groq (`llama-3.1-8b-instant`), and a built-in Local Grounded Engine. API keys stored securely in Electron main process `harmoniq_assistant_config.json` with zero renderer or source code exposure.
+- **Harmoniq Knowledge Base & Grounded RAG**: Comprehensive structured catalog indexing all 23 genuine Harmoniq 2.0 features with keyword matching, active-view boost, step-by-step guidance, and direct action navigation buttons.
+- **Interactive App Guidance with Action Buttons**: Answers generate direct action buttons (e.g. `[Open Equalizer Studio]`, `[Open Playlists]`, `[Open Listening Calendar]`) that drive `LibraryContext.setActiveView` safely.
+- **Microphone Voice Input (STT)**: User-initiated speech recognition via Web Speech API with live interim transcript, editability before send, and 10-second silence timeout safeguard.
+- **Spoken Voice Responses (TTS)**: Web Speech Synthesis reading responses aloud with markdown cleaning, independent audio output stream (never interrupts music playback), volume slider, and system voice selection.
+- **Assistant Settings Card**: Integrated into `SettingsView.tsx` with provider selector, API key input, connection tester, voice controls, and conversation history management.
+- **Full Test Verification**: 28 test suites, 262 passing tests, zero regressions. All phase reports updated in `docs/phases/`.
+
 ---
 
 ## Known limitations (not changed)
