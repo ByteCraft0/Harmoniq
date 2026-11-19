@@ -13,6 +13,7 @@ import { MissingArtworkManager } from '../maintenance/MissingArtworkManager';
 import { BulkMetadataModal } from '../maintenance/BulkMetadataModal';
 import { TrackMetadata } from '../../types/audio';
 import { libraryService } from '../../services/libraryService';
+import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
 import {
   Music,
   Disc,
@@ -85,6 +86,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
   const [formatFilter, setFormatFilter] = useState<string>('all');
   const [sortBy, setSortBy] = useState<'title' | 'artist' | 'album' | 'duration' | 'bitrate' | 'playCount' | 'dateAdded'>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
+  // Album Collection Filtering
+  const [albumDecade, setAlbumDecade] = useState<string>('all');
+  const [albumSortBy, setAlbumSortBy] = useState<'title' | 'artist' | 'year' | 'trackCount'>('title');
+  const [albumSortOrder, setAlbumSortOrder] = useState<'asc' | 'desc'>('asc');
 
   useEffect(() => {
     if (['songs', 'albums', 'artists', 'genres', 'folders', 'history', 'smart_playlists'].includes(activeView)) {
@@ -168,6 +174,33 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
 
     return list;
   }, [baseTracks, activeTab, formatFilter, sortBy, sortOrder]);
+
+  const filteredAlbums = useMemo(() => {
+    let list = [...albums];
+    if (albumDecade !== 'all') {
+      list = list.filter((a) => {
+        if (!a.year) return false;
+        const y = a.year;
+        if (albumDecade === '2020s') return y >= 2020 && y <= 2029;
+        if (albumDecade === '2010s') return y >= 2010 && y <= 2019;
+        if (albumDecade === '2000s') return y >= 2000 && y <= 2009;
+        if (albumDecade === '1990s') return y >= 1990 && y <= 1999;
+        if (albumDecade === '1980s') return y >= 1980 && y <= 1989;
+        return false;
+      });
+    }
+
+    list.sort((a, b) => {
+      let cmp = 0;
+      if (albumSortBy === 'title') cmp = a.title.localeCompare(b.title);
+      else if (albumSortBy === 'artist') cmp = a.artist.localeCompare(b.artist);
+      else if (albumSortBy === 'year') cmp = (a.year || 0) - (b.year || 0);
+      else if (albumSortBy === 'trackCount') cmp = a.tracks.length - b.tracks.length;
+      return albumSortOrder === 'asc' ? cmp : -cmp;
+    });
+
+    return list;
+  }, [albums, albumDecade, albumSortBy, albumSortOrder]);
 
   const handlePlay = useCallback(
     (track: TrackMetadata) => {
@@ -462,21 +495,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
             {/* Song Table */}
             <div className="flex-1 overflow-y-auto custom-scrollbar">
               {processedTracks.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-64 text-center text-[#71717A]">
-                  <div className="w-16 h-16 rounded-2xl bg-[#14141B] border border-[#272733] flex items-center justify-center text-[#3F3F46] mb-3">
-                    <Music size={32} />
-                  </div>
-                  <p className="text-sm font-bold text-[#F5F3FF]">No Tracks Found</p>
-                  <p className="text-xs text-[#A1A1AA] max-w-sm mt-1">
-                    Add local music folders or adjust your active search and format filters.
-                  </p>
-                  <button
-                    onClick={addMusicFolders}
-                    className="mt-4 px-4 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] text-xs font-bold text-[#F5F3FF] shadow-glow-sm"
-                  >
-                    Add Music Folder
-                  </button>
-                </div>
+                <HarmoniqEmptyState
+                  type="empty_library"
+                  title="Your Music Collection Awaits"
+                  description="Scan your local audio folders or import high-fidelity tracks to build your Harmoniq record library."
+                  action={{
+                    label: "Add Music Folder",
+                    onClick: addMusicFolders,
+                  }}
+                />
               ) : (
                 <div className="w-full">
                   <SongTableHeader showAlbum={true} />
@@ -506,50 +533,121 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
           </div>
         )}
 
-        {/* 2. ALBUMS GRID */}
+        {/* 2. ALBUMS GRID (RECORD COLLECTION) */}
         {activeTab === 'albums' && (
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {albums.map((album) => (
-                <div
-                  key={album.id}
-                  onClick={() => openAlbumDetail(album)}
-                  className="group p-3 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-[#3B3B4E] transition-all cursor-pointer flex flex-col space-y-2.5 shadow-card"
-                >
-                  <div className="relative aspect-square w-full rounded-xl bg-[#09090B] overflow-hidden flex items-center justify-center border border-[#272733]">
-                    {album.artworkDataUrl ? (
-                      <img
-                        src={album.artworkDataUrl}
-                        alt={album.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    ) : (
-                      <Disc size={36} className="text-[#3F3F46]" />
-                    )}
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (album.tracks.length > 0) playTrack(album.tracks[0], album.tracks);
-                        }}
-                        className="p-3.5 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] shadow-glow-sm hover:scale-110 transition-transform"
-                      >
-                        <Play size={18} className="ml-0.5" />
-                      </button>
-                    </div>
-                  </div>
+          <div className="flex-1 flex flex-col overflow-hidden space-y-4">
+            {/* Album Collection Filtering Toolbar */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0 bg-[#14141B]/70 p-2.5 rounded-xl border border-[#272733]">
+              {/* Decade Filter Chips */}
+              <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1 text-xs">
+                {['all', '2020s', '2010s', '2000s', '1990s', '1980s'].map((dec) => (
+                  <button
+                    key={dec}
+                    onClick={() => setAlbumDecade(dec)}
+                    className={`px-2.5 py-1 rounded-lg border text-[11px] font-mono-numbers whitespace-nowrap transition-all ${
+                      albumDecade === dec
+                        ? 'bg-[var(--accent-dynamic)] border-transparent text-white shadow-sm'
+                        : 'bg-white/5 border-white/10 text-[#A1A1AA] hover:text-white'
+                    }`}
+                  >
+                    {dec === 'all' ? `All Decades (${albums.length})` : dec}
+                  </button>
+                ))}
+              </div>
 
-                  <div className="min-w-0">
-                    <h3 className="font-bold text-xs text-[#F5F3FF] truncate group-hover:text-[#A78BFA] transition-colors">
-                      {album.title}
-                    </h3>
-                    <p className="text-[11px] text-[#A1A1AA] truncate">{album.artist}</p>
-                    <p className="text-[10px] text-[#71717A] font-mono-numbers mt-0.5">
-                      {album.trackCount} Tracks {album.year ? `• ${album.year}` : ''}
-                    </p>
-                  </div>
+              {/* Sorting & Vinyl Collection Link */}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1 bg-[#09090B] px-2 py-1 rounded-lg border border-white/10 text-xs">
+                  <select
+                    value={albumSortBy}
+                    onChange={(e) => setAlbumSortBy(e.target.value as any)}
+                    className="bg-transparent text-xs text-[#E4E4E7] focus:outline-none font-mono-numbers"
+                  >
+                    <option value="title">Title (A-Z)</option>
+                    <option value="artist">Artist</option>
+                    <option value="year">Release Year</option>
+                    <option value="trackCount">Track Count</option>
+                  </select>
+                  <button
+                    onClick={() => setAlbumSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
+                    className="p-0.5 text-[#A1A1AA] hover:text-white font-mono-numbers text-xs"
+                    title="Toggle direction"
+                  >
+                    {albumSortOrder === 'asc' ? '↑' : '↓'}
+                  </button>
                 </div>
-              ))}
+
+                <button
+                  onClick={() => setActiveView('vinyl_collection')}
+                  className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[var(--accent-dynamic)]/15 border border-[var(--accent-dynamic)] text-[var(--accent-dynamic)] hover:bg-[var(--accent-dynamic)] hover:text-white transition-all text-xs font-semibold shadow-glow-sm"
+                  title="Open Virtual Vinyl Record Crate"
+                >
+                  <Disc size={13} />
+                  <span>Vinyl Crate</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Albums Grid */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              {filteredAlbums.length === 0 ? (
+                <HarmoniqEmptyState
+                  type="empty_library"
+                  title="No Matching Albums"
+                  description="Adjust your search criteria or decade filters to explore your music collection."
+                />
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                  {filteredAlbums.map((album) => (
+                    <div
+                      key={album.id}
+                      onClick={() => openAlbumDetail(album)}
+                      className="group p-3 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-[var(--accent-dynamic)]/50 card-interactive cursor-pointer flex flex-col space-y-2.5 shadow-card transition-all"
+                    >
+                      <div className="relative aspect-square w-full rounded-xl bg-[#09090B] overflow-hidden flex items-center justify-center border border-[#272733] shadow-md">
+                        {album.artworkDataUrl ? (
+                          <img
+                            src={album.artworkDataUrl}
+                            alt={album.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <Disc size={36} className="text-[#3F3F46]" />
+                        )}
+
+                        {/* Cardboard Spine Highlight */}
+                        <div className="absolute inset-y-0 left-0 w-1 bg-gradient-to-r from-white/25 to-transparent pointer-events-none" />
+
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (album.tracks.length > 0) playTrack(album.tracks[0], album.tracks);
+                            }}
+                            className="floating-play-btn p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] shadow-glow-sm hover:scale-110 active:scale-90 transition-all"
+                            title="Play Album"
+                          >
+                            <Play size={16} className="ml-0.5 fill-white" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="min-w-0">
+                        <h3 className="font-bold text-xs text-[#F5F3FF] truncate group-hover:text-[var(--accent-dynamic)] transition-colors">
+                          {album.title}
+                        </h3>
+                        <p className="text-[11px] text-[#A1A1AA] truncate">{album.artist}</p>
+                        <p className="text-[10px] text-[#71717A] font-mono-numbers mt-0.5">
+                          {album.trackCount} Tracks {album.year ? `• ${album.year}` : ''}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -562,9 +660,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
                 <div
                   key={artist.id}
                   onClick={() => openArtistDetail(artist)}
-                  className="group p-4 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-[#A78BFA] transition-all cursor-pointer flex flex-col items-center space-y-3 shadow-card"
+                  className="group p-4 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] card-interactive cursor-pointer flex flex-col items-center space-y-3 shadow-card"
                 >
-                  <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-[#1B1B24] to-[#272733] group-hover:from-[#7C3AED]/20 group-hover:to-[#A78BFA]/30 border border-[#272733] group-hover:border-[#A78BFA] flex items-center justify-center text-lg font-black text-[#A78BFA] shadow-md transition-all">
+                  <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-[#1B1B24] to-[#272733] group-hover:from-[#7C3AED]/20 group-hover:to-[#A78BFA]/30 border border-[#272733] group-hover:border-[#A78BFA] flex items-center justify-center text-lg font-black text-[#A78BFA] shadow-md group-hover:scale-105 transition-all duration-300">
                     {artist.name.substring(0, 2).toUpperCase()}
                   </div>
                   <div className="min-w-0 w-full">

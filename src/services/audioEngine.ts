@@ -1168,6 +1168,10 @@ class AudioEngine {
   }
 
   // Audio Device Manager & Output Routing
+  public async setOutputDevice(sinkId: string): Promise<boolean> {
+    return this.setAudioOutputDevice(sinkId);
+  }
+
   public async setAudioOutputDevice(sinkId: string): Promise<boolean> {
     this.currentSinkId = sinkId;
     let ok = false;

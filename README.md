@@ -156,18 +156,48 @@ harmoniq/
 
 ---
 
+## 🚀 Harmoniq 2.0 (Phases 1 – 6 Architecture & Upgrades)
+
+Harmoniq 2.0 introduces an advanced suite of audiophile tools, Windows desktop productivity, and immersive visual experiences:
+
+- **Phase 1 – Personalization & Experience**: Dynamic Theme Engine, 6 High-Contrast Audiophile Presets, Listening Rooms, and Session Crash Recovery.
+- **Phase 2 – Music Collection & Organization**: Genuine Listening Calendar & Daily Activity Heatmap, Multiple Independent Saved Queues, Playlist Folders (nested hierarchies), and Playlist Revision History Snapshots.
+- **Phase 3 – Professional Audio Features**: ABX Double-Blind Audio Comparison Tool with binomial statistical p-value evaluation, Asynchronous PCM Waveform Navigation & Seeking, Scenario-Based Audio Routing Profiles, and Time-of-Day Volume Profiles.
+- **Phase 4 – Windows Desktop Productivity**: 5 Built-in Hotkey Scenario Profiles with conflict detection, Floating Always-on-Top Desktop Mini-Player Widget, Extended Auto-Shutdown Sleep Timer with volume fade-out, Full Library Backup/Restore with SHA-256 checksums, and Portable Storage Mode.
+- **Phase 5 – Immersive Visual Experience**: Full-Bleed Immersive Album Mode with dynamic color extraction, Virtual Vinyl Collection Record Crate with 33⅓ RPM turntable rotation, Harmoniq Monogram Logo, Sinusoidal Waveform Loader, and Vector Empty States.
+- **Phase 6 – Final Visual Polish & Quality Assurance**: Signature 5-Bar Dynamic Waveform Volume Control, Collapsible Sidebar Rail (`Ctrl+B`), TitleBar branding, Unified loading/empty states, and complete regression test pass across 27 suites (248 tests).
+
+Full technical phase reports are available in [`docs/phases/`](file:///C:/Users/a2301/Desktop/harmoniq/docs/phases/).
+
+---
+
 ## 📜 Technical Verification & Feature Disclosure
 
 | Feature | Implementation Status | Technical Mechanism |
 | :--- | :--- | :--- |
 | **FLAC, MP3, WAV, ALAC, AAC, OGG, OPUS** | Fully Implemented | Native Electron media protocol + `music-metadata` stream extraction |
-| **10-Band Graphic EQ** | Fully Implemented | Web Audio `BiquadFilterNode` peaking filters @ ISO center frequencies |
+| **10, 15 & 31-Band Graphic & Parametric EQ** | Fully Implemented | Web Audio `BiquadFilterNode` peaking filters @ ISO center frequencies |
 | **Limiter & Anti-Clipping** | Fully Implemented | Web Audio `DynamicsCompressorNode` with brickwall ratio & real gain reduction |
+| **Signature Waveform Volume** | Fully Implemented | 5-bar dynamic waveform with playback animation, volume fill & mute strike |
 | **Audio Quality Inspector** | Fully Implemented | Real-time diagnostic inspector evaluating bit-depth, codec, resampling & bit-perfect criteria |
 | **Bit-Perfect Detection** | Fully Implemented | Deterministic 5-factor matrix (rate match, volume unity, DSP bypass, replaygain off, exclusive mode) |
+| **ABX Audio Comparison** | Fully Implemented | Double-blind trials, level-matching, binomial p-value significance scoring |
+| **Waveform Navigation** | Fully Implemented | Real asynchronous PCM audio decoding, seekbar scrubbing, peak/RMS cache |
+| **Audio Routing Profiles** | Fully Implemented | Scenario routing (Headphones, Hi-Fi DAC, Studio Monitors) with auto-switch |
+| **Volume Profiles** | Fully Implemented | Time-of-day automation, device-specific volume capping, curve adjustments |
+| **Listening Calendar** | Fully Implemented | Monthly calendar heatmap, genuine playback duration, track count timeline |
+| **Multi-Queue Management** | Fully Implemented | Multiple saved queues, reordering, duplication, crash recovery restoration |
+| **Playlist Folders & History** | Fully Implemented | Hierarchical nesting, drag-and-drop, revision snapshot timeline & restore |
+| **Immersive Album Mode** | Fully Implemented | Full-bleed cover art canvas, dynamic ambient lighting, lyrics overlay, visualizer |
+| **Vinyl Collection Mode** | Fully Implemented | Virtual crate, sliding LP cardboard sleeves, optional 33⅓ RPM rotation, decade chips |
+| **Floating Desktop Player** | Fully Implemented | Always-on-top draggable mini-player, mesh glow, compact/expanded modes, opacity slider |
+| **Hotkey Profiles** | Fully Implemented | 5 usage scenario profiles, conflict detection, profile import/export |
+| **Auto-Shutdown & Sleep Timer**| Fully Implemented | Track/queue boundaries, countdown timer, gentle volume fade-out, app shutdown |
+| **Backup & Portable Mode** | Fully Implemented | Complete library zip archive with SHA-256 integrity, relative portable path rewrites |
+| **Musical Navigation** | Fully Implemented | Custom Violin (Back) and Trumpet (Forward) vector icons with hover glow & shortcuts |
 | **Synchronized Lyrics (.lrc)** | Fully Implemented | Custom millisecond LRC parser with auto-companion loading & manual offset |
 | **High-Scale Library (10,000+ tracks)** | Fully Implemented | Hash-map indexing, tokenized full-text search, and indexed discography grouping |
 | **Gapless Playback & Crossfade** | Fully Implemented | Preloaded audio buffers with adjustable crossfade curve (0–10s) |
 | **WASAPI Shared Mode** | Fully Implemented | Standard Windows CoreAudio endpoint output via Chromium audio pipeline |
-| **WASAPI Exclusive Mode** | Architected & Verified | Real Windows diagnostic query; verified status indicator and explanation of hardware locking |
+| **WASAPI Exclusive Mode** | Architected & Verified | Real Windows diagnostic query; verified status indicator and hardware locking |
 | **SMTC & Taskbar Controls** | Fully Implemented | Windows Media Transport integration & thumbnail toolbar controls |

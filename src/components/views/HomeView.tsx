@@ -244,22 +244,25 @@ export const HomeView: React.FC = () => {
                     e.preventDefault();
                     setContextMenu({ track, x: e.clientX, y: e.clientY });
                   }}
-                  className="group p-3 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] hover:border-[#3B3B4E] transition-all cursor-pointer flex flex-col space-y-2.5 shadow-card"
+                  className="group p-3 rounded-2xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] card-interactive cursor-pointer flex flex-col space-y-2.5 shadow-card"
                 >
-                  <div className="relative aspect-square w-full rounded-lg bg-[#09090B] overflow-hidden flex items-center justify-center border border-[#272733]">
+                  <div className="relative aspect-square w-full rounded-xl bg-[#09090B] overflow-hidden flex items-center justify-center border border-[#272733]">
                     {track.artworkDataUrl ? (
                       <img
                         src={track.artworkDataUrl}
                         alt={track.title}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
                       />
                     ) : (
                       <Disc size={36} className="text-[#3F3F46]" />
                     )}
 
-                    <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      <button className="p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] shadow-glow-sm hover:scale-110 transition-transform">
-                        <Play size={18} className="ml-0.5" />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button className="floating-play-btn p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] shadow-glow-sm hover:scale-110 active:scale-90 transition-all">
+                        <Play size={18} className="ml-0.5" fill="currentColor" />
                       </button>
                     </div>
 

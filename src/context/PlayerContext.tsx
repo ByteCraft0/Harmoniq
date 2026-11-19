@@ -6,6 +6,8 @@ import { audioEngine } from '../services/audioEngine';
 import { libraryService } from '../services/libraryService';
 import { colorExtractionService } from '../services/colorExtractionService';
 import { historyService } from '../services/historyService';
+import { sessionRecoveryService } from '../services/sessionRecoveryService';
+import { queueManagerService } from '../services/queueManagerService';
 import { useToast } from './ToastContext';
 
 const PREFS_KEY = 'harmoniq_player_prefs';
@@ -29,12 +31,28 @@ function loadPrefs(): Partial<{
   }
 }
 
+export type SleepTimerMode = 'duration' | 'stopAfterTrack' | 'stopAfterQueue';
+export type SleepTimerEndAction = 'pause' | 'closeApp' | 'exitApp';
+
+export interface SleepTimerOptions {
+  minutes?: number;
+  mode?: SleepTimerMode;
+  endAction?: SleepTimerEndAction;
+  stopAfterCurrentTrack?: boolean;
+  stopAfterQueue?: boolean;
+  fadeDurationSeconds?: number;
+}
+
 export interface SleepTimerState {
   isActive: boolean;
+  mode: SleepTimerMode;
+  endAction: SleepTimerEndAction;
   totalSeconds: number;
   secondsRemaining: number;
   stopAfterCurrentTrack: boolean;
+  stopAfterQueue: boolean;
   isFading: boolean;
+  fadeDurationSeconds: number;
 }
 
 interface PlayerContextType {
@@ -80,6 +98,7 @@ interface PlayerContextType {
   removeFromQueue: (index: number) => void;
   reorderQueue: (fromIndex: number, toIndex: number) => void;
   clearQueue: () => void;
+  replaceQueue: (tracks: TrackMetadata[]) => void;
 
   // A-B Repeat
   abRepeat: ABRepeatState;
@@ -102,8 +121,9 @@ interface PlayerContextType {
   setOutputDevice: (deviceId: string) => Promise<boolean>;
   refreshOutputDevices: () => Promise<void>;
 
-  // Sleep timer
-  setSleepTimer: (minutes: number, stopAfterCurrentTrack?: boolean) => void;
+  // Sleep timer & Auto Shutdown
+  setSleepTimer: (arg1: number | SleepTimerOptions, stopAfterCurrentTrack?: boolean) => void;
+  extendSleepTimer: (additionalMinutes: number) => void;
   cancelSleepTimer: () => void;
   updateCurrentTrackMetadata: (updated: Partial<TrackMetadata>) => void;
 }
@@ -164,10 +184,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const [history, setHistory] = useState<TrackMetadata[]>([]);
   const [sleepTimer, setSleepTimerState] = useState<SleepTimerState>({
     isActive: false,
+    mode: 'duration',
+    endAction: 'pause',
     totalSeconds: 0,
     secondsRemaining: 0,
     stopAfterCurrentTrack: false,
+    stopAfterQueue: false,
     isFading: false,
+    fadeDurationSeconds: 30,
   });
 
   // A-B Repeat State
@@ -289,6 +313,80 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [volume, isMuted, playbackRate, preservesPitch, repeatMode, isShuffle, replayGainMode, crossfadeDuration, isBitPerfect]);
 
+  // Harmoniq 2.0: Session Recovery on Launch
+  useEffect(() => {
+    const saved = sessionRecoveryService.getSavedSession();
+    if (saved) {
+      if (saved.queueTrackIds && saved.queueTrackIds.length > 0) {
+        const loadedTracks = saved.queueTrackIds
+          .map((id) => libraryService.getTrack(id))
+          .filter((t): t is TrackMetadata => !!t);
+        if (loadedTracks.length > 0) {
+          setQueue(loadedTracks);
+        }
+      }
+      if (saved.currentTrackId) {
+        const tr = libraryService.getTrack(saved.currentTrackId);
+        if (tr) {
+          setCurrentTrack(tr);
+          if (saved.playbackPosition && saved.playbackPosition > 0) {
+            setCurrentTime(saved.playbackPosition);
+            audioEngine.seek(saved.playbackPosition);
+          }
+          if (sessionRecoveryService.getSettings().autoResumePlaybackOnLaunch) {
+            audioEngine.loadAndPlay(tr, saved.playbackPosition || 0);
+            setIsPlaying(true);
+          }
+        }
+      }
+      if (saved.repeatMode) {
+        setRepeatMode(saved.repeatMode);
+      }
+      if (typeof saved.isShuffle === 'boolean') {
+        setIsShuffle(saved.isShuffle);
+      }
+    }
+  }, []);
+
+  // Harmoniq 2.0: Periodically save session state
+  useEffect(() => {
+    if (currentTrack || queue.length > 0) {
+      sessionRecoveryService.saveSession({
+        currentTrackId: currentTrack?.id || null,
+        playbackPosition: currentTime,
+        queueTrackIds: queue.map((t) => t.id),
+        currentQueueIndex: currentTrack ? queue.findIndex((t) => t.id === currentTrack.id) : 0,
+        activeQueueId: queueManagerService.getActiveQueue()?.id,
+        isShuffle,
+        repeatMode,
+        volume,
+        activeView: 'home',
+      });
+    }
+  }, [currentTrack?.id, queue, currentTime, isShuffle, repeatMode, volume]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      if (currentTrackRef.current || queueRef.current.length > 0) {
+        sessionRecoveryService.saveSessionImmediate({
+          currentTrackId: currentTrackRef.current?.id || null,
+          playbackPosition: currentTime,
+          queueTrackIds: queueRef.current.map((t) => t.id),
+          currentQueueIndex: currentTrackRef.current
+            ? queueRef.current.findIndex((t) => t.id === currentTrackRef.current?.id)
+            : 0,
+          activeQueueId: queueManagerService.getActiveQueue()?.id,
+          isShuffle: isShuffleRef.current,
+          repeatMode: repeatModeRef.current,
+          volume,
+          activeView: 'home',
+        });
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [currentTime, volume]);
+
   // Subscribe to audio engine status updates (handlers read through refs, so no stale closures)
   useEffect(() => {
     const unsubscribe = audioEngine.subscribeStatus((status) => {
@@ -392,9 +490,17 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   onEndedRef.current = () => {
     commitListeningSession();
     if (sleepTimerRef.current.stopAfterCurrentTrack) {
-      audioEngine.pause();
-      cancelSleepTimer();
+      executeSleepEndAction();
       return;
+    }
+
+    if (sleepTimerRef.current.stopAfterQueue) {
+      const curIndex = queue.findIndex((t) => t.id === currentTrackRef.current?.id);
+      const isLastTrack = curIndex === -1 || curIndex >= queue.length - 1;
+      if (isLastTrack && repeatModeRef.current !== 'all') {
+        executeSleepEndAction();
+        return;
+      }
     }
 
     if (repeatModeRef.current === 'one' && currentTrackRef.current) {
@@ -713,7 +819,31 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     playNextCountRef.current = 0;
   };
 
-  // Sleep Timer with Gradual Volume Fade-Out (18-20s fade before pause)
+  const replaceQueue = (tracks: TrackMetadata[]) => {
+    setQueue([...tracks]);
+    playNextCountRef.current = 0;
+  };
+
+  // Extended Sleep Timer & Auto Shutdown Logic
+  const executeSleepEndAction = () => {
+    const endAction = sleepTimerRef.current.endAction || 'pause';
+    audioEngine.pause();
+    setIsPlaying(false);
+    cancelSleepTimer();
+
+    if (endAction === 'closeApp') {
+      if (typeof window !== 'undefined' && window.harmoniqApi?.windowClose) {
+        window.harmoniqApi.windowClose().catch(() => {});
+      }
+    } else if (endAction === 'exitApp') {
+      if (typeof window !== 'undefined' && (window.harmoniqApi as any)?.quitApp) {
+        (window.harmoniqApi as any).quitApp().catch(() => {});
+      } else if (typeof window !== 'undefined' && window.harmoniqApi?.windowClose) {
+        window.harmoniqApi.windowClose().catch(() => {});
+      }
+    }
+  };
+
   const startVolumeFadeOut = () => {
     if (sleepTimerFadeIntervalRef.current) {
       clearInterval(sleepTimerFadeIntervalRef.current);
@@ -727,9 +857,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       isFading: true,
     }));
 
-    const fadeDurationMs = 18000; // 18 seconds
+    const fadeDurationSecs = sleepTimerRef.current.fadeDurationSeconds || 30;
+    const fadeDurationMs = Math.max(1000, fadeDurationSecs * 1000);
     const stepIntervalMs = 300;
-    const totalSteps = Math.round(fadeDurationMs / stepIntervalMs);
+    const totalSteps = Math.max(1, Math.round(fadeDurationMs / stepIntervalMs));
     let currentStep = 0;
 
     sleepTimerFadeIntervalRef.current = setInterval(() => {
@@ -743,26 +874,66 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           clearInterval(sleepTimerFadeIntervalRef.current);
           sleepTimerFadeIntervalRef.current = null;
         }
-        audioEngine.pause();
         // Restore user's base volume
         audioEngine.setVolume(initialVolume);
         setVolumeState(initialVolume);
         preFadeVolumeRef.current = null;
-        cancelSleepTimer();
+        executeSleepEndAction();
       }
     }, stepIntervalMs);
   };
 
-  const setSleepTimer = (minutes: number, stopAfterCurrentTrack = false) => {
+  const setSleepTimer = (
+    arg1: number | SleepTimerOptions,
+    stopAfterTrackParam = false
+  ) => {
     cancelSleepTimer();
 
-    if (stopAfterCurrentTrack) {
+    let mode: SleepTimerMode = 'duration';
+    let endAction: SleepTimerEndAction = 'pause';
+    let minutes = 0;
+    let fadeDurationSeconds = 30;
+
+    if (typeof arg1 === 'number') {
+      minutes = arg1;
+      if (stopAfterTrackParam) {
+        mode = 'stopAfterTrack';
+      } else {
+        mode = 'duration';
+      }
+    } else if (typeof arg1 === 'object') {
+      mode = arg1.mode || (arg1.stopAfterCurrentTrack ? 'stopAfterTrack' : arg1.stopAfterQueue ? 'stopAfterQueue' : 'duration');
+      endAction = arg1.endAction || 'pause';
+      minutes = arg1.minutes || 0;
+      fadeDurationSeconds = arg1.fadeDurationSeconds !== undefined ? arg1.fadeDurationSeconds : 30;
+    }
+
+    if (mode === 'stopAfterTrack') {
       setSleepTimerState({
         isActive: true,
+        mode: 'stopAfterTrack',
+        endAction,
         totalSeconds: 0,
         secondsRemaining: 0,
         stopAfterCurrentTrack: true,
+        stopAfterQueue: false,
         isFading: false,
+        fadeDurationSeconds,
+      });
+      return;
+    }
+
+    if (mode === 'stopAfterQueue') {
+      setSleepTimerState({
+        isActive: true,
+        mode: 'stopAfterQueue',
+        endAction,
+        totalSeconds: 0,
+        secondsRemaining: 0,
+        stopAfterCurrentTrack: false,
+        stopAfterQueue: true,
+        isFading: false,
+        fadeDurationSeconds,
       });
       return;
     }
@@ -772,10 +943,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     setSleepTimerState({
       isActive: true,
+      mode: 'duration',
+      endAction,
       totalSeconds: totalSecs,
       secondsRemaining: totalSecs,
       stopAfterCurrentTrack: false,
+      stopAfterQueue: false,
       isFading: false,
+      fadeDurationSeconds,
     });
 
     sleepTimerIntervalRef.current = setInterval(() => {
@@ -789,7 +964,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           ...prev,
           secondsRemaining: 0,
         }));
-        startVolumeFadeOut();
+        if (fadeDurationSeconds > 0) {
+          startVolumeFadeOut();
+        } else {
+          executeSleepEndAction();
+        }
       } else {
         setSleepTimerState((prev) => ({
           ...prev,
@@ -797,6 +976,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         }));
       }
     }, 1000);
+  };
+
+  const extendSleepTimer = (additionalMinutes: number) => {
+    if (!sleepTimerRef.current.isActive) {
+      setSleepTimer(additionalMinutes);
+      return;
+    }
+    const addSecs = Math.round(additionalMinutes * 60);
+    setSleepTimerState((prev) => ({
+      ...prev,
+      totalSeconds: prev.totalSeconds + addSecs,
+      secondsRemaining: prev.secondsRemaining + addSecs,
+    }));
   };
 
   const cancelSleepTimer = () => {
@@ -815,10 +1007,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     setSleepTimerState({
       isActive: false,
+      mode: 'duration',
+      endAction: 'pause',
       totalSeconds: 0,
       secondsRemaining: 0,
       stopAfterCurrentTrack: false,
+      stopAfterQueue: false,
       isFading: false,
+      fadeDurationSeconds: 30,
     });
   };
 
@@ -993,6 +1189,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         removeFromQueue,
         reorderQueue,
         clearQueue,
+        replaceQueue,
         // A-B Repeat
         abRepeat,
         setABRepeatPointA,
@@ -1011,8 +1208,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         currentDeviceId,
         setOutputDevice,
         refreshOutputDevices,
-        // Sleep Timer
+        // Sleep Timer & Auto Shutdown
         setSleepTimer,
+        extendSleepTimer,
         cancelSleepTimer,
         updateCurrentTrackMetadata,
       }}

@@ -23,8 +23,12 @@ import {
   Clock,
   Sparkles,
   Minimize2,
+  Maximize2,
   X,
+  Bookmark,
 } from 'lucide-react';
+import { MusicBookmarksModal } from '../audio/MusicBookmarksModal';
+import { WaveformVolumeControl } from '../audio/WaveformVolumeControl';
 
 interface BottomPlayerProps {
   onToggleQueue: () => void;
@@ -58,6 +62,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
     toggleShuffle,
     setPlaybackRate,
     setSleepTimer,
+    extendSleepTimer,
     cancelSleepTimer,
   } = usePlayer();
 
@@ -65,7 +70,10 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [showSleepMenu, setShowSleepMenu] = useState(false);
   const [showABMenu, setShowABMenu] = useState(false);
+  const [showBookmarksModal, setShowBookmarksModal] = useState(false);
   const [customMinutes, setCustomMinutes] = useState('');
+  const [sleepEndAction, setSleepEndAction] = useState<'pause' | 'closeApp' | 'exitApp'>('pause');
+  const [sleepFadeOut, setSleepFadeOut] = useState(true);
 
   // Scrubber interactive states
   const progressBarRef = useRef<HTMLDivElement>(null);
@@ -126,7 +134,12 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
     e.preventDefault();
     const val = parseInt(customMinutes, 10);
     if (val && val > 0) {
-      setSleepTimer(val);
+      setSleepTimer({
+        minutes: val,
+        mode: 'duration',
+        endAction: sleepEndAction,
+        fadeDurationSeconds: sleepFadeOut ? 30 : 0,
+      });
       setCustomMinutes('');
       setShowSleepMenu(false);
     }
@@ -449,10 +462,11 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
           </button>
 
           {showSleepMenu && (
-            <div className="absolute bottom-12 right-0 p-3.5 rounded-2xl glass-panel border border-white/15 shadow-2xl flex flex-col gap-2 z-50 w-56 text-xs animate-in fade-in zoom-in-95 duration-150">
-              <div className="flex items-center justify-between border-b border-white/10 pb-1.5">
-                <span className="text-[10px] uppercase font-bold text-[#A1A1AA] tracking-wider font-mono-numbers">
-                  Sleep Timer
+            <div className="absolute bottom-12 right-0 p-4 rounded-2xl glass-panel border border-white/15 shadow-2xl flex flex-col gap-2.5 z-50 w-72 text-xs animate-in fade-in zoom-in-95 duration-150">
+              <div className="flex items-center justify-between border-b border-white/10 pb-2">
+                <span className="text-[10px] uppercase font-bold text-[#A1A1AA] tracking-wider font-mono-numbers flex items-center gap-1.5">
+                  <Clock size={12} className="text-[var(--accent-dynamic)]" />
+                  <span>Extended Auto Shutdown</span>
                 </span>
                 {sleepTimer.isActive && (
                   <span className="text-[10px] font-mono-numbers font-bold text-[var(--accent-dynamic)]">
@@ -463,23 +477,40 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
 
               {/* Active Timer Status Banner */}
               {sleepTimer.isActive && (
-                <div className="p-2 rounded-xl bg-white/5 border border-white/10 space-y-1.5">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-[#A1A1AA]">
-                      {sleepTimer.stopAfterCurrentTrack
-                        ? 'Stop after track'
-                        : sleepTimer.isFading
-                        ? 'Gradual fade-out active'
-                        : 'Timer running'}
-                    </span>
+                <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-[var(--accent-dynamic)] animate-pulse" />
+                      <span className="text-[#F5F3FF] font-medium">
+                        {sleepTimer.stopAfterCurrentTrack
+                          ? 'Stop after track'
+                          : sleepTimer.stopAfterQueue
+                          ? 'Stop after queue'
+                          : sleepTimer.isFading
+                          ? 'Fading out'
+                          : 'Active countdown'}
+                      </span>
+                    </div>
                     <span className="font-mono-numbers font-bold text-[#F5F3FF]">
-                      {formatTime(sleepTimer.secondsRemaining)}
+                      {sleepTimer.secondsRemaining > 0 ? formatTime(sleepTimer.secondsRemaining) : '--:--'}
                     </span>
                   </div>
+
+                  <div className="flex items-center justify-between text-[10px] text-[#A1A1AA]">
+                    <span>Action:</span>
+                    <span className="font-semibold text-[var(--accent-dynamic)] uppercase tracking-wider font-mono-numbers">
+                      {sleepTimer.endAction === 'closeApp'
+                        ? 'Close Harmoniq'
+                        : sleepTimer.endAction === 'exitApp'
+                        ? 'Exit App'
+                        : 'Pause Audio'}
+                    </span>
+                  </div>
+
                   {sleepTimer.totalSeconds > 0 && (
-                    <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                    <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-[var(--accent-dynamic)] rounded-full transition-all duration-1000"
+                        className="h-full bg-gradient-to-r from-[var(--accent-dynamic)] to-purple-400 rounded-full transition-all duration-1000"
                         style={{
                           width: `${Math.max(
                             0,
@@ -492,36 +523,103 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
                       />
                     </div>
                   )}
-                  <button
-                    onClick={() => {
-                      cancelSleepTimer();
-                      setShowSleepMenu(false);
-                    }}
-                    className="w-full py-1 text-center text-xs font-semibold text-red-400 hover:bg-red-950/40 rounded-lg transition-colors mt-1"
-                  >
-                    Cancel Timer
-                  </button>
+
+                  {/* Extend Controls: +5m, +15m */}
+                  <div className="flex items-center gap-1.5 pt-0.5">
+                    <button
+                      onClick={() => extendSleepTimer(5)}
+                      className="flex-1 py-1 text-center text-[10px] font-mono-numbers font-bold rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[#E4E4E7] hover:text-white transition-colors"
+                      title="Add 5 minutes to active countdown"
+                    >
+                      +5 min
+                    </button>
+                    <button
+                      onClick={() => extendSleepTimer(15)}
+                      className="flex-1 py-1 text-center text-[10px] font-mono-numbers font-bold rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[#E4E4E7] hover:text-white transition-colors"
+                      title="Add 15 minutes to active countdown"
+                    >
+                      +15 min
+                    </button>
+                    <button
+                      onClick={() => {
+                        cancelSleepTimer();
+                        setShowSleepMenu(false);
+                      }}
+                      className="px-2.5 py-1 text-center text-[10px] font-semibold text-rose-400 hover:bg-rose-950/40 border border-rose-800/40 rounded-lg transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               )}
 
-              {/* Presets Grid */}
-              <div className="grid grid-cols-3 gap-1.5">
-                {sleepPresets.map((mins) => (
-                  <button
-                    key={mins}
-                    onClick={() => {
-                      setSleepTimer(mins);
-                      setShowSleepMenu(false);
-                    }}
-                    className="px-2 py-1.5 rounded-lg text-center bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors font-mono-numbers text-[11px]"
-                  >
-                    {mins}m
-                  </button>
-                ))}
+              {/* Action Selection (On Timer End) */}
+              <div className="space-y-1">
+                <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider font-mono-numbers font-bold">
+                  On Trigger:
+                </span>
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: 'pause', label: 'Pause' },
+                      { id: 'closeApp', label: 'Close Win' },
+                      { id: 'exitApp', label: 'Exit App' },
+                    ] as const
+                  ).map((act) => (
+                    <button
+                      key={act.id}
+                      onClick={() => setSleepEndAction(act.id)}
+                      className={`py-1 text-[10px] font-semibold rounded-lg border transition-all ${
+                        sleepEndAction === act.id
+                          ? 'bg-[var(--accent-dynamic)] text-white border-transparent'
+                          : 'bg-white/5 text-[#A1A1AA] hover:text-[#F5F3FF] border-white/5 hover:border-white/15'
+                      }`}
+                    >
+                      {act.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Gradual Volume Fade-Out Option */}
+              <label className="flex items-center justify-between p-1.5 rounded-lg bg-white/5 border border-white/5 cursor-pointer">
+                <span className="text-[10px] text-[#A1A1AA]">Gradual 30s volume fade</span>
+                <input
+                  type="checkbox"
+                  checked={sleepFadeOut}
+                  onChange={(e) => setSleepFadeOut(e.target.checked)}
+                  className="rounded border-white/20 text-[var(--accent-dynamic)] focus:ring-0"
+                />
+              </label>
+
+              {/* Countdown Presets */}
+              <div className="space-y-1">
+                <span className="text-[10px] text-[#A1A1AA] uppercase tracking-wider font-mono-numbers font-bold">
+                  Countdown Presets:
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {sleepPresets.map((mins) => (
+                    <button
+                      key={mins}
+                      onClick={() => {
+                        setSleepTimer({
+                          minutes: mins,
+                          mode: 'duration',
+                          endAction: sleepEndAction,
+                          fadeDurationSeconds: sleepFadeOut ? 30 : 0,
+                        });
+                        setShowSleepMenu(false);
+                      }}
+                      className="px-2 py-1.5 rounded-lg text-center bg-white/5 hover:bg-white/10 border border-white/5 hover:border-white/15 text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors font-mono-numbers text-[11px]"
+                    >
+                      {mins}m
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Custom Duration Input */}
-              <form onSubmit={handleCustomSleepSubmit} className="flex gap-1.5 pt-1">
+              <form onSubmit={handleCustomSleepSubmit} className="flex gap-1.5">
                 <input
                   type="number"
                   min="1"
@@ -529,29 +627,63 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
                   value={customMinutes}
                   onChange={(e) => setCustomMinutes(e.target.value)}
                   placeholder="Custom mins..."
-                  className="w-full px-2 py-1 rounded-lg bg-white/5 border border-white/10 focus:border-[var(--accent-dynamic)] text-[11px] font-mono-numbers text-[#F5F3FF] placeholder-[#71717A] focus:outline-none"
+                  className="w-full px-2.5 py-1 rounded-lg bg-white/5 border border-white/10 focus:border-[var(--accent-dynamic)] text-[11px] font-mono-numbers text-[#F5F3FF] placeholder-[#71717A] focus:outline-none"
                 />
                 <button
                   type="submit"
-                  className="px-2.5 py-1 rounded-lg bg-[var(--accent-dynamic)] hover:opacity-90 text-white font-bold text-[11px] shrink-0"
+                  className="px-3 py-1 rounded-lg bg-[var(--accent-dynamic)] hover:opacity-90 text-white font-bold text-[11px] shrink-0"
                 >
                   Set
                 </button>
               </form>
 
-              {/* End of Current Track Option */}
-              <button
-                onClick={() => {
-                  setSleepTimer(0, true);
-                  setShowSleepMenu(false);
-                }}
-                className="px-2 py-1.5 rounded-lg text-left hover:bg-white/10 text-[#A1A1AA] hover:text-[#F5F3FF] border-t border-white/10 mt-1 pt-1.5 transition-colors text-[11px]"
-              >
-                End of Current Track
-              </button>
+              {/* Event-driven Trigger Options */}
+              <div className="border-t border-white/10 pt-1.5 space-y-1">
+                <button
+                  onClick={() => {
+                    setSleepTimer({
+                      mode: 'stopAfterTrack',
+                      endAction: sleepEndAction,
+                      fadeDurationSeconds: sleepFadeOut ? 30 : 0,
+                    });
+                    setShowSleepMenu(false);
+                  }}
+                  className="w-full px-2 py-1.5 rounded-lg text-left hover:bg-white/10 text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors text-[11px] flex items-center justify-between"
+                >
+                  <span>End of Current Track</span>
+                  <span className="text-[9px] font-mono-numbers text-[#71717A]">Track End</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setSleepTimer({
+                      mode: 'stopAfterQueue',
+                      endAction: sleepEndAction,
+                      fadeDurationSeconds: sleepFadeOut ? 30 : 0,
+                    });
+                    setShowSleepMenu(false);
+                  }}
+                  className="w-full px-2 py-1.5 rounded-lg text-left hover:bg-white/10 text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors text-[11px] flex items-center justify-between"
+                >
+                  <span>End of Current Queue</span>
+                  <span className="text-[9px] font-mono-numbers text-[#71717A]">Queue End</span>
+                </button>
+              </div>
             </div>
           )}
         </div>
+
+        {/* Immersive Album Mode Button */}
+        <button
+          onClick={() => setActiveView(activeView === 'immersive_album' ? 'home' : 'immersive_album')}
+          title="Immersive Full-Screen Album Mode"
+          className={`p-1.5 rounded-lg transition-colors ${
+            activeView === 'immersive_album'
+              ? 'text-[var(--accent-dynamic)] bg-white/10 shadow-glow-sm'
+              : 'text-[#71717A] hover:text-[#F5F3FF]'
+          }`}
+        >
+          <Maximize2 size={16} />
+        </button>
 
         {/* Synced Lyrics Quick Toggle */}
         <button
@@ -575,6 +707,15 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
           <Sliders size={16} />
         </button>
 
+        {/* Music Bookmarks Quick Trigger */}
+        <button
+          onClick={() => setShowBookmarksModal(true)}
+          title="Music Bookmarks (Timestamp Markers)"
+          className="p-1.5 text-[#71717A] hover:text-[var(--accent-dynamic)] hover:bg-white/10 rounded-lg transition-colors"
+        >
+          <Bookmark size={16} />
+        </button>
+
         {/* Queue Drawer Toggle */}
         <button
           onClick={onToggleQueue}
@@ -588,25 +729,26 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
           <ListMusic size={16} />
         </button>
 
-        {/* Volume Slider */}
-        <div className="flex items-center gap-1.5 ml-1">
-          <button
-            onClick={toggleMute}
-            className="text-[#71717A] hover:text-[#F5F3FF] transition-colors p-1"
-          >
-            {isMuted || volume === 0 ? <VolumeX size={15} /> : <Volume2 size={15} />}
-          </button>
-          <input
-            type="range"
-            min="0"
-            max="1"
-            step="0.01"
-            value={isMuted ? 0 : volume}
-            onChange={(e) => setVolume(parseFloat(e.target.value))}
-            className="w-[72px]"
+        {/* Signature Waveform Volume Control */}
+        <div className="flex items-center ml-1">
+          <WaveformVolumeControl
+            volume={volume}
+            isMuted={isMuted}
+            isPlaying={isPlaying}
+            onToggleMute={toggleMute}
+            onVolumeChange={setVolume}
+            showSlider={true}
+            size="md"
+            sliderWidth="w-[72px]"
           />
         </div>
       </div>
+
+      <MusicBookmarksModal
+        track={currentTrack}
+        isOpen={showBookmarksModal}
+        onClose={() => setShowBookmarksModal(false)}
+      />
     </footer>
   );
 };

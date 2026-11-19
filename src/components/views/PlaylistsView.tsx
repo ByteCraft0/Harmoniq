@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useLibrary } from '../../context/LibraryContext';
 import { usePlayer } from '../../context/PlayerContext';
 import { useToast } from '../../context/ToastContext';
@@ -7,8 +7,11 @@ import { TrackContextMenu, ContextMenuState } from '../layout/TrackContextMenu';
 import { AddToPlaylistModal } from '../layout/AddToPlaylistModal';
 import { AddSongsToPlaylistModal } from '../layout/AddSongsToPlaylistModal';
 import { TrackMetadata } from '../../types/audio';
-import { Playlist } from '../../types/library';
+import { Playlist, PlaylistFolder } from '../../types/library';
+import { playlistFolderService } from '../../services/playlistFolderService';
 import { PlaylistImportExportModal } from '../library/PlaylistImportExportModal';
+import { PlaylistHistoryModal } from '../library/PlaylistHistoryModal';
+import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
 import {
   ListMusic,
   Plus,
@@ -20,6 +23,14 @@ import {
   Heart,
   Clock,
   Edit2,
+  Folder,
+  FolderPlus,
+  FolderOpen,
+  ChevronDown,
+  ChevronRight,
+  History,
+  FolderTree,
+  FolderOutput,
 } from 'lucide-react';
 
 export const PlaylistsView: React.FC = () => {
@@ -33,7 +44,6 @@ export const PlaylistsView: React.FC = () => {
     renamePlaylist,
     deletePlaylist,
     removeTrackFromPlaylist,
-    exportPlaylistM3u,
     importPlaylistM3u,
     toggleFavorite,
   } = useLibrary();
@@ -41,6 +51,20 @@ export const PlaylistsView: React.FC = () => {
   const { playTrack, playNext, addToQueue, currentTrack, isPlaying } = usePlayer();
   const { showToast } = useToast();
 
+  // Folder states
+  const [folders, setFolders] = useState<PlaylistFolder[]>(() => playlistFolderService.getFolders());
+  const [expandedFolderIds, setExpandedFolderIds] = useState<Set<string>>(() => {
+    return new Set(playlistFolderService.getFolders().map((f) => f.id));
+  });
+
+  const [showCreateFolderModal, setShowCreateFolderModal] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+
+  const [showRenameFolderModal, setShowRenameFolderModal] = useState(false);
+  const [folderToRename, setFolderToRename] = useState<PlaylistFolder | null>(null);
+  const [renameFolderName, setRenameFolderName] = useState('');
+
+  // Playlist states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newPlaylistDesc, setNewPlaylistDesc] = useState('');
@@ -48,10 +72,19 @@ export const PlaylistsView: React.FC = () => {
   const [showRenameModal, setShowRenameModal] = useState(false);
   const [renameValue, setRenameValue] = useState('');
 
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [playlistModalTracks, setPlaylistModalTracks] = useState<TrackMetadata[] | null>(null);
   const [showAddSongsModal, setShowAddSongsModal] = useState(false);
   const [showIoModal, setShowIoModal] = useState<'import' | 'export' | null>(null);
+
+  // Subscribe to folder changes
+  useEffect(() => {
+    return playlistFolderService.subscribeFolders((fList) => {
+      setFolders(fList);
+    });
+  }, []);
 
   // Compute active playlist reactively based on view and selection
   let activePlaylist: Playlist | null = null;
@@ -70,6 +103,53 @@ export const PlaylistsView: React.FC = () => {
         .map((id) => tracks.find((t) => t.id === id))
         .filter((t): t is typeof tracks[0] => !!t)
     : [];
+
+  const toggleFolderExpand = (folderId: string) => {
+    setExpandedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(folderId)) {
+        next.delete(folderId);
+      } else {
+        next.add(folderId);
+      }
+      return next;
+    });
+  };
+
+  const handleCreateFolder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newFolderName.trim()) {
+      const folder = playlistFolderService.createFolder(newFolderName.trim());
+      setExpandedFolderIds((prev) => new Set(prev).add(folder.id));
+      setNewFolderName('');
+      setShowCreateFolderModal(false);
+      showToast(`Folder "${folder.name}" created`, 'success');
+    }
+  };
+
+  const handleOpenRenameFolder = (f: PlaylistFolder, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setFolderToRename(f);
+    setRenameFolderName(f.name);
+    setShowRenameFolderModal(true);
+  };
+
+  const handleRenameFolder = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (folderToRename && renameFolderName.trim()) {
+      playlistFolderService.renameFolder(folderToRename.id, renameFolderName.trim());
+      setShowRenameFolderModal(false);
+      setFolderToRename(null);
+      setRenameFolderName('');
+      showToast('Folder renamed', 'success');
+    }
+  };
+
+  const handleDeleteFolder = (folder: PlaylistFolder, e: React.MouseEvent) => {
+    e.stopPropagation();
+    playlistFolderService.deleteFolder(folder.id);
+    showToast(`Folder "${folder.name}" deleted (all playlists safely kept at root)`, 'info');
+  };
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,19 +186,11 @@ export const PlaylistsView: React.FC = () => {
     }
   };
 
-  const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target?.result as string;
-        if (content) {
-          const name = file.name.replace(/\.[^/.]+$/, '');
-          importPlaylistM3u(name, content);
-        }
-      };
-      reader.readAsText(file);
-    }
+  const handleMoveActiveToFolder = (targetFolderId: string | null) => {
+    if (!activePlaylist || activePlaylist.isSmart) return;
+    playlistFolderService.movePlaylistToFolder(activePlaylist.id, targetFolderId);
+    const targetName = targetFolderId ? folders.find((f) => f.id === targetFolderId)?.name || 'folder' : 'Root';
+    showToast(`Moved "${activePlaylist.name}" to ${targetName}`, 'success');
   };
 
   const handlePlay = useCallback(
@@ -188,51 +260,251 @@ export const PlaylistsView: React.FC = () => {
 
   const totalDuration = playlistTracks.reduce((sum, t) => sum + (t.duration || 0), 0);
 
+  // Split playlists into smart, root/unfiled, and foldered
+  const smartPlaylists = playlists.filter((p) => p.isSmart);
+  const rootPlaylists = playlists.filter((p) => !p.isSmart && !p.folderId);
+  const currentFolder = activePlaylist?.folderId
+    ? folders.find((f) => f.id === activePlaylist.folderId)
+    : null;
+
+  // History count for active playlist
+  const activeHistoryEntries = activePlaylist && !activePlaylist.isSmart
+    ? playlistFolderService.getHistoryForPlaylist(activePlaylist.id)
+    : [];
+
   return (
     <div className="h-full flex overflow-hidden select-none">
-      {/* Left Column: Playlists Sidebar */}
-      <div className="w-64 bg-[#0D0D12] border-r border-[#272733] p-4 flex flex-col justify-between shrink-0">
+      {/* Left Column: Folders & Playlists Sidebar */}
+      <div className="w-64 bg-[#0D0D12] border-r border-[#272733] p-3 flex flex-col justify-between shrink-0">
         <div className="space-y-4 overflow-y-auto">
+          {/* Header & Quick Action Buttons */}
           <div className="flex items-center justify-between pb-2 border-b border-[#272733]">
-            <h2 className="font-bold text-sm text-[#F5F3FF]">Playlists</h2>
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="p-1 rounded-lg text-[#A78BFA] hover:text-[#C4B5FD] hover:bg-[#1B1B24] transition-colors"
-              title="Create New Playlist"
-            >
-              <Plus size={16} />
-            </button>
+            <h2 className="font-bold text-xs uppercase tracking-wider text-[#A78BFA] flex items-center gap-1.5">
+              <FolderTree size={14} />
+              <span>Playlists</span>
+            </h2>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowCreateFolderModal(true)}
+                className="p-1 rounded-lg text-[#71717A] hover:text-[#A78BFA] hover:bg-[#1B1B24] transition-colors"
+                title="Create New Folder"
+              >
+                <FolderPlus size={15} />
+              </button>
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="p-1 rounded-lg text-[#A78BFA] hover:text-[#C4B5FD] hover:bg-[#1B1B24] transition-colors"
+                title="Create New Playlist"
+              >
+                <Plus size={15} />
+              </button>
+            </div>
           </div>
 
-          <div className="space-y-1">
-            {playlists.map((pl) => {
-              const isSelected = activePlaylist?.id === pl.id;
-              return (
-                <div
-                  key={pl.id}
-                  onClick={() => openPlaylistDetail(pl)}
-                  className={`flex items-center justify-between p-2.5 rounded-xl text-xs transition-colors cursor-pointer ${
-                    isSelected
-                      ? 'bg-[#1B1B24] text-[#A78BFA] font-bold border border-[#272733]'
-                      : 'hover:bg-[#14141B] text-[#A1A1AA]'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 truncate">
-                    {pl.smartCriteria === 'favorites' ? (
-                      <Heart size={14} className="text-red-400 shrink-0" />
-                    ) : pl.smartCriteria === 'recently_played' ? (
-                      <Clock size={14} className="text-[#A78BFA] shrink-0" />
-                    ) : (
-                      <ListMusic size={14} className={isSelected ? 'text-[#A78BFA] shrink-0' : 'text-[#71717A] shrink-0'} />
-                    )}
-                    <span className="truncate">{pl.name}</span>
+          {/* Section 1: Smart Playlists */}
+          {smartPlaylists.length > 0 && (
+            <div className="space-y-1">
+              <span className="text-[10px] font-mono-numbers uppercase text-[#71717A] px-2 font-bold">
+                Smart
+              </span>
+              {smartPlaylists.map((pl) => {
+                const isSelected = activePlaylist?.id === pl.id;
+                return (
+                  <div
+                    key={pl.id}
+                    onClick={() => openPlaylistDetail(pl)}
+                    className={`flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#1B1B24] text-[#A78BFA] font-bold border border-[#272733]'
+                        : 'hover:bg-[#14141B] text-[#A1A1AA]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      {pl.smartCriteria === 'favorites' ? (
+                        <Heart size={13} className="text-red-400 shrink-0" />
+                      ) : (
+                        <Clock size={13} className="text-[#A78BFA] shrink-0" />
+                      )}
+                      <span className="truncate">{pl.name}</span>
+                    </div>
+                    <span className="text-[10px] font-mono-numbers text-[#71717A]">
+                      {pl.trackIds.length}
+                    </span>
                   </div>
-                  <span className="text-[10px] font-mono-numbers text-[#71717A]">
-                    {pl.trackIds.length}
-                  </span>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
+          )}
+
+          {/* Section 2: Playlist Folders */}
+          <div className="space-y-1">
+            <div className="flex items-center justify-between px-2 pt-2">
+              <span className="text-[10px] font-mono-numbers uppercase text-[#71717A] font-bold">
+                Folders ({folders.length})
+              </span>
+            </div>
+
+            {folders.length === 0 ? (
+              <p className="px-2 py-1 text-[11px] text-[#52525B] italic">No folders created</p>
+            ) : (
+              folders.map((folder) => {
+                const isExpanded = expandedFolderIds.has(folder.id);
+                const folderPlaylists = playlists.filter((p) => p.folderId === folder.id);
+                return (
+                  <div
+                    key={folder.id}
+                    className="space-y-0.5"
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const plId = e.dataTransfer.getData('application/harmoniq-playlist-id');
+                      if (plId) {
+                        playlistFolderService.movePlaylistToFolder(plId, folder.id);
+                        showToast(`Moved to folder "${folder.name}"`, 'success');
+                      }
+                    }}
+                  >
+                    {/* Folder Header Row */}
+                    <div
+                      onClick={() => toggleFolderExpand(folder.id)}
+                      className="group flex items-center justify-between p-1.5 rounded-lg text-xs hover:bg-[#14141B] text-[#E4E4E7] transition-colors cursor-pointer"
+                    >
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="text-[#71717A]">
+                          {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                        </span>
+                        {isExpanded ? (
+                          <FolderOpen size={14} className="text-[#A78BFA] shrink-0" />
+                        ) : (
+                          <Folder size={14} className="text-[#A78BFA] shrink-0" />
+                        )}
+                        <span className="truncate font-semibold text-xs">{folder.name}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] font-mono-numbers text-[#71717A]">
+                          {folderPlaylists.length}
+                        </span>
+                        <button
+                          onClick={(e) => handleOpenRenameFolder(folder, e)}
+                          title="Rename Folder"
+                          className="opacity-0 group-hover:opacity-100 p-1 text-[#71717A] hover:text-[#A78BFA] transition-opacity"
+                        >
+                          <Edit2 size={11} />
+                        </button>
+                        <button
+                          onClick={(e) => handleDeleteFolder(folder, e)}
+                          title="Delete Folder (Preserves Playlists)"
+                          className="opacity-0 group-hover:opacity-100 p-1 text-[#71717A] hover:text-red-400 transition-opacity"
+                        >
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Folder Children Playlists */}
+                    {isExpanded && (
+                      <div className="pl-4 space-y-0.5 border-l border-[#272733]/50 ml-2">
+                        {folderPlaylists.length === 0 ? (
+                          <p className="text-[10px] text-[#52525B] py-1 pl-2 italic">
+                            Empty folder (drag playlists here)
+                          </p>
+                        ) : (
+                          folderPlaylists.map((pl) => {
+                            const isSelected = activePlaylist?.id === pl.id;
+                            return (
+                              <div
+                                key={pl.id}
+                                draggable
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData('application/harmoniq-playlist-id', pl.id);
+                                }}
+                                onClick={() => openPlaylistDetail(pl)}
+                                className={`flex items-center justify-between p-2 rounded-lg text-xs transition-colors cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-[#1B1B24] text-[#A78BFA] font-bold border border-[#272733]'
+                                    : 'hover:bg-[#14141B] text-[#A1A1AA]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 truncate">
+                                  <ListMusic
+                                    size={13}
+                                    className={isSelected ? 'text-[#A78BFA] shrink-0' : 'text-[#71717A] shrink-0'}
+                                  />
+                                  <span className="truncate">{pl.name}</span>
+                                </div>
+                                <span className="text-[10px] font-mono-numbers text-[#71717A]">
+                                  {pl.trackIds.length}
+                                </span>
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Section 3: Root / Unfiled Playlists */}
+          <div
+            className="space-y-1"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const plId = e.dataTransfer.getData('application/harmoniq-playlist-id');
+              if (plId) {
+                playlistFolderService.movePlaylistToFolder(plId, null);
+                showToast('Moved playlist to Root', 'info');
+              }
+            }}
+          >
+            <div className="flex items-center justify-between px-2 pt-2">
+              <span className="text-[10px] font-mono-numbers uppercase text-[#71717A] font-bold">
+                Unfiled Playlists ({rootPlaylists.length})
+              </span>
+            </div>
+
+            {rootPlaylists.length === 0 ? (
+              <p className="px-2 py-1 text-[11px] text-[#52525B] italic">All playlists organized in folders</p>
+            ) : (
+              rootPlaylists.map((pl) => {
+                const isSelected = activePlaylist?.id === pl.id;
+                return (
+                  <div
+                    key={pl.id}
+                    draggable
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData('application/harmoniq-playlist-id', pl.id);
+                    }}
+                    onClick={() => openPlaylistDetail(pl)}
+                    className={`flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-[#1B1B24] text-[#A78BFA] font-bold border border-[#272733]'
+                        : 'hover:bg-[#14141B] text-[#A1A1AA]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <ListMusic
+                        size={13}
+                        className={isSelected ? 'text-[#A78BFA] shrink-0' : 'text-[#71717A] shrink-0'}
+                      />
+                      <span className="truncate">{pl.name}</span>
+                    </div>
+                    <span className="text-[10px] font-mono-numbers text-[#71717A]">
+                      {pl.trackIds.length}
+                    </span>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
 
@@ -253,11 +525,37 @@ export const PlaylistsView: React.FC = () => {
         {activePlaylist ? (
           <>
             {/* Header */}
-            <div className="flex items-center justify-between pb-6 border-b border-[#272733]">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-[#272733] gap-4">
               <div className="space-y-1">
-                <span className="text-xs font-mono-numbers font-bold uppercase tracking-wider text-[#A78BFA]">
-                  {activePlaylist.isSmart ? 'Smart Playlist' : 'Custom Playlist'}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono-numbers font-bold uppercase tracking-wider text-[#A78BFA]">
+                    {activePlaylist.isSmart ? 'Smart Playlist' : 'Custom Playlist'}
+                  </span>
+
+                  {/* Folder Indicator / Badge */}
+                  {!activePlaylist.isSmart && (
+                    <div className="flex items-center gap-1.5 text-[11px] font-medium text-[#A1A1AA] bg-[#14141B] px-2 py-0.5 rounded-md border border-[#272733]">
+                      <Folder size={12} className="text-[#A78BFA]" />
+                      <span>{currentFolder ? currentFolder.name : 'Root'}</span>
+                      {folders.length > 0 && (
+                        <select
+                          value={activePlaylist.folderId || ''}
+                          onChange={(e) => handleMoveActiveToFolder(e.target.value ? e.target.value : null)}
+                          className="bg-transparent text-[10px] text-[#A78BFA] outline-none cursor-pointer ml-1 font-mono-numbers"
+                          title="Move playlist to another folder"
+                        >
+                          <option value="" className="bg-[#14141B] text-[#F5F3FF]">Root</option>
+                          {folders.map((f) => (
+                            <option key={f.id} value={f.id} className="bg-[#14141B] text-[#F5F3FF]">
+                              {f.name}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-3">
                   <h1 className="text-2xl sm:text-3xl font-black text-[#F5F3FF]">
                     {activePlaylist.name}
@@ -280,20 +578,21 @@ export const PlaylistsView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2.5">
+              {/* Action Buttons */}
+              <div className="flex items-center flex-wrap gap-2">
                 {playlistTracks.length > 0 && (
                   <>
                     <button
                       onClick={() => playTrack(playlistTracks[0], playlistTracks)}
-                      className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] text-xs font-bold shadow-glow-sm hover:shadow-glow-md transition-all active:scale-95"
+                      className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] text-xs font-bold shadow-glow-sm hover:shadow-glow-md transition-all active:scale-95"
                     >
-                      <Play size={15} className="ml-0.5" />
+                      <Play size={14} className="ml-0.5" />
                       <span>Play All</span>
                     </button>
                     <button
                       onClick={handleShuffleAll}
                       title="Shuffle Playlist"
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#F5F3FF] text-xs font-semibold transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#F5F3FF] text-xs font-semibold transition-colors"
                     >
                       <Shuffle size={14} />
                       <span>Shuffle</span>
@@ -305,24 +604,40 @@ export const PlaylistsView: React.FC = () => {
                   <>
                     <button
                       onClick={() => setShowAddSongsModal(true)}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#A78BFA] hover:text-[#C4B5FD] text-xs font-semibold transition-colors"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#A78BFA] hover:text-[#C4B5FD] text-xs font-semibold transition-colors"
                     >
                       <Plus size={14} />
                       <span>Add Songs</span>
                     </button>
+
+                    {/* Playlist History Modal Trigger */}
+                    <button
+                      onClick={() => setShowHistoryModal(true)}
+                      title="View Version History & Restore"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#A1A1AA] hover:text-[#A78BFA] text-xs font-semibold transition-colors"
+                    >
+                      <History size={14} />
+                      <span>History</span>
+                      {activeHistoryEntries.length > 0 && (
+                        <span className="ml-0.5 px-1.5 py-0.2 rounded-full bg-[#7C3AED]/20 text-[#A78BFA] text-[10px] font-mono">
+                          {activeHistoryEntries.length}
+                        </span>
+                      )}
+                    </button>
+
                     <button
                       onClick={() => setShowIoModal('export')}
                       title="Export M3U / M3U8"
-                      className="p-2.5 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
+                      className="p-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
                     >
-                      <Download size={15} />
+                      <Download size={14} />
                     </button>
                     <button
                       onClick={handleDelete}
                       title="Delete Playlist"
-                      className="p-2.5 rounded-xl bg-[#14141B] hover:bg-red-950/40 border border-[#272733] text-[#A1A1AA] hover:text-red-400 transition-colors"
+                      className="p-2 rounded-xl bg-[#14141B] hover:bg-red-950/40 border border-[#272733] text-[#A1A1AA] hover:text-red-400 transition-colors"
                     >
-                      <Trash2 size={15} />
+                      <Trash2 size={14} />
                     </button>
                   </>
                 )}
@@ -332,21 +647,20 @@ export const PlaylistsView: React.FC = () => {
             {/* Tracks List */}
             <div className="space-y-1">
               {playlistTracks.length === 0 ? (
-                <div className="p-12 text-center text-[#71717A] text-xs space-y-3">
-                  <ListMusic size={38} className="mx-auto text-[#3F3F46]" />
-                  <div>
-                    <p className="font-bold text-[#F5F3FF] text-sm">Playlist is Empty</p>
-                    <p className="mt-1 text-[#A1A1AA]">Add songs from your music library to this playlist.</p>
-                  </div>
-                  {!activePlaylist.isSmart && (
-                    <button
-                      onClick={() => setShowAddSongsModal(true)}
-                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] text-[#F5F3FF] text-xs font-bold shadow-glow-sm hover:shadow-glow-md transition-all active:scale-95 mt-2"
-                    >
-                      <Plus size={15} />
-                      <span>Add Songs from Library</span>
-                    </button>
-                  )}
+                <div className="py-12">
+                  <HarmoniqEmptyState
+                    type="empty_playlists"
+                    title="Playlist is Empty"
+                    description="Add songs from your music library to this playlist."
+                    action={
+                      !activePlaylist.isSmart
+                        ? {
+                            label: 'Add Songs from Library',
+                            onClick: () => setShowAddSongsModal(true),
+                          }
+                        : undefined
+                    }
+                  />
                 </div>
               ) : (
                 <div className="w-full">
@@ -378,11 +692,97 @@ export const PlaylistsView: React.FC = () => {
             </div>
           </>
         ) : (
-          <div className="p-8 text-center text-[#71717A]">
-            <p>Select a playlist to view tracks.</p>
+          <div className="py-16">
+            <HarmoniqEmptyState
+              type="empty_playlists"
+              title="No Playlist Selected"
+              description="Choose a playlist from the left panel or create a new playlist."
+              action={{
+                label: 'Create Playlist',
+                onClick: () => setShowCreateModal(true),
+              }}
+            />
           </div>
         )}
       </div>
+
+      {/* Create Folder Modal */}
+      {showCreateFolderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <form
+            onSubmit={handleCreateFolder}
+            className="w-full max-w-sm p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#F5F3FF] flex items-center gap-2">
+              <FolderPlus size={18} className="text-[#A78BFA]" />
+              <span>Create Playlist Folder</span>
+            </h3>
+            <p className="text-xs text-[#71717A]">
+              Group and organize multiple playlists together without cluttering your library.
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Folder Name (e.g., Chill Vibes, Workouts)"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-[#09090B] border border-[#272733] focus:border-[#A78BFA] text-xs text-[#F5F3FF] outline-none"
+            />
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowCreateFolderModal(false)}
+                className="px-4 py-2 rounded-xl text-xs text-[#71717A] hover:text-[#F5F3FF]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!newFolderName.trim()}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] disabled:opacity-50 text-xs font-bold text-[#F5F3FF]"
+              >
+                Create Folder
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Rename Folder Modal */}
+      {showRenameFolderModal && folderToRename && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+          <form
+            onSubmit={handleRenameFolder}
+            className="w-full max-w-sm p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-2xl"
+          >
+            <h3 className="text-lg font-bold text-[#F5F3FF]">Rename Folder</h3>
+            <input
+              type="text"
+              autoFocus
+              value={renameFolderName}
+              onChange={(e) => setRenameFolderName(e.target.value)}
+              placeholder="New Folder Name"
+              className="w-full px-3.5 py-2.5 rounded-xl bg-[#09090B] border border-[#272733] focus:border-[#A78BFA] text-xs text-[#F5F3FF] outline-none"
+            />
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowRenameFolderModal(false)}
+                className="px-4 py-2 rounded-xl text-xs text-[#71717A] hover:text-[#F5F3FF]"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={!renameFolderName.trim()}
+                className="px-5 py-2 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#A78BFA] disabled:opacity-50 text-xs font-bold text-[#F5F3FF]"
+              >
+                Rename
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Create Playlist Modal */}
       {showCreateModal && (
@@ -464,6 +864,13 @@ export const PlaylistsView: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Playlist Version History Modal */}
+      <PlaylistHistoryModal
+        playlist={activePlaylist && !activePlaylist.isSmart ? activePlaylist : null}
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+      />
 
       <TrackContextMenu
         menu={contextMenu}

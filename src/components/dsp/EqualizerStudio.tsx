@@ -472,21 +472,26 @@ export const EqualizerStudio: React.FC = () => {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {presets.map((preset) => (
-            <div key={preset.id} className="relative group inline-flex items-center">
-              <button
-                onClick={() => {
-                  applyPreset(preset.id);
-                  showToast(`Applied preset: ${preset.name}`, 'info');
-                }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
-                  settings.activePresetId === preset.id
-                    ? 'bg-[#7C3AED]/20 border-[#A78BFA] text-[#A78BFA] shadow-glow-sm'
-                    : 'bg-[#1B1B24] hover:bg-[#242432] border-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF]'
-                }`}
-              >
-                {preset.name}
-              </button>
+          {presets.map((preset) => {
+            const isSoundProfile = ['late_night', 'electronic_punch', 'audiophile_warmth', 'spatial_clarity'].includes(preset.id);
+            return (
+              <div key={preset.id} className="relative group inline-flex items-center">
+                <button
+                  onClick={() => {
+                    applyPreset(preset.id);
+                    showToast(`Applied preset: ${preset.name}`, 'info');
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all ${
+                    settings.activePresetId === preset.id
+                      ? 'bg-[var(--ambient-primary)] border-[var(--accent-primary)] text-[var(--accent-primary)] shadow-glow-sm'
+                      : isSoundProfile
+                      ? 'bg-[#181824] hover:bg-[#222232] border-[var(--accent-primary)]/20 text-[#E2E8F0] hover:text-[#FFFFFF]'
+                      : 'bg-[#1B1B24] hover:bg-[#242432] border-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF]'
+                  }`}
+                >
+                  {isSoundProfile && <Sparkles size={11} className="text-[var(--accent-primary)]" />}
+                  <span>{preset.name}</span>
+                </button>
 
               {!preset.isBuiltIn && (
                 <div className="flex items-center ml-1 opacity-0 group-hover:opacity-100 transition-all">
@@ -513,7 +518,8 @@ export const EqualizerStudio: React.FC = () => {
                 </div>
               )}
             </div>
-          ))}
+          );
+        })}
         </div>
       </div>
 

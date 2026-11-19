@@ -15,6 +15,8 @@ import {
   Search,
 } from 'lucide-react';
 import { SearchOnlineLyricsModal } from './SearchOnlineLyricsModal';
+import { HarmoniqWaveformLoader } from '../brand/HarmoniqWaveformLoader';
+import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
 
 const formatLineTime = (seconds: number) => {
   if (!seconds || isNaN(seconds) || seconds < 0) return '0:00';
@@ -242,9 +244,11 @@ export const LyricsView: React.FC = () => {
         className="flex-1 overflow-y-auto py-16 px-4 space-y-7 text-center relative scroll-smooth"
       >
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center h-64 text-[#71717A] text-xs space-y-3">
-            <div className="w-8 h-8 border-2 border-[#A78BFA] border-t-transparent rounded-full animate-spin" />
-            <p className="text-[#A1A1AA] font-medium">Finding synchronized lyrics for "{currentTrack.title}"...</p>
+          <div className="flex flex-col items-center justify-center h-64">
+            <HarmoniqWaveformLoader
+              label={`Synchronizing lyrics for "${currentTrack.title}"...`}
+              size="lg"
+            />
           </div>
         ) : lyricsData?.synced && lyricsData.lines.length > 0 ? (
           lyricsData.lines.map((line, idx) => {

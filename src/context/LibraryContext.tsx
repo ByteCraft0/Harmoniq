@@ -3,13 +3,17 @@ import { TrackMetadata } from '../types/audio';
 import { Album, Artist, Playlist, FolderNode, LibraryStats } from '../types/library';
 import { WatcherSyncStatus } from '../types/electron';
 import { libraryService } from '../services/libraryService';
+import { playlistFolderService } from '../services/playlistFolderService';
 import { useToast } from './ToastContext';
 
 export type AppView =
   | 'home'
   | 'discover'
+  | 'calendar'
   | 'songs'
   | 'albums'
+  | 'vinyl_collection'
+  | 'immersive_album'
   | 'artists'
   | 'folders'
   | 'favorites'
@@ -28,7 +32,8 @@ export type AppView =
   | 'stats'
   | 'online_music'
   | 'radio'
-  | 'podcasts';
+  | 'podcasts'
+  | 'abx';
 
 interface LibraryContextType {
   activeView: AppView;
@@ -39,6 +44,12 @@ interface LibraryContextType {
   openAlbumDetail: (album: Album) => void;
   openArtistDetail: (artist: Artist) => void;
   openPlaylistDetail: (playlist: Playlist) => void;
+  restoreNavigationState: (state: {
+    view: AppView;
+    selectedAlbum?: Album | null;
+    selectedArtist?: Artist | null;
+    selectedPlaylist?: Playlist | null;
+  }) => void;
 
   // Data
   tracks: TrackMetadata[];
@@ -62,6 +73,7 @@ interface LibraryContextType {
   deletePlaylist: (id: string) => void;
   addTracksToPlaylist: (playlistId: string, trackIds: string[]) => void;
   removeTrackFromPlaylist: (playlistId: string, index: number) => void;
+  reorderPlaylist: (playlistId: string, fromIndex: number, toIndex: number) => boolean;
   exportPlaylistM3u: (playlistId: string) => void;
   importPlaylistM3u: (name: string, content: string) => void;
   showFileInFolder: (filePath: string) => void;
@@ -333,6 +345,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const createPlaylist = (name: string, desc?: string): Playlist => {
     const pl = libraryService.createPlaylist(name, desc);
+    playlistFolderService.recordHistory(pl.id, 'created', `Created playlist "${name}"`, []);
     refreshLibraryState();
     showToast(`Playlist "${name}" created`, 'success');
     return pl;
@@ -341,6 +354,15 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const renamePlaylist = (id: string, newName: string, desc?: string): boolean => {
     const success = libraryService.renamePlaylist(id, newName, desc);
     if (success) {
+      const pl = libraryService.getPlaylists().find((p) => p.id === id);
+      if (pl) {
+        playlistFolderService.recordHistory(
+          id,
+          'renamed',
+          `Renamed playlist to "${newName.trim()}"`,
+          pl.trackIds
+        );
+      }
       refreshLibraryState();
       showToast(`Playlist renamed to "${newName.trim()}"`, 'success');
     }
@@ -361,18 +383,54 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const target = playlists.find((p) => p.id === playlistId);
     const targetName = target ? target.name : 'playlist';
     const success = libraryService.addTracksToPlaylist(playlistId, trackIds);
-    refreshLibraryState();
     if (success) {
+      const pl = libraryService.getPlaylists().find((p) => p.id === playlistId);
+      if (pl) {
+        playlistFolderService.recordHistory(
+          playlistId,
+          'tracks_added',
+          `Added ${trackIds.length} track(s)`,
+          pl.trackIds
+        );
+      }
+      refreshLibraryState();
       showToast(`Added ${trackIds.length} track(s) to "${targetName}"`, 'success');
     } else {
+      refreshLibraryState();
       showToast(`Track(s) already in "${targetName}"`, 'info');
     }
   };
 
   const removeTrackFromPlaylist = (playlistId: string, index: number) => {
     libraryService.removeTrackFromPlaylist(playlistId, index);
+    const pl = libraryService.getPlaylists().find((p) => p.id === playlistId);
+    if (pl) {
+      playlistFolderService.recordHistory(
+        playlistId,
+        'tracks_removed',
+        `Removed track at index ${index + 1}`,
+        pl.trackIds
+      );
+    }
     refreshLibraryState();
     showToast('Track removed from playlist', 'info');
+  };
+
+  const reorderPlaylist = (playlistId: string, fromIndex: number, toIndex: number): boolean => {
+    const success = libraryService.reorderPlaylist(playlistId, fromIndex, toIndex);
+    if (success) {
+      const pl = libraryService.getPlaylists().find((p) => p.id === playlistId);
+      if (pl) {
+        playlistFolderService.recordHistory(
+          playlistId,
+          'tracks_reordered',
+          `Reordered track from ${fromIndex + 1} to ${toIndex + 1}`,
+          pl.trackIds
+        );
+      }
+      refreshLibraryState();
+    }
+    return success;
   };
 
   const exportPlaylistM3u = (playlistId: string) => {
@@ -415,6 +473,21 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setActiveView('playlists');
   };
 
+  const restoreNavigationState = useCallback(
+    (navState: {
+      view: AppView;
+      selectedAlbum?: Album | null;
+      selectedArtist?: Artist | null;
+      selectedPlaylist?: Playlist | null;
+    }) => {
+      setActiveView(navState.view);
+      setSelectedAlbum(navState.selectedAlbum ?? null);
+      setSelectedArtist(navState.selectedArtist ?? null);
+      setSelectedPlaylist(navState.selectedPlaylist ?? null);
+    },
+    []
+  );
+
   return (
     <LibraryContext.Provider
       value={{
@@ -426,6 +499,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         openAlbumDetail,
         openArtistDetail,
         openPlaylistDetail,
+        restoreNavigationState,
         tracks,
         albums,
         artists,
@@ -445,6 +519,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deletePlaylist,
         addTracksToPlaylist,
         removeTrackFromPlaylist,
+        reorderPlaylist,
         exportPlaylistM3u,
         importPlaylistM3u,
         showFileInFolder,

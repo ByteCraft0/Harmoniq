@@ -29,6 +29,52 @@ const execAsync = promisify(exec);
 let mainWindow: BrowserWindow | null = null;
 const isDev = process.env.NODE_ENV === 'development' || (!app.isPackaged && process.env.NODE_ENV !== 'production');
 
+// Portable Mode Configuration & Detection
+let portableConfig: { isPortable: boolean; dataDir: string } = { isPortable: false, dataDir: '' };
+
+function getAppRoot(): string {
+  return app.isPackaged ? path.dirname(process.execPath) : process.cwd();
+}
+
+function getPortableMarkerPath(): string {
+  return path.join(getAppRoot(), 'harmoniq-portable.json');
+}
+
+function testDirectoryWritableMain(dirPath: string): { writable: boolean; path: string; error?: string } {
+  try {
+    if (!fs.existsSync(dirPath)) {
+      fs.mkdirSync(dirPath, { recursive: true });
+    }
+    const testFile = path.join(dirPath, `.harmoniq_write_test_${Date.now()}`);
+    fs.writeFileSync(testFile, 'test');
+    fs.unlinkSync(testFile);
+    return { writable: true, path: dirPath };
+  } catch (e: any) {
+    return { writable: false, path: dirPath, error: e.message || 'Directory is not writable' };
+  }
+}
+
+function initPortableMode(): void {
+  try {
+    const marker = getPortableMarkerPath();
+    if (fs.existsSync(marker)) {
+      const parsed = JSON.parse(fs.readFileSync(marker, 'utf-8'));
+      if (parsed.portable) {
+        const defaultDir = path.join(getAppRoot(), 'harmoniq-data');
+        const targetDir = parsed.customDataDir && fs.existsSync(parsed.customDataDir) ? parsed.customDataDir : defaultDir;
+        if (!fs.existsSync(targetDir)) {
+          fs.mkdirSync(targetDir, { recursive: true });
+        }
+        portableConfig = { isPortable: true, dataDir: targetDir };
+        app.setPath('userData', targetDir);
+      }
+    }
+  } catch (e) {
+    console.warn('Failed to initialize portable mode:', e);
+  }
+}
+initPortableMode();
+
 // System Tray, Close-to-Tray, and Lifecycle state
 let tray: Tray | null = null;
 let isQuitting = false;
@@ -833,6 +879,115 @@ function setupIpc() {
     return (ipcMain as any)._handlers['window:setMiniPlayer'](null, !isMiniPlayer);
   });
 
+  ipcMain.handle('window:setAlwaysOnTop', (_e, flag: boolean) => {
+    if (!mainWindow) return false;
+    mainWindow.setAlwaysOnTop(!!flag, flag ? 'screen-saver' : undefined);
+    return mainWindow.isAlwaysOnTop();
+  });
+
+  ipcMain.handle('window:isAlwaysOnTop', () => {
+    return mainWindow?.isAlwaysOnTop() ?? false;
+  });
+
+  ipcMain.handle('window:setOpacity', (_e, opacity: number) => {
+    if (!mainWindow) return 1.0;
+    const clamped = Math.max(0.4, Math.min(1.0, opacity));
+    mainWindow.setOpacity(clamped);
+    return clamped;
+  });
+
+  ipcMain.handle('window:setMiniPlayerLayout', (_e, layout: 'compact' | 'expanded') => {
+    if (!mainWindow || !isMiniPlayer) return false;
+    if (layout === 'compact') {
+      mainWindow.setMinimumSize(320, 95);
+      mainWindow.setSize(380, 100, true);
+    } else {
+      mainWindow.setMinimumSize(320, 160);
+      mainWindow.setSize(380, 180, true);
+    }
+    return true;
+  });
+
+  ipcMain.handle('app:quit', () => {
+    isQuitting = true;
+    app.quit();
+  });
+
+  // Portable Mode IPC handlers
+  ipcMain.handle('portable:getStatus', async () => {
+    const standardDir = path.join(app.getPath('appData'), 'Harmoniq');
+    const currentDir = app.getPath('userData');
+    const isWritable = testDirectoryWritableMain(currentDir).writable;
+    return {
+      isPortable: portableConfig.isPortable,
+      dataDirectory: currentDir,
+      isWritable,
+      standardDirectory: standardDir,
+      canSwitch: true,
+    };
+  });
+
+  ipcMain.handle('portable:testWritable', async (_e, dirPath: string) => {
+    return testDirectoryWritableMain(dirPath);
+  });
+
+  ipcMain.handle('portable:setMode', async (_e, enabled: boolean, customPath?: string) => {
+    try {
+      const marker = getPortableMarkerPath();
+      if (enabled) {
+        const dataDir = customPath || path.join(getAppRoot(), 'harmoniq-data');
+        const test = testDirectoryWritableMain(dataDir);
+        if (!test.writable) {
+          return { success: false, requiresRestart: false, error: test.error };
+        }
+        fs.writeFileSync(marker, JSON.stringify({ portable: true, customDataDir: customPath || '' }, null, 2), 'utf-8');
+      } else {
+        if (fs.existsSync(marker)) {
+          fs.unlinkSync(marker);
+        }
+      }
+      return { success: true, requiresRestart: true };
+    } catch (e: any) {
+      return { success: false, requiresRestart: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('portable:migrateData', async (_e, direction: 'toPortable' | 'toStandard', customPath?: string) => {
+    try {
+      const standardDir = path.join(app.getPath('appData'), 'Harmoniq');
+      const portableDir = customPath || path.join(getAppRoot(), 'harmoniq-data');
+      const sourceDir = direction === 'toPortable' ? standardDir : portableDir;
+      const targetDir = direction === 'toPortable' ? portableDir : standardDir;
+
+      if (!fs.existsSync(sourceDir)) {
+        return { success: true, filesMigrated: 0, sourceDir, targetDir };
+      }
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+
+      const files = fs.readdirSync(sourceDir);
+      let filesMigrated = 0;
+      for (const f of files) {
+        if (f.startsWith('harmoniq_') && f.endsWith('.json')) {
+          const srcFile = path.join(sourceDir, f);
+          const tgtFile = path.join(targetDir, f);
+          fs.copyFileSync(srcFile, tgtFile);
+          filesMigrated++;
+        }
+      }
+      return { success: true, filesMigrated, sourceDir, targetDir };
+    } catch (e: any) {
+      return {
+        success: false,
+        filesMigrated: 0,
+        sourceDir: direction === 'toPortable' ? '%APPDATA%\\Harmoniq' : (customPath || './harmoniq-data'),
+        targetDir: direction === 'toPortable' ? (customPath || './harmoniq-data') : '%APPDATA%\\Harmoniq',
+        error: e.message,
+      };
+    }
+  });
+
   // Folder watcher controls
   ipcMain.handle('watcher:start', (_e, folders: string[]) => {
     startFolderWatcher(folders);
@@ -1080,6 +1235,268 @@ function setupIpc() {
   ipcMain.handle('system:getAudioDiagnostics', async () => {
     return await queryWindowsAudioDiagnostics();
   });
+
+  // Secure Online Integrations (Batch 12 Repair)
+  ipcMain.handle('podcast:fetchFeed', async (_e, rawUrl: string) => {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+      throw new Error('Please enter a valid podcast RSS or Atom feed URL.');
+    }
+    const cleanUrl = rawUrl.trim();
+    if (!isSafePublicUrl(cleanUrl)) {
+      throw new Error('Invalid or disallowed feed URL. Only public HTTP/HTTPS URLs are allowed.');
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 14000);
+
+    try {
+      const res = await fetch(cleanUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Harmoniq-Podcast-Engine/1.0.0 (Windows NT 10.0; Win64; x64)',
+          'Accept': 'application/rss+xml, application/xml, text/xml, application/atom+xml, */*',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) {
+        throw new Error(`Feed server returned HTTP ${res.status} (${res.statusText})`);
+      }
+
+      const contentType = res.headers.get('content-type') || '';
+      const text = await res.text();
+
+      if (text.length > 15 * 1024 * 1024) {
+        throw new Error('Feed content exceeded maximum allowed size (15 MB)');
+      }
+
+      return {
+        xmlText: text,
+        effectiveUrl: res.url || cleanUrl,
+        contentType,
+      };
+    } catch (err: any) {
+      clearTimeout(timeout);
+      if (err.name === 'AbortError') {
+        throw new Error('Podcast feed request timed out after 14 seconds.');
+      }
+      throw new Error(err.message || 'Failed to fetch podcast feed.');
+    }
+  });
+
+  ipcMain.handle('radio:verifyStream', async (_e, rawUrl: string) => {
+    if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
+      return { accessible: false, directStreamUrl: rawUrl, error: 'Empty stream URL provided' };
+    }
+    const cleanUrl = rawUrl.trim();
+    if (!isSafePublicUrl(cleanUrl)) {
+      return { accessible: false, directStreamUrl: cleanUrl, error: 'Disallowed host or invalid stream protocol' };
+    }
+
+    try {
+      const urlObj = new URL(cleanUrl);
+      let targetUrl = cleanUrl;
+
+      // If playlist file (.pls, .m3u, .m3u8), parse the first underlying stream URL
+      if (/\.(pls|m3u|m3u8)$/i.test(urlObj.pathname)) {
+        const pController = new AbortController();
+        const pTimeout = setTimeout(() => pController.abort(), 8000);
+        try {
+          const res = await fetch(cleanUrl, {
+            headers: { 'User-Agent': 'Harmoniq-Audio-Player/1.0.0' },
+            signal: pController.signal,
+          });
+          clearTimeout(pTimeout);
+          const text = await res.text();
+          const plsMatch = text.match(/File\d+\s*=\s*(https?:\/\/[^\r\n]+)/i);
+          if (plsMatch) {
+            targetUrl = plsMatch[1].trim();
+          } else {
+            const lines = text.split(/\r?\n/);
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (trimmed && !trimmed.startsWith('#') && /^https?:\/\//i.test(trimmed)) {
+                targetUrl = trimmed;
+                break;
+              }
+            }
+          }
+        } catch {
+          clearTimeout(pTimeout);
+        }
+      }
+
+      // Verify stream connectivity with range header
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 9000);
+      const checkRes = await fetch(targetUrl, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Harmoniq-Audio-Player/1.0.0',
+          'Range': 'bytes=0-2048',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      controller.abort(); // Do not consume continuous live audio stream
+
+      const contentType = checkRes.headers.get('content-type') || '';
+      const isOk = checkRes.status >= 200 && checkRes.status < 400;
+
+      return {
+        accessible: isOk,
+        directStreamUrl: targetUrl,
+        contentType,
+        status: checkRes.status,
+      };
+    } catch (err: any) {
+      return {
+        accessible: false,
+        directStreamUrl: rawUrl,
+        error: err.message || 'Stream connection failed',
+      };
+    }
+  });
+
+  ipcMain.handle('online:searchMusic', async (_e, rawQuery: string, filter: string = 'all') => {
+    if (typeof rawQuery !== 'string' || !rawQuery.trim()) {
+      return [];
+    }
+    const cleanQ = rawQuery.trim().slice(0, 150);
+
+    // Run parallel provider queries with error isolation
+    const archivePromise = (async () => {
+      try {
+        let fieldQuery = `(title:("${cleanQ}") OR creator:("${cleanQ}") OR description:("${cleanQ}"))`;
+        if (filter === 'song') fieldQuery = `title:("${cleanQ}")`;
+        else if (filter === 'artist') fieldQuery = `creator:("${cleanQ}")`;
+        else if (filter === 'album') fieldQuery = `(album:("${cleanQ}") OR title:("${cleanQ}"))`;
+
+        const url = `https://archive.org/advancedsearch.php?q=mediatype:audio%20AND%20${encodeURIComponent(
+          fieldQuery
+        )}&fl[]=identifier,title,creator,album,year,description,downloads&sort[]=downloads%20desc&rows=18&output=json`;
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Harmoniq-Audio-Player/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) return [];
+        const data = await res.json();
+        const docs = data?.response?.docs || [];
+
+        return docs.map((doc: any) => {
+          const id = doc.identifier;
+          const title = Array.isArray(doc.title) ? doc.title[0] : (doc.title || 'Untitled Audio');
+          const artist = Array.isArray(doc.creator) ? doc.creator[0] : (doc.creator || 'Unknown Artist');
+          const album = Array.isArray(doc.album) ? doc.album[0] : doc.album;
+          const yr = doc.year ? parseInt(doc.year, 10) : undefined;
+          return {
+            id: `ia_${id}`,
+            title,
+            artist,
+            album: album || undefined,
+            year: isNaN(yr!) ? undefined : yr,
+            source: 'Internet Archive',
+            detailUrl: `https://archive.org/details/${id}`,
+            streamUrl: `https://archive.org/download/${id}/${id}_vbr.mp3`,
+            artworkUrl: `https://archive.org/services/img/${id}`,
+            license: 'Public Domain / Creative Commons',
+            format: 'MP3',
+          };
+        });
+      } catch {
+        return [];
+      }
+    })();
+
+    const itunesPromise = (async () => {
+      try {
+        let entity = 'song';
+        if (filter === 'album') entity = 'album';
+        const url = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&entity=${entity}&limit=25`;
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Harmoniq-Audio-Player/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) return [];
+        const data = await res.json();
+        const results = data?.results || [];
+
+        return results.map((item: any) => {
+          const art = item.artworkUrl100
+            ? item.artworkUrl100.replace('100x100bb.jpg', '600x600bb.jpg')
+            : undefined;
+          const durSec = item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : undefined;
+          const yr = item.releaseDate ? parseInt(item.releaseDate.substring(0, 4), 10) : undefined;
+          return {
+            id: `it_${item.trackId || item.collectionId}`,
+            title: item.trackName || item.collectionName || 'Untitled Track',
+            artist: item.artistName || 'Unknown Artist',
+            album: item.collectionName || undefined,
+            year: yr,
+            duration: durSec,
+            source: 'Open Music Catalog',
+            streamUrl: item.previewUrl,
+            detailUrl: item.trackViewUrl || item.collectionViewUrl,
+            artworkUrl: art,
+            license: 'Official 30s Audio Preview',
+            format: 'AAC',
+          };
+        });
+      } catch {
+        return [];
+      }
+    })();
+
+    const [archiveResults, itunesResults] = await Promise.all([archivePromise, itunesPromise]);
+
+    // De-duplicate and combine
+    const seen = new Set<string>();
+    const combined: any[] = [];
+    for (const item of [...archiveResults, ...itunesResults]) {
+      const key = `${(item.title || '').toLowerCase()}:::${(item.artist || '').toLowerCase()}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        combined.push(item);
+      }
+    }
+    return combined;
+  });
+}
+
+function isSafePublicUrl(urlString: string): boolean {
+  try {
+    const parsed = new URL(urlString);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      !hostname ||
+      hostname === 'localhost' ||
+      hostname.endsWith('.localhost') ||
+      hostname === '127.0.0.1' ||
+      hostname === '0.0.0.0' ||
+      hostname === '::1' ||
+      hostname.startsWith('10.') ||
+      hostname.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(hostname) ||
+      hostname.startsWith('169.254.')
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function extractReplayGain(metadata: any): { trackGain?: number; trackPeak?: number; albumGain?: number; albumPeak?: number } {

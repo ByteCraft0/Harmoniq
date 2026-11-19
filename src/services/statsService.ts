@@ -1,6 +1,6 @@
 import { historyService } from './historyService';
 import { libraryService } from './libraryService';
-import { HistoryEntry } from '../types/history';
+import { HistoryEntry, ListeningGoal, AudiophileMilestone } from '../types/history';
 import { TrackMetadata } from '../types/audio';
 
 export interface DailyActivityPoint {
@@ -64,7 +64,49 @@ const GENRE_COLORS = [
   '#6EE7B7', // Teal
 ];
 
+const STORAGE_GOALS_KEY = 'harmoniq_listening_goals_v1';
+
 export class StatsService {
+  private weeklyTargetHours = 10;
+  private dailyTargetMinutes = 60;
+
+  constructor() {
+    this.loadGoalTargets();
+  }
+
+  private loadGoalTargets(): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(STORAGE_GOALS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.weeklyTargetHours) this.weeklyTargetHours = Number(parsed.weeklyTargetHours);
+          if (parsed.dailyTargetMinutes) this.dailyTargetMinutes = Number(parsed.dailyTargetMinutes);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load goal targets:', e);
+    }
+  }
+
+  public saveGoalTargets(weeklyHours: number, dailyMinutes: number): void {
+    this.weeklyTargetHours = Math.max(1, Math.min(100, Math.round(weeklyHours)));
+    this.dailyTargetMinutes = Math.max(5, Math.min(720, Math.round(dailyMinutes)));
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(
+          STORAGE_GOALS_KEY,
+          JSON.stringify({
+            weeklyTargetHours: this.weeklyTargetHours,
+            dailyTargetMinutes: this.dailyTargetMinutes,
+          })
+        );
+      }
+    } catch (e) {
+      console.warn('Failed to save goal targets:', e);
+    }
+  }
+
   /**
    * Calculate all-time, monthly, weekly, and daily listening seconds
    */
@@ -102,6 +144,27 @@ export class StatsService {
       thisWeekSeconds,
       todaySeconds,
       totalCompletedPlays,
+    };
+  }
+
+  /**
+   * Harmoniq 2.0 Personalization: Get active listening goals and progress
+   */
+  public getListeningGoals(): ListeningGoal {
+    const totals = this.getListeningTotals();
+    const targetWeekSec = this.weeklyTargetHours * 3600;
+    const targetDaySec = this.dailyTargetMinutes * 60;
+
+    const weeklyProgressPercent = Math.min(100, Math.round((totals.thisWeekSeconds / targetWeekSec) * 100));
+    const dailyProgressPercent = Math.min(100, Math.round((totals.todaySeconds / targetDaySec) * 100));
+
+    return {
+      weeklyTargetHours: this.weeklyTargetHours,
+      dailyTargetMinutes: this.dailyTargetMinutes,
+      weeklyListenedSeconds: totals.thisWeekSeconds,
+      todayListenedSeconds: totals.todaySeconds,
+      weeklyProgressPercent,
+      dailyProgressPercent,
     };
   }
 
@@ -206,7 +269,7 @@ export class StatsService {
     let longestStreak = 0;
 
     // Check if streak is active today or yesterday
-    let checkDate = sortedDays[0] === todayStr ? today : sortedDays[0] === yesterdayStr ? yesterday : null;
+    const checkDate = sortedDays[0] === todayStr ? today : sortedDays[0] === yesterdayStr ? yesterday : null;
 
     if (checkDate) {
       let cursor = new Date(checkDate);
@@ -311,6 +374,109 @@ export class StatsService {
       }))
       .sort((a, b) => b.count - a.count)
       .slice(0, 6);
+  }
+
+  /**
+   * Harmoniq 2.0 Personalization: Dynamic Audiophile Milestones
+   */
+  public getAudiophileMilestones(): AudiophileMilestone[] {
+    const history = historyService.getHistory();
+    const totals = this.getListeningTotals();
+    const streak = this.calculateStreak();
+    const genres = this.getGenreDistribution();
+
+    // Check for Lossless / Hi-Res in history or library
+    let hasLossless = false;
+    let hasHiRes = false;
+    let lateNightCount = 0;
+
+    for (const e of history) {
+      const tr = libraryService.getTrack(e.trackId);
+      if (tr) {
+        if (tr.isLossless || ['FLAC', 'WAV', 'ALAC', 'AIFF'].includes(tr.codec?.toUpperCase() || '')) {
+          hasLossless = true;
+        }
+        if ((tr.sampleRate && tr.sampleRate >= 88200) || (tr.bitDepth && tr.bitDepth >= 24)) {
+          hasHiRes = true;
+        }
+      }
+      // Check late night hour (12 AM to 5 AM)
+      const hour = new Date(e.playedAt).getHours();
+      if (hour >= 0 && hour < 5) {
+        lateNightCount++;
+      }
+    }
+
+    const completedTracks = totals.totalCompletedPlays;
+    const marathonHours = totals.allTimeSeconds / 3600;
+
+    const milestones: AudiophileMilestone[] = [
+      {
+        id: 'first_lossless',
+        title: 'Lossless Purity',
+        description: 'Play your first bit-perfect lossless track (FLAC, WAV, ALAC, or AIFF)',
+        category: 'fidelity',
+        icon: 'Sparkles',
+        unlocked: hasLossless,
+        progress: hasLossless ? 100 : 0,
+      },
+      {
+        id: 'hires_master',
+        title: 'Studio Master',
+        description: 'Experience studio master quality audio (≥96 kHz or 24-bit depth)',
+        category: 'fidelity',
+        icon: 'Gauge',
+        unlocked: hasHiRes,
+        progress: hasHiRes ? 100 : 0,
+      },
+      {
+        id: 'century_club',
+        title: 'The Centurion',
+        description: 'Complete playback of 100 musical tracks',
+        category: 'volume',
+        icon: 'Disc',
+        unlocked: completedTracks >= 100,
+        progress: Math.min(100, Math.round((completedTracks / 100) * 100)),
+      },
+      {
+        id: 'night_owl',
+        title: 'Midnight Serenade',
+        description: 'Listen to music during the late night hours (12:00 AM – 5:00 AM)',
+        category: 'habit',
+        icon: 'Moon',
+        unlocked: lateNightCount >= 1,
+        progress: lateNightCount >= 1 ? 100 : 0,
+      },
+      {
+        id: 'genre_hopper',
+        title: 'Genre Cosmopolitan',
+        description: 'Explore 5 or more distinct music genres in your library',
+        category: 'discovery',
+        icon: 'Compass',
+        unlocked: genres.length >= 5,
+        progress: Math.min(100, Math.round((genres.length / 5) * 100)),
+      },
+      {
+        id: 'streak_dedication',
+        title: 'Sonic Momentum',
+        description: 'Achieve a 3-day consecutive listening streak',
+        category: 'habit',
+        icon: 'Flame',
+        unlocked: streak.longestStreak >= 3,
+        progress: Math.min(100, Math.round((streak.longestStreak / 3) * 100)),
+      },
+      {
+        id: 'marathon_listener',
+        title: 'Symphonic Marathon',
+        description: 'Log 3 or more total hours of high-fidelity listening',
+        category: 'volume',
+        icon: 'Clock',
+        unlocked: marathonHours >= 3,
+        progress: Math.min(100, Math.round((marathonHours / 3) * 100)),
+      },
+    ];
+
+    return milestones;
   }
 }
 

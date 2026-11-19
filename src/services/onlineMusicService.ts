@@ -6,8 +6,10 @@ const SEARCH_CACHE = new Map<string, { timestamp: number; results: OnlineSearchR
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 export class OnlineMusicService {
+  private activeAbortController: AbortController | null = null;
+
   /**
-   * Search open legitimate catalogs (e.g. Internet Archive Public Audio)
+   * Search open legitimate catalogs (Electron main-process IPC with iTunes & Archive.org)
    */
   public async searchOnline(
     query: string,
@@ -23,57 +25,68 @@ export class OnlineMusicService {
       return cached.results;
     }
 
-    try {
-      let fieldQuery = `(title:("${cleanQ}") OR creator:("${cleanQ}") OR description:("${cleanQ}"))`;
-      if (filter === 'song') {
-        fieldQuery = `title:("${cleanQ}")`;
-      } else if (filter === 'artist') {
-        fieldQuery = `creator:("${cleanQ}")`;
-      } else if (filter === 'album') {
-        fieldQuery = `(album:("${cleanQ}") OR title:("${cleanQ}"))`;
-      }
+    // 1. Prefer Electron main-process IPC (full SSRF protection, CORS bypass, parallel providers)
+    if (typeof window !== 'undefined' && window.harmoniqApi?.searchOnlineMusic) {
+      try {
+        const rawResults = await window.harmoniqApi.searchOnlineMusic(cleanQ, filter);
+        const results: OnlineSearchResult[] = (rawResults || []).map((r: any) => ({
+          id: r.id || `res_${Math.random().toString(36).substring(2)}`,
+          title: r.title || 'Untitled Track',
+          artist: r.artist || 'Unknown Artist',
+          album: r.album || undefined,
+          year: r.year,
+          duration: r.duration,
+          source: r.source || 'Open Catalog',
+          streamUrl: r.streamUrl,
+          detailUrl: r.detailUrl,
+          artworkUrl: r.artworkUrl,
+          license: r.license || 'Public Catalog',
+          format: r.format || 'MP3',
+        }));
 
-      const url = `https://archive.org/advancedsearch.php?q=mediatype:audio%20AND%20${encodeURIComponent(
-        fieldQuery
-      )}&fl[]=identifier,title,creator,album,year,description,downloads&sort[]=downloads%20desc&rows=20&output=json`;
+        SEARCH_CACHE.set(cacheKey, { timestamp: Date.now(), results });
+        return results;
+      } catch (err: any) {
+        if (err.name === 'AbortError') throw err;
+        console.warn('IPC searchOnlineMusic error, falling back to direct fetch:', err);
+      }
+    }
+
+    // 2. Direct fetch fallback for non-Electron / browser / test environments
+    try {
+      const url = `https://itunes.apple.com/search?term=${encodeURIComponent(
+        cleanQ
+      )}&entity=${filter === 'album' ? 'album' : 'song'}&limit=25`;
 
       const response = await fetch(url, { signal });
       if (!response.ok) {
-        throw new Error(`Archive.org API returned status ${response.status}`);
+        throw new Error(`Catalog search returned HTTP ${response.status}`);
       }
 
       const data = await response.json();
-      const docs = data?.response?.docs || [];
-
-      const results: OnlineSearchResult[] = docs.map((doc: any) => {
-        const id = doc.identifier || Math.random().toString(36).substring(2);
-        const title = doc.title || 'Untitled Audio';
-        const artist = doc.creator || 'Unknown Artist';
-        const album = doc.album || undefined;
-        const year = doc.year ? parseInt(doc.year, 10) : undefined;
-
-        return {
-          id: `ia_${id}`,
-          title: Array.isArray(title) ? title[0] : title,
-          artist: Array.isArray(artist) ? artist[0] : artist,
-          album: Array.isArray(album) ? album[0] : album,
-          year: isNaN(year!) ? undefined : year,
-          source: 'Internet Archive',
-          detailUrl: `https://archive.org/details/${id}`,
-          streamUrl: `https://archive.org/download/${id}/${id}_vbr.mp3`,
-          artworkUrl: `https://archive.org/services/img/${id}`,
-          license: 'Public Domain / Creative Commons',
-          format: 'MP3',
-        };
-      });
+      const results: OnlineSearchResult[] = (data.results || []).map((item: any) => ({
+        id: `it_${item.trackId || item.collectionId}`,
+        title: item.trackName || item.collectionName || 'Untitled Track',
+        artist: item.artistName || 'Unknown Artist',
+        album: item.collectionName || undefined,
+        year: item.releaseDate ? parseInt(item.releaseDate.substring(0, 4), 10) : undefined,
+        duration: item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : undefined,
+        source: 'Open Music Catalog',
+        streamUrl: item.previewUrl,
+        detailUrl: item.trackViewUrl || item.collectionViewUrl,
+        artworkUrl: item.artworkUrl100
+          ? item.artworkUrl100.replace('100x100bb.jpg', '600x600bb.jpg')
+          : undefined,
+        license: 'Official 30s Audio Preview',
+        format: 'AAC',
+      }));
 
       SEARCH_CACHE.set(cacheKey, { timestamp: Date.now(), results });
       return results;
     } catch (e: any) {
       if (e?.name === 'AbortError') throw e;
-      console.warn('Online music search API error, returning curated fallback items:', e);
-      // Return curated public domain archive samples matching query if offline
-      return this.getCuratedPublicDomainSamples(cleanQ);
+      console.warn('Direct catalog search error:', e);
+      return [];
     }
   }
 
@@ -89,74 +102,6 @@ export class OnlineMusicService {
         t.artist.toLowerCase().includes(q) ||
         (t.album && t.album.toLowerCase().includes(q)) ||
         (t.genre && t.genre.toLowerCase().includes(q))
-    );
-  }
-
-  /**
-   * Fallback curated public domain archive tracks
-   */
-  private getCuratedPublicDomainSamples(query: string): OnlineSearchResult[] {
-    const q = query.toLowerCase();
-    const curated: OnlineSearchResult[] = [
-      {
-        id: 'ia_beethoven_sym5',
-        title: 'Symphony No. 5 in C Minor, Op. 67 - I. Allegro con brio',
-        artist: 'Ludwig van Beethoven',
-        album: 'Beethoven: Symphonies Nos. 5 & 7',
-        year: 1808,
-        source: 'Internet Archive',
-        detailUrl: 'https://archive.org/details/beethovensymphon00ludw',
-        streamUrl: 'https://ia800301.us.archive.org/15/items/beethovensymphon00ludw/01_AllegroConBrio.mp3',
-        artworkUrl: 'https://archive.org/services/img/beethovensymphon00ludw',
-        license: 'Public Domain (Musopen)',
-        format: 'MP3',
-      },
-      {
-        id: 'ia_bach_air',
-        title: 'Orchestral Suite No. 3 in D major, BWV 1068 - II. Air',
-        artist: 'Johann Sebastian Bach',
-        album: 'Bach Orchestral Suites',
-        year: 1731,
-        source: 'Internet Archive',
-        detailUrl: 'https://archive.org/details/bach_orchestral_suites',
-        streamUrl: 'https://ia800504.us.archive.org/11/items/bach_orchestral_suites/02_Air.mp3',
-        artworkUrl: 'https://archive.org/services/img/bach_orchestral_suites',
-        license: 'Public Domain',
-        format: 'MP3',
-      },
-      {
-        id: 'ia_chopin_nocturne',
-        title: 'Nocturne in E-flat major, Op. 9, No. 2',
-        artist: 'Frédéric Chopin',
-        album: 'Chopin Nocturnes',
-        year: 1832,
-        source: 'Internet Archive',
-        detailUrl: 'https://archive.org/details/ChopinNocturneOp9No2',
-        streamUrl: 'https://ia800207.us.archive.org/29/items/ChopinNocturneOp9No2/NocturneOp9No2.mp3',
-        artworkUrl: 'https://archive.org/services/img/ChopinNocturneOp9No2',
-        license: 'Public Domain',
-        format: 'MP3',
-      },
-      {
-        id: 'ia_clair_de_lune',
-        title: 'Suite Bergamasque - III. Clair de Lune',
-        artist: 'Claude Debussy',
-        album: 'Debussy Piano Works',
-        year: 1905,
-        source: 'Internet Archive',
-        detailUrl: 'https://archive.org/details/DebussyClairDeLune',
-        streamUrl: 'https://ia800301.us.archive.org/20/items/DebussyClairDeLune/clairdelune.mp3',
-        artworkUrl: 'https://archive.org/services/img/DebussyClairDeLune',
-        license: 'Public Domain',
-        format: 'MP3',
-      },
-    ];
-
-    return curated.filter(
-      (c) =>
-        c.title.toLowerCase().includes(q) ||
-        c.artist.toLowerCase().includes(q) ||
-        (c.album && c.album.toLowerCase().includes(q))
     );
   }
 }

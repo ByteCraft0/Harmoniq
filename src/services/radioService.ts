@@ -101,6 +101,10 @@ export class RadioService {
   private customStations: RadioStation[] = [];
   private favoriteIds: Set<string> = new Set();
 
+  private retryAttempts = 0;
+  private readonly MAX_RETRIES = 2;
+  private activeResolvedUrl: string | null = null;
+
   constructor() {
     this.loadPersisted();
     this.initAudio();
@@ -144,13 +148,23 @@ export class RadioService {
   }
 
   private initAudio(): void {
-    if (typeof Audio === 'undefined') return;
+    if (typeof Audio === 'undefined') {
+      this.audioElement = {
+        volume: this.state.volume,
+        src: '',
+        play: () => Promise.resolve(),
+        pause: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      } as any;
+      return;
+    }
 
     this.audioElement = new Audio();
     this.audioElement.volume = this.state.volume;
 
     this.audioElement.addEventListener('loadstart', () => {
-      this.updateState({ status: 'connecting' });
+      this.updateState({ status: 'connecting', errorMessage: undefined });
     });
 
     this.audioElement.addEventListener('waiting', () => {
@@ -158,6 +172,7 @@ export class RadioService {
     });
 
     this.audioElement.addEventListener('playing', () => {
+      this.retryAttempts = 0;
       this.updateState({ status: 'playing', errorMessage: undefined });
     });
 
@@ -168,9 +183,46 @@ export class RadioService {
     });
 
     this.audioElement.addEventListener('error', () => {
-      const err = this.audioElement?.error?.message || 'Failed to connect to stream';
-      this.updateState({ status: 'error', errorMessage: err });
+      const errCode = this.audioElement?.error?.code;
+      let errMsg = 'Stream unreachable or connection failed.';
+      if (errCode === 2) {
+        errMsg = 'Network error while attempting to stream station.';
+      } else if (errCode === 3) {
+        errMsg = 'Audio decoding error encountered.';
+      } else if (errCode === 4) {
+        errMsg = 'Stream format not supported or URL invalid.';
+      }
+
+      // Automatic reconnection attempt
+      if (this.retryAttempts < this.MAX_RETRIES && this.state.currentStation) {
+        this.retryAttempts++;
+        const nextUrl = this.resolveMirrorUrl(
+          this.activeResolvedUrl || this.state.currentStation.streamUrl,
+          this.retryAttempts
+        );
+        this.updateState({
+          status: 'connecting',
+          errorMessage: `Connection lost. Retrying (attempt ${this.retryAttempts}/${this.MAX_RETRIES})...`,
+        });
+        setTimeout(() => {
+          if (this.state.currentStation) {
+            this.attemptPlay(nextUrl);
+          }
+        }, 1200);
+        return;
+      }
+
+      this.updateState({ status: 'error', errorMessage: errMsg });
     });
+  }
+
+  private resolveMirrorUrl(url: string, attempt: number): string {
+    if (url.includes('.somafm.com/')) {
+      const mirrors = ['ice2.somafm.com', 'ice4.somafm.com', 'ice6.somafm.com'];
+      const mirror = mirrors[attempt % mirrors.length];
+      return url.replace(/ice\d+\.somafm\.com/, mirror);
+    }
+    return url;
   }
 
   private updateState(partial: Partial<RadioPlaybackState>): void {
@@ -234,26 +286,67 @@ export class RadioService {
     return false;
   }
 
-  public playStation(station: RadioStation): void {
+  public async playStation(station: RadioStation): Promise<void> {
     if (!this.audioElement) {
       this.initAudio();
     }
     if (!this.audioElement) return;
 
+    this.retryAttempts = 0;
     this.audioElement.pause();
-    this.audioElement.src = station.streamUrl;
+
     this.updateState({
       currentStation: station,
       status: 'connecting',
       errorMessage: undefined,
     });
 
+    let targetUrl = station.streamUrl;
+
+    // Resolve .pls, .m3u, or verify reachability via main process IPC
+    if (typeof window !== 'undefined' && window.harmoniqApi?.verifyRadioStream) {
+      try {
+        const verified = await window.harmoniqApi.verifyRadioStream(station.streamUrl);
+        if (verified?.directStreamUrl) {
+          targetUrl = verified.directStreamUrl;
+        }
+      } catch (e) {
+        console.warn('Stream verification warning:', e);
+      }
+    }
+
+    this.activeResolvedUrl = targetUrl;
+    this.attemptPlay(targetUrl);
+  }
+
+  private attemptPlay(url: string): void {
+    if (!this.audioElement) return;
+    this.audioElement.src = url;
     this.audioElement.play().catch((err) => {
-      this.updateState({
-        status: 'error',
-        errorMessage: err.message || 'Stream playback error',
-      });
+      // If play() was aborted by another play() call or pause(), ignore
+      if (err.name === 'AbortError') return;
+
+      if (this.retryAttempts < this.MAX_RETRIES && this.state.currentStation) {
+        this.retryAttempts++;
+        const nextUrl = this.resolveMirrorUrl(url, this.retryAttempts);
+        this.updateState({
+          status: 'connecting',
+          errorMessage: `Retrying playback (${this.retryAttempts}/${this.MAX_RETRIES})...`,
+        });
+        setTimeout(() => this.attemptPlay(nextUrl), 1000);
+      } else {
+        this.updateState({
+          status: 'error',
+          errorMessage: err.message || 'Stream playback error',
+        });
+      }
     });
+  }
+
+  public retryCurrentStation(): void {
+    if (this.state.currentStation) {
+      this.playStation(this.state.currentStation);
+    }
   }
 
   public togglePlayPause(): void {
@@ -273,6 +366,8 @@ export class RadioService {
       this.audioElement.pause();
       this.audioElement.src = '';
     }
+    this.activeResolvedUrl = null;
+    this.retryAttempts = 0;
     this.updateState({ currentStation: null, status: 'idle', errorMessage: undefined });
   }
 

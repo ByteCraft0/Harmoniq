@@ -25,9 +25,21 @@ import { ListeningStatsDashboard } from './components/stats/ListeningStatsDashbo
 import { OnlineMusicSearchView } from './components/online/OnlineMusicSearchView';
 import { RadioView } from './components/online/RadioView';
 import { PodcastView } from './components/online/PodcastView';
+import { ListeningCalendarView } from './components/views/ListeningCalendarView';
+import { ABXComparisonView } from './components/views/ABXComparisonView';
+import { VinylCollectionView } from './components/views/VinylCollectionView';
+import { ImmersiveAlbumView } from './components/views/ImmersiveAlbumView';
+import { NavigationProvider } from './context/NavigationContext';
 
 const MainLayout: React.FC = () => {
-  const { activeView, setActiveView } = useLibrary();
+  const {
+    activeView,
+    setActiveView,
+    selectedAlbum,
+    selectedArtist,
+    selectedPlaylist,
+    restoreNavigationState,
+  } = useLibrary();
   const { togglePlayPause, seekTo, currentTime, setVolume, volume, nextTrack, prevTrack, toggleMute } = usePlayer();
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isMini, setIsMini] = useState(false);
@@ -148,12 +160,20 @@ const MainLayout: React.FC = () => {
         return <SettingsView />;
       case 'stats':
         return <ListeningStatsDashboard />;
+      case 'calendar':
+        return <ListeningCalendarView />;
+      case 'vinyl_collection':
+        return <VinylCollectionView />;
+      case 'immersive_album':
+        return <ImmersiveAlbumView onExit={() => setActiveView('home')} />;
       case 'online_music':
         return <OnlineMusicSearchView />;
       case 'radio':
         return <RadioView />;
       case 'podcasts':
         return <PodcastView />;
+      case 'abx':
+        return <ABXComparisonView />;
       default:
         return <HomeView />;
     }
@@ -169,33 +189,43 @@ const MainLayout: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col h-screen w-screen bg-[#09090B] text-[#F5F3FF] select-none overflow-hidden font-sans relative">
-      {/* Subtle Analog Film-Grain Noise Texture Overlay */}
-      <div className="analog-noise-overlay" />
+    <NavigationProvider
+      activeView={activeView}
+      selectedAlbum={selectedAlbum}
+      selectedArtist={selectedArtist}
+      selectedPlaylist={selectedPlaylist}
+      onRestoreState={restoreNavigationState}
+    >
+      <div className="flex flex-col h-screen w-screen bg-[#09090B] text-[#F5F3FF] select-none overflow-hidden font-sans relative">
+        {/* Subtle Analog Film-Grain Noise Texture Overlay */}
+        <div className="analog-noise-overlay" />
 
-      {/* Frameless Custom Window Titlebar */}
-      <TitleBar />
+        {/* Frameless Custom Window Titlebar */}
+        <TitleBar />
 
-      {/* Main App Body */}
-      <div className="flex-1 flex overflow-hidden relative">
-        {/* Left Fixed Navigation Sidebar (approx 240px) */}
-        <Sidebar />
+        {/* Main App Body */}
+        <div className="flex-1 flex overflow-hidden relative">
+          {/* Left Fixed Navigation Sidebar (approx 240px) */}
+          <Sidebar />
 
-        {/* Dynamic Main Page Content */}
-        <main className="flex-1 overflow-hidden bg-[#09090B] relative">
-          {renderActiveView()}
-        </main>
+          {/* Dynamic Main Page Content with Fluid Page Transition */}
+          <main className="flex-1 overflow-hidden bg-[#09090B] relative">
+            <div key={activeView} className="h-full w-full animate-page-enter">
+              {renderActiveView()}
+            </div>
+          </main>
 
-        {/* Optional Right Queue Drawer */}
-        <QueueDrawer isOpen={isQueueOpen} onClose={() => setIsQueueOpen(false)} />
+          {/* Optional Right Queue Drawer */}
+          <QueueDrawer isOpen={isQueueOpen} onClose={() => setIsQueueOpen(false)} />
+        </div>
+
+        {/* Persistent Mini Bottom Player */}
+        <BottomPlayer
+          onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
+          isQueueOpen={isQueueOpen}
+        />
       </div>
-
-      {/* Persistent Mini Bottom Player */}
-      <BottomPlayer
-        onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
-        isQueueOpen={isQueueOpen}
-      />
-    </div>
+    </NavigationProvider>
   );
 };
 

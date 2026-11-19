@@ -251,7 +251,7 @@ export class LibraryService {
   // Fast grouped aggregation for Albums
   public getAlbums(): Album[] {
     if (this.albumsCache) return this.albumsCache;
-    const albumMap = new Map<string, { albumName: string; artist: string; year?: number; artwork?: string; tracks: TrackMetadata[] }>();
+    const albumMap = new Map<string, { albumName: string; artist: string; year?: number; genre?: string; artwork?: string; tracks: TrackMetadata[] }>();
 
     for (const track of this.tracks.values()) {
       const key = albumKeyOf(track);
@@ -261,6 +261,7 @@ export class LibraryService {
           albumName: track.album,
           artist: track.albumArtist || track.artist,
           year: track.year,
+          genre: track.genre,
           artwork: track.artworkDataUrl,
           tracks: [],
         };
@@ -271,6 +272,9 @@ export class LibraryService {
       }
       if (!entry.year && track.year) {
         entry.year = track.year;
+      }
+      if (!entry.genre && track.genre) {
+        entry.genre = track.genre;
       }
       entry.tracks.push(track);
     }
@@ -291,6 +295,7 @@ export class LibraryService {
         title: data.albumName,
         artist: data.artist,
         year: data.year,
+        genre: data.genre || data.tracks.find((t) => t.genre)?.genre,
         artworkDataUrl: data.artwork,
         trackCount: data.tracks.length,
         totalDuration,
@@ -452,6 +457,7 @@ export class LibraryService {
       name: name.trim(),
       description: description?.trim(),
       trackIds: [],
+      folderId: null,
       dateCreated: Date.now(),
       dateModified: Date.now(),
     };

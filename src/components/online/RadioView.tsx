@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { radioService } from '../../services/radioService';
 import { RadioStation, RadioPlaybackState } from '../../types/online';
+import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
 import {
   Radio,
   Play,
@@ -16,6 +17,8 @@ import {
   AlertCircle,
   ExternalLink,
   X,
+  RotateCcw,
+  Loader2,
 } from 'lucide-react';
 
 export const RadioView: React.FC = () => {
@@ -48,6 +51,15 @@ export const RadioView: React.FC = () => {
     return s.genre === selectedGenre;
   });
 
+  const handleOpenAddModal = () => {
+    setNewName('');
+    setNewUrl('');
+    setNewGenre('');
+    setNewCountry('');
+    setAddError(null);
+    setShowAddModal(true);
+  };
+
   const handleAddStation = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newName.trim() || !newUrl.trim()) {
@@ -78,7 +90,7 @@ export const RadioView: React.FC = () => {
 
   const currentStation = playbackState.currentStation;
   const isPlayingThisStation = (s: RadioStation) =>
-    currentStation?.id === s.id && (playbackState.status === 'playing' || playbackState.status === 'buffering');
+    currentStation?.id === s.id && (playbackState.status === 'playing' || playbackState.status === 'buffering' || playbackState.status === 'connecting');
 
   return (
     <div className="h-full overflow-y-auto px-8 py-8 space-y-8 max-w-7xl mx-auto select-none custom-scrollbar">
@@ -91,13 +103,13 @@ export const RadioView: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold text-[#F5F3FF]">Internet Radio</h1>
             <p className="text-xs text-[#A1A1AA] mt-0.5">
-              Live broadcast streams & audio stations. Dedicated streaming without disrupting your music queue.
+              Live broadcast streams & audio stations. Direct audio streaming with automated stream resolution.
             </p>
           </div>
         </div>
 
         <button
-          onClick={() => setShowAddModal(true)}
+          onClick={handleOpenAddModal}
           className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-[#F5F3FF] text-xs font-semibold rounded-xl shadow-md transition shrink-0"
         >
           <Plus size={16} />
@@ -109,11 +121,17 @@ export const RadioView: React.FC = () => {
       {currentStation && (
         <div className="p-4 bg-[#14141B] border border-violet-500/30 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-xl">
           <div className="flex items-center gap-4 min-w-0 w-full md:w-auto">
-            <div className="w-12 h-12 rounded-xl bg-[#1B1B24] border border-[#272733] flex items-center justify-center shrink-0 overflow-hidden">
-              {currentStation.logoUrl ? (
-                <img src={currentStation.logoUrl} alt={currentStation.name} className="w-full h-full object-cover" />
-              ) : (
-                <RadioTower size={24} className="text-violet-400 animate-pulse" />
+            <div className="w-12 h-12 rounded-xl bg-[#1B1B24] border border-[#272733] flex items-center justify-center shrink-0 overflow-hidden relative">
+              <RadioTower size={24} className="text-violet-400 absolute" />
+              {currentStation.logoUrl && (
+                <img
+                  src={currentStation.logoUrl}
+                  alt={currentStation.name}
+                  className="w-full h-full object-cover relative z-10"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLElement).style.display = 'none';
+                  }}
+                />
               )}
             </div>
             <div className="min-w-0">
@@ -128,7 +146,11 @@ export const RadioView: React.FC = () => {
                       : 'bg-red-950 text-red-300 border border-red-800'
                   }`}
                 >
-                  <Wifi size={10} />
+                  {playbackState.status === 'connecting' || playbackState.status === 'buffering' ? (
+                    <Loader2 size={10} className="animate-spin" />
+                  ) : (
+                    <Wifi size={10} />
+                  )}
                   {playbackState.status === 'playing' ? 'LIVE' : playbackState.status}
                 </span>
               </div>
@@ -136,17 +158,34 @@ export const RadioView: React.FC = () => {
                 {currentStation.genre} {currentStation.country ? `• ${currentStation.country}` : ''}{' '}
                 {currentStation.bitrate ? `• ${currentStation.bitrate} kbps` : ''}
               </p>
+              {playbackState.status === 'error' && playbackState.errorMessage && (
+                <p className="text-[11px] text-red-400 mt-1 flex items-center gap-1.5">
+                  <AlertCircle size={12} className="shrink-0" />
+                  <span>{playbackState.errorMessage}</span>
+                </p>
+              )}
             </div>
           </div>
 
           {/* Controls */}
-          <div className="flex items-center gap-4 shrink-0">
-            <button
-              onClick={() => radioService.togglePlayPause()}
-              className="p-3 bg-[#A78BFA] hover:bg-[#8B5CF6] text-[#09090B] rounded-full transition shadow-md"
-            >
-              {playbackState.status === 'playing' ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}
-            </button>
+          <div className="flex items-center gap-3 shrink-0">
+            {playbackState.status === 'error' ? (
+              <button
+                onClick={() => radioService.retryCurrentStation()}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-[#F5F3FF] text-xs font-semibold rounded-xl transition shadow-md"
+              >
+                <RotateCcw size={14} />
+                <span>Retry Connection</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => radioService.togglePlayPause()}
+                className="p-3 bg-[#A78BFA] hover:bg-[#8B5CF6] text-[#09090B] rounded-full transition shadow-md"
+              >
+                {playbackState.status === 'playing' ? <Pause size={18} /> : <Play size={18} fill="currentColor" />}
+              </button>
+            )}
+
             <button
               onClick={() => radioService.stop()}
               className="p-2.5 bg-[#1B1B24] hover:bg-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] rounded-full transition"
@@ -188,7 +227,20 @@ export const RadioView: React.FC = () => {
       </div>
 
       {/* Stations Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {filteredStations.length === 0 ? (
+        <div className="py-16">
+          <HarmoniqEmptyState
+            type="empty_search"
+            title="No Radio Stations Found"
+            description="No stations match the selected filter. Try choosing another genre or add a custom radio stream."
+            action={{
+              label: 'Add Custom Station',
+              onClick: () => setShowAddModal(true),
+            }}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {filteredStations.map((station) => {
           const isPlaying = isPlayingThisStation(station);
           return (
@@ -200,11 +252,17 @@ export const RadioView: React.FC = () => {
             >
               <div>
                 <div className="flex items-start justify-between gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-[#1B1B24] border border-[#272733] flex items-center justify-center shrink-0 overflow-hidden">
-                    {station.logoUrl ? (
-                      <img src={station.logoUrl} alt={station.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <Radio size={22} className="text-[#71717A]" />
+                  <div className="w-12 h-12 rounded-xl bg-[#1B1B24] border border-[#272733] flex items-center justify-center shrink-0 overflow-hidden relative">
+                    <Radio size={22} className="text-[#71717A] absolute" />
+                    {station.logoUrl && (
+                      <img
+                        src={station.logoUrl}
+                        alt={station.name}
+                        className="w-full h-full object-cover relative z-10"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLElement).style.display = 'none';
+                        }}
+                      />
                     )}
                   </div>
                   <div className="flex items-center gap-1">
@@ -285,11 +343,12 @@ export const RadioView: React.FC = () => {
           );
         })}
       </div>
+      )}
 
       {/* Add Custom Station Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#14141B] border border-[#272733] rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl">
+          <div className="bg-[#14141B] border border-[#272733] rounded-2xl w-full max-w-md p-6 space-y-5 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-[#F5F3FF]">Add Custom Radio Station</h2>
               <button
@@ -320,6 +379,7 @@ export const RadioView: React.FC = () => {
                   onChange={(e) => setNewName(e.target.value)}
                   placeholder="e.g. My Favorite Synthwave Stream"
                   className="w-full bg-[#1B1B24] border border-[#272733] focus:border-[#A78BFA] text-sm text-[#F5F3FF] rounded-lg px-3 py-2.5 outline-none"
+                  autoFocus
                 />
               </div>
 

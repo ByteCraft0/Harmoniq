@@ -16,11 +16,26 @@ import {
   keyboardEventToAccelerator,
 } from '../../services/shortcutService';
 import { AudioDeviceManager } from '../audio/AudioDeviceManager';
+import { AudioRoutingProfilesCard } from '../audio/AudioRoutingProfilesCard';
+import { VolumeProfilesCard } from '../audio/VolumeProfilesCard';
 import { AudioQualityAnalyzer } from '../audio/AudioQualityAnalyzer';
 import { BitPerfectController } from '../audio/BitPerfectController';
 import { ChannelConfigurationCard } from '../audio/ChannelConfigurationCard';
 import { ABRepeatControls } from '../audio/ABRepeatControls';
+import { HotkeyProfilesCard } from '../desktop/HotkeyProfilesCard';
+import { BackupRestoreCard } from '../desktop/BackupRestoreCard';
+import { PortableModeCard } from '../desktop/PortableModeCard';
 import { visualizerSettingsService } from '../../services/visualizerSettingsService';
+import { appearanceService } from '../../services/appearanceService';
+import {
+  AppearanceSettings,
+  AnimationIntensity,
+  THEME_PALETTES,
+  ThemePresetId,
+} from '../../types/appearance';
+import { sessionRecoveryService } from '../../services/sessionRecoveryService';
+import { SessionSettings } from '../../types/session';
+import { useToast } from '../../context/ToastContext';
 import {
   Settings,
   FolderPlus,
@@ -42,9 +57,13 @@ import {
   Speaker,
   FileAudio,
   Repeat1,
+  Wand2,
+  Palette,
+  Zap,
 } from 'lucide-react';
 
 export const SettingsView: React.FC = () => {
+  const { showToast } = useToast();
   const { stats, addMusicFolders, rescanLibrary } = useLibrary();
   const {
     currentTrack,
@@ -77,6 +96,33 @@ export const SettingsView: React.FC = () => {
   const [shortcutErrors, setShortcutErrors] = useState<Partial<Record<ShortcutAction, string>>>({});
   const [shortcutSaveSuccess, setShortcutSaveSuccess] = useState<boolean>(false);
   const [animSettings, setAnimSettings] = useState(visualizerSettingsService.getAnimationSettings());
+  const [appearance, setAppearance] = useState(appearanceService.getSettings());
+  const [sessionSettings, setSessionSettings] = useState<SessionSettings>(() =>
+    sessionRecoveryService.getSettings()
+  );
+
+  const handleToggleRestoreSession = (checked: boolean) => {
+    sessionRecoveryService.updateSettings({ restoreSessionOnLaunch: checked });
+    setSessionSettings(sessionRecoveryService.getSettings());
+    showToast(
+      checked ? 'Session recovery on launch enabled' : 'Session recovery disabled',
+      'info'
+    );
+  };
+
+  const handleToggleAutoResume = (checked: boolean) => {
+    sessionRecoveryService.updateSettings({ autoResumePlaybackOnLaunch: checked });
+    setSessionSettings(sessionRecoveryService.getSettings());
+    showToast(
+      checked ? 'Auto-resume playback on launch enabled' : 'Auto-resume disabled',
+      'info'
+    );
+  };
+
+  const handleClearSession = () => {
+    sessionRecoveryService.clearSession();
+    showToast('Saved playback session cleared', 'info');
+  };
 
   useEffect(() => {
     return visualizerSettingsService.subscribe(() => {
@@ -84,11 +130,25 @@ export const SettingsView: React.FC = () => {
     });
   }, []);
 
-  type SettingsTab = 'all' | 'devices' | 'quality' | 'bitperfect' | 'playback' | 'channel' | 'system' | 'library';
+  useEffect(() => {
+    return appearanceService.subscribe(setAppearance);
+  }, []);
+
+  type SettingsTab =
+    | 'all'
+    | 'appearance'
+    | 'devices'
+    | 'quality'
+    | 'bitperfect'
+    | 'playback'
+    | 'channel'
+    | 'system'
+    | 'library';
   const [activeTab, setActiveTab] = useState<SettingsTab>('all');
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'all', label: 'All Settings', icon: <Sparkles size={13} /> },
+    { id: 'appearance', label: 'Appearance & Animations', icon: <Wand2 size={13} /> },
     { id: 'devices', label: 'Output Devices', icon: <Speaker size={13} /> },
     { id: 'quality', label: 'Audio Quality', icon: <FileAudio size={13} /> },
     { id: 'bitperfect', label: 'Bit-Perfect', icon: <ShieldCheck size={13} /> },
@@ -224,24 +284,334 @@ export const SettingsView: React.FC = () => {
         ))}
       </div>
 
-      {/* 1. Audio Output Devices */}
-      {(activeTab === 'all' || activeTab === 'devices') && (
-        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
+      {/* Appearance & Animations Section (Part 8) */}
+      {(activeTab === 'all' || activeTab === 'appearance') && (
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-6 shadow-card card-interactive">
           <div className="flex items-center justify-between border-b border-[#272733] pb-3">
             <div>
               <h3 className="font-bold text-sm text-[#F5F3FF] flex items-center gap-2">
-                <Speaker size={16} className="text-[var(--accent-dynamic)]" />
-                <span>Audio Device Manager</span>
+                <Wand2 size={16} className="text-[#A78BFA]" />
+                <span>Appearance & Interactive Animations</span>
               </h3>
               <p className="text-xs text-[#A1A1AA]">
-                Switch active sound endpoints, headphones, and external USB/WASAPI DACs with live fallback.
+                Customize visual fluidity, interactive card transitions, ambient lighting, and accessibility motion settings.
               </p>
             </div>
-            <span className="text-[10px] uppercase font-mono-numbers px-2.5 py-0.5 rounded-full bg-[#1B1B24] text-[var(--accent-dynamic)] border border-[#272733]">
-              Hardware Routing
+            <span className="text-[10px] uppercase font-mono-numbers px-2.5 py-0.5 rounded-full bg-[#1B1B24] text-[#A78BFA] border border-[#272733]">
+              GPU Accelerated
             </span>
           </div>
-          <AudioDeviceManager />
+
+          {/* Harmoniq 2.0 Personalization: Theme & Accent Palettes */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-[#A1A1AA] font-mono-numbers flex items-center gap-2">
+                <Palette size={14} className="text-[var(--accent-primary)]" />
+                Color Theme & Luminescence Palettes
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  appearanceService.setThemePreset('obsidian_violet');
+                  showToast('Theme reset to signature Obsidian Violet', 'info');
+                }}
+                className="text-xs text-[var(--accent-primary)] hover:underline font-medium"
+              >
+                Reset Default Theme
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+              {(Object.keys(THEME_PALETTES) as ThemePresetId[]).map((paletteId) => {
+                const pal = THEME_PALETTES[paletteId];
+                const isSelected = appearance.themePreset === paletteId;
+                return (
+                  <button
+                    key={paletteId}
+                    type="button"
+                    onClick={() => {
+                      appearanceService.setThemePreset(paletteId);
+                      showToast(`Applied ${pal.name} theme`, 'success');
+                    }}
+                    className={`p-3.5 rounded-xl border text-left transition-all relative overflow-hidden group ${
+                      isSelected
+                        ? 'bg-[var(--ambient-primary)] border-[var(--accent-primary)] shadow-[var(--glow-dynamic)]'
+                        : 'bg-[#0D0D12] hover:bg-[#181822] border-[#272733] hover:border-[#3b3b4e]'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="w-4 h-4 rounded-full shadow-sm border border-white/20"
+                          style={{ backgroundColor: pal.primary }}
+                        />
+                        <span
+                          className="w-3.5 h-3.5 rounded-full shadow-sm border border-white/10"
+                          style={{ backgroundColor: pal.secondary }}
+                        />
+                      </div>
+                      {isSelected && (
+                        <span className="text-[10px] font-mono font-bold text-[var(--accent-primary)] px-1.5 py-0.5 rounded-md bg-white/10">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs font-bold text-white truncate">{pal.name}</div>
+                    <div className="text-[10px] text-[#71717A] truncate mt-0.5">{pal.description}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Custom Hex Color Pickers if Custom Preset Selected */}
+            {appearance.themePreset === 'custom' && (
+              <div className="p-4 rounded-xl bg-[#0D0D12] border border-[var(--accent-primary)]/40 flex flex-wrap items-center gap-6">
+                <div className="flex items-center gap-3">
+                  <label className="text-xs text-[#A1A1AA] font-medium">Primary Accent:</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={appearance.customAccentColor || '#A78BFA'}
+                      onChange={(e) => appearanceService.setCustomColors(e.target.value, appearance.customSecondaryColor || '#7C3AED')}
+                      className="w-7 h-7 rounded border-0 cursor-pointer bg-transparent"
+                    />
+                    <input
+                      type="text"
+                      value={appearance.customAccentColor || '#A78BFA'}
+                      onChange={(e) => appearanceService.setCustomColors(e.target.value, appearance.customSecondaryColor || '#7C3AED')}
+                      className="w-24 px-2 py-1 rounded bg-[#1B1B24] border border-[#272733] text-xs font-mono text-white focus:outline-none focus:border-[var(--accent-primary)]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <label className="text-xs text-[#A1A1AA] font-medium">Secondary Accent:</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={appearance.customSecondaryColor || '#7C3AED'}
+                      onChange={(e) => appearanceService.setCustomColors(appearance.customAccentColor || '#A78BFA', e.target.value)}
+                      className="w-7 h-7 rounded border-0 cursor-pointer bg-transparent"
+                    />
+                    <input
+                      type="text"
+                      value={appearance.customSecondaryColor || '#7C3AED'}
+                      onChange={(e) => appearanceService.setCustomColors(appearance.customAccentColor || '#A78BFA', e.target.value)}
+                      className="w-24 px-2 py-1 rounded bg-[#1B1B24] border border-[#272733] text-xs font-mono text-white focus:outline-none focus:border-[var(--accent-primary)]"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* High Contrast Mode Switch */}
+            <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] flex items-center justify-between">
+              <div className="space-y-0.5 pr-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck size={14} className="text-white" />
+                  <span className="text-xs font-bold text-[#F5F3FF]">High Contrast Accessibility Mode</span>
+                </div>
+                <p className="text-[11px] text-[#71717A]">
+                  Maximizes text legibility, applies deep black backgrounds, and sharpens visual boundaries for enhanced accessibility.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={appearance.highContrastMode}
+                  onChange={(e) => {
+                    appearanceService.setHighContrast(e.target.checked);
+                    showToast(e.target.checked ? 'High contrast mode enabled' : 'High contrast mode disabled', 'info');
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5 bg-[#272733] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#7C3AED]" />
+              </label>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* 1. Master Animations Toggle */}
+            <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] flex items-center justify-between">
+              <div className="space-y-0.5 pr-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles size={14} className="text-[#A78BFA]" />
+                  <span className="text-xs font-bold text-[#F5F3FF]">Enable UI Animations</span>
+                </div>
+                <p className="text-[11px] text-[#71717A]">
+                  Fluid page transitions, smooth modal drawers, and responsive micro-interactions.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={appearance.animationsEnabled}
+                  onChange={(e) => {
+                    appearanceService.updateSettings({ animationsEnabled: e.target.checked });
+                    showToast(e.target.checked ? 'Animations enabled' : 'Animations disabled', 'info');
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5 bg-[#272733] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#7C3AED]" />
+              </label>
+            </div>
+
+            {/* 2. Reduced Motion (Accessibility) */}
+            <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] flex items-center justify-between">
+              <div className="space-y-0.5 pr-3">
+                <div className="flex items-center gap-2">
+                  <Activity size={14} className="text-sky-400" />
+                  <span className="text-xs font-bold text-[#F5F3FF]">Reduced Motion</span>
+                </div>
+                <p className="text-[11px] text-[#71717A]">
+                  Disables rapid zooms and translates, preserving accessibility for vestibular sensitivities.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={appearance.reducedMotion}
+                  onChange={(e) => {
+                    appearanceService.updateSettings({ reducedMotion: e.target.checked });
+                    showToast(e.target.checked ? 'Reduced motion enabled' : 'Reduced motion disabled', 'info');
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5 bg-[#272733] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#7C3AED]" />
+              </label>
+            </div>
+
+            {/* 3. Interactive Hover Effects */}
+            <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] flex items-center justify-between">
+              <div className="space-y-0.5 pr-3">
+                <div className="flex items-center gap-2">
+                  <Layers size={14} className="text-emerald-400" />
+                  <span className="text-xs font-bold text-[#F5F3FF]">Interactive Card Hover Effects</span>
+                </div>
+                <p className="text-[11px] text-[#71717A]">
+                  Subtle card elevation, artwork zoom, and floating quick-play button on hover.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={appearance.hoverEffects}
+                  onChange={(e) => {
+                    appearanceService.updateSettings({ hoverEffects: e.target.checked });
+                    showToast(e.target.checked ? 'Hover effects enabled' : 'Hover effects disabled', 'info');
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5 bg-[#272733] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#7C3AED]" />
+              </label>
+            </div>
+
+            {/* 4. Ambient Artwork Lighting */}
+            <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] flex items-center justify-between">
+              <div className="space-y-0.5 pr-3">
+                <div className="flex items-center gap-2">
+                  <Palette size={14} className="text-pink-400" />
+                  <span className="text-xs font-bold text-[#F5F3FF]">Dynamic Ambient Lighting</span>
+                </div>
+                <p className="text-[11px] text-[#71717A]">
+                  Generates smooth color-derived backdrop glows and radial lighting based on the active album artwork.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={appearance.ambientLighting}
+                  onChange={(e) => {
+                    appearanceService.updateSettings({ ambientLighting: e.target.checked });
+                    showToast(e.target.checked ? 'Ambient lighting enabled' : 'Ambient lighting disabled', 'info');
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5 bg-[#272733] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#7C3AED]" />
+              </label>
+            </div>
+
+            {/* 5. Album Artwork Animations (Breathing & Vinyl) */}
+            <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] flex items-center justify-between">
+              <div className="space-y-0.5 pr-3">
+                <div className="flex items-center gap-2">
+                  <RotateCcw size={14} className="text-amber-400" />
+                  <span className="text-xs font-bold text-[#F5F3FF]">Album Artwork Animations</span>
+                </div>
+                <p className="text-[11px] text-[#71717A]">
+                  Enables gentle artwork breathing float and 33⅓ RPM rotating vinyl disk animations in Now Playing.
+                </p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={appearance.albumArtworkAnimations}
+                  onChange={(e) => {
+                    appearanceService.updateSettings({ albumArtworkAnimations: e.target.checked });
+                    showToast(e.target.checked ? 'Artwork animations enabled' : 'Artwork animations disabled', 'info');
+                  }}
+                  className="sr-only peer"
+                />
+                <div className="w-10 h-5 bg-[#272733] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#7C3AED]" />
+              </label>
+            </div>
+
+            {/* 6. Animation Intensity Selector (Subtle / Normal / Enhanced) */}
+            <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] space-y-2">
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <Zap size={14} className="text-violet-400" />
+                  <span className="text-xs font-bold text-[#F5F3FF]">Animation Intensity</span>
+                </div>
+                <p className="text-[11px] text-[#71717A]">
+                  Adjust the speed, springiness, and scale of transitions and micro-interactions.
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-1">
+                {(['subtle', 'normal', 'enhanced'] as AnimationIntensity[]).map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => {
+                      appearanceService.updateSettings({ animationIntensity: level });
+                      showToast(`Animation intensity set to ${level}`, 'info');
+                    }}
+                    className={`py-1.5 px-3 rounded-lg text-xs font-semibold capitalize transition-all ${
+                      appearance.animationIntensity === level
+                        ? 'bg-violet-600 text-white shadow-sm border border-violet-400/40'
+                        : 'bg-[#181822] text-[#A1A1AA] hover:text-[#F5F3FF] hover:bg-[#20202E] border border-[#272733]'
+                    }`}
+                  >
+                    {level}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1. Audio Output Routing Profiles & Devices */}
+      {(activeTab === 'all' || activeTab === 'devices') && (
+        <div className="space-y-6">
+          <AudioRoutingProfilesCard />
+          <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
+            <div className="flex items-center justify-between border-b border-[#272733] pb-3">
+              <div>
+                <h3 className="font-bold text-sm text-[#F5F3FF] flex items-center gap-2">
+                  <Speaker size={16} className="text-[var(--accent-dynamic)]" />
+                  <span>Audio Device Manager</span>
+                </h3>
+                <p className="text-xs text-[#A1A1AA]">
+                  Switch active sound endpoints, headphones, and external USB/WASAPI DACs with live fallback.
+                </p>
+              </div>
+              <span className="text-[10px] uppercase font-mono-numbers px-2.5 py-0.5 rounded-full bg-[#1B1B24] text-[var(--accent-dynamic)] border border-[#272733]">
+                Hardware Routing
+              </span>
+            </div>
+            <AudioDeviceManager />
+          </div>
         </div>
       )}
 
@@ -601,7 +971,72 @@ export const SettingsView: React.FC = () => {
             />
           </div>
         </div>
+
+        {/* 6. Playback Session & Queue Recovery */}
+        <div className="p-4 rounded-xl bg-[#0D0D12] border border-[#272733] space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <RotateCcw size={16} className="text-[var(--accent-dynamic)]" />
+                <span className="text-xs font-bold text-[#F5F3FF]">Restore Playback Session on Launch</span>
+              </div>
+              <p className="text-[11px] text-[#A1A1AA]">
+                Automatically restores your current queue, last playing track, position, and repeat/shuffle modes upon reopening Harmoniq.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+              <input
+                type="checkbox"
+                checked={sessionSettings.restoreSessionOnLaunch}
+                onChange={(e) => handleToggleRestoreSession(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-5 bg-[#272733] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent-dynamic)]"></div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-[#1B1B24]">
+            <div className="space-y-0.5">
+              <span className="text-xs font-bold text-[#F5F3FF]">Auto-Resume Playback on Launch</span>
+              <p className="text-[11px] text-[#A1A1AA]">
+                Immediately starts audio playback upon application startup (requires Restore Session to be enabled).
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-3">
+              <input
+                type="checkbox"
+                disabled={!sessionSettings.restoreSessionOnLaunch}
+                checked={sessionSettings.autoResumePlaybackOnLaunch}
+                onChange={(e) => handleToggleAutoResume(e.target.checked)}
+                className="sr-only peer disabled:opacity-40"
+              />
+              <div className="w-10 h-5 bg-[#272733] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[var(--accent-dynamic)]"></div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-[#1B1B24]">
+            <span className="text-[11px] text-[#71717A]">
+              Active Session Cache: {sessionRecoveryService.getSavedSession() ? 'Saved & Ready' : 'Empty'}
+            </span>
+            <button
+              onClick={handleClearSession}
+              className="px-3 py-1 text-[11px] text-red-400 hover:text-red-300 hover:bg-red-950/30 rounded-lg border border-red-500/20 transition-colors"
+            >
+              Clear Saved Session
+            </button>
+          </div>
+        </div>
       </div>
+      )}
+
+      {/* Advanced Volume Profiles & Loudness Normalization */}
+      {(activeTab === 'all' || activeTab === 'playback') && (
+        <VolumeProfilesCard />
+      )}
+
+      {/* Hotkey Profiles & Shortcuts (Phase 4) */}
+      {(activeTab === 'all' || activeTab === 'system') && (
+        <HotkeyProfilesCard />
       )}
 
       {/* Windows System Integration (Batch 2) */}
@@ -786,6 +1221,16 @@ export const SettingsView: React.FC = () => {
           </div>
         </div>
       </div>
+      )}
+
+      {/* Library Backup & Restore (Phase 4) */}
+      {(activeTab === 'all' || activeTab === 'system') && (
+        <BackupRestoreCard />
+      )}
+
+      {/* Portable Mode (Phase 4) */}
+      {(activeTab === 'all' || activeTab === 'system') && (
+        <PortableModeCard />
       )}
 
       {/* Privacy Guarantee */}

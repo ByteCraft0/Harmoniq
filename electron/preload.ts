@@ -15,10 +15,15 @@ const harmoniqApi = {
   windowMinimize: () => ipcRenderer.invoke('window:minimize'),
   windowMaximize: () => ipcRenderer.invoke('window:maximize'),
   windowClose: () => ipcRenderer.invoke('window:close'),
+  quitApp: () => ipcRenderer.invoke('app:quit'),
   isWindowMaximized: () => ipcRenderer.invoke('window:isMaximized'),
   isMiniPlayer: () => ipcRenderer.invoke('window:isMiniPlayer'),
   setMiniPlayer: (enable: boolean) => ipcRenderer.invoke('window:setMiniPlayer', enable),
   toggleMiniPlayer: () => ipcRenderer.invoke('window:toggleMiniPlayer'),
+  setAlwaysOnTop: (flag: boolean) => ipcRenderer.invoke('window:setAlwaysOnTop', flag),
+  isAlwaysOnTop: () => ipcRenderer.invoke('window:isAlwaysOnTop'),
+  setWindowOpacity: (opacity: number) => ipcRenderer.invoke('window:setOpacity', opacity),
+  setMiniPlayerLayout: (layout: 'compact' | 'expanded') => ipcRenderer.invoke('window:setMiniPlayerLayout', layout),
 
   // Dialogs
   openFolderDialog: () => ipcRenderer.invoke('dialog:openFolder'),
@@ -56,6 +61,17 @@ const harmoniqApi = {
   getGlobalShortcuts: () => ipcRenderer.invoke('shortcuts:get'),
   updateGlobalShortcuts: (shortcuts: any) => ipcRenderer.invoke('shortcuts:update', shortcuts),
   resetGlobalShortcuts: () => ipcRenderer.invoke('shortcuts:reset'),
+
+  // Online Integrations
+  fetchPodcastFeed: (feedUrl: string) => ipcRenderer.invoke('podcast:fetchFeed', feedUrl),
+  searchOnlineMusic: (query: string, filter?: string) => ipcRenderer.invoke('online:searchMusic', query, filter),
+  verifyRadioStream: (streamUrl: string) => ipcRenderer.invoke('radio:verifyStream', streamUrl),
+
+  // Portable Mode
+  getPortableStatus: () => ipcRenderer.invoke('portable:getStatus'),
+  testDirectoryWritable: (dirPath: string) => ipcRenderer.invoke('portable:testWritable', dirPath),
+  setPortableMode: (enabled: boolean, customPath?: string) => ipcRenderer.invoke('portable:setMode', enabled, customPath),
+  migratePortableData: (direction: 'toPortable' | 'toStandard', customPath?: string) => ipcRenderer.invoke('portable:migrateData', direction, customPath),
 
   // Events
   onScanProgress: (callback: (progress: any) => void) => subscribe('scan:progress', callback),

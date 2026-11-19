@@ -46,10 +46,15 @@ export interface HarmoniqApi {
   windowMinimize: () => Promise<void>;
   windowMaximize: () => Promise<void>;
   windowClose: () => Promise<void>;
+  quitApp: () => Promise<void>;
   isWindowMaximized: () => Promise<boolean>;
   isMiniPlayer: () => Promise<boolean>;
   setMiniPlayer: (enable: boolean) => Promise<boolean>;
   toggleMiniPlayer: () => Promise<boolean>;
+  setAlwaysOnTop?: (flag: boolean) => Promise<boolean>;
+  isAlwaysOnTop?: () => Promise<boolean>;
+  setWindowOpacity?: (opacity: number) => Promise<number>;
+  setMiniPlayerLayout?: (layout: 'compact' | 'expanded') => Promise<boolean>;
 
   // Native File dialogs
   openFolderDialog: () => Promise<string[] | null>;
@@ -102,6 +107,22 @@ export interface HarmoniqApi {
     errors?: Partial<Record<ShortcutAction, string>>;
   }>;
   resetGlobalShortcuts: () => Promise<ShortcutStateResponse>;
+
+  // Online Integrations
+  fetchPodcastFeed: (feedUrl: string) => Promise<{ xmlText: string; effectiveUrl: string; contentType: string }>;
+  searchOnlineMusic: (query: string, filter?: string) => Promise<any[]>;
+  verifyRadioStream: (streamUrl: string) => Promise<{
+    accessible: boolean;
+    directStreamUrl: string;
+    contentType?: string;
+    error?: string;
+  }>;
+
+  // Portable Mode
+  getPortableStatus?: () => Promise<any>;
+  testDirectoryWritable?: (dirPath: string) => Promise<any>;
+  setPortableMode?: (enabled: boolean, customPath?: string) => Promise<any>;
+  migratePortableData?: (direction: 'toPortable' | 'toStandard', customPath?: string) => Promise<any>;
 
   // Events
   onMediaCommand?: (callback: (command: 'prev' | 'playpause' | 'next' | 'volumeup' | 'volumedown' | 'togglemute') => void) => () => void;

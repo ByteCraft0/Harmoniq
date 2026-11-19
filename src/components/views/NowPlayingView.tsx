@@ -12,6 +12,7 @@ import { LyricsData } from '../../types/lyrics';
 import { AddToPlaylistModal } from '../layout/AddToPlaylistModal';
 import { AudioQualityAnalyzer } from '../audio/AudioQualityAnalyzer';
 import { ABRepeatControls } from '../audio/ABRepeatControls';
+import { appearanceService } from '../../services/appearanceService';
 import {
   Play,
   Pause,
@@ -37,7 +38,10 @@ import {
   BarChart3,
   Activity,
   Radio,
+  Bookmark,
 } from 'lucide-react';
+import { MusicBookmarksModal } from '../audio/MusicBookmarksModal';
+import { WaveformSeekbar } from '../audio/WaveformSeekbar';
 
 export const NowPlayingView: React.FC = () => {
   const {
@@ -62,9 +66,21 @@ export const NowPlayingView: React.FC = () => {
   const { setActiveView, toggleFavorite } = useLibrary();
   const [lyricsData, setLyricsData] = useState<LyricsData | null>(null);
   const [isAddToPlaylistOpen, setIsAddToPlaylistOpen] = useState(false);
+  const [isBookmarksOpen, setIsBookmarksOpen] = useState(false);
+  const [timelineMode, setTimelineMode] = useState<'waveform' | 'classic'>('waveform');
   const [artworkMode, setArtworkMode] = useState<'ambient' | 'vinyl' | 'circular' | 'visualizer'>('ambient');
   const [bottomVisualizerMode, setBottomVisualizerMode] = useState<'mini-spectrum' | 'spectrum-7band' | 'stream-specs'>('mini-spectrum');
   const [isUserScrolling, setIsUserScrolling] = useState(false);
+  const [appearance, setAppearance] = useState(appearanceService.getSettings());
+
+  useEffect(() => {
+    return appearanceService.subscribe((s) => {
+      setAppearance(s);
+      if (s.vinylStyleAnimation && artworkMode === 'ambient') {
+        setArtworkMode('vinyl');
+      }
+    });
+  }, [artworkMode]);
 
   const trackIdRef = useRef<string | null>(null);
   const lyricsContainerRef = useRef<HTMLDivElement | null>(null);
@@ -287,12 +303,23 @@ export const NowPlayingView: React.FC = () => {
       {/* Main Focus: Artwork / Visualizer (Left) + Interactive Karaoke Lyrics (Right) */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-8 my-auto items-center z-10 py-3 flex-1 min-h-0">
         {/* Left Column: Artwork Presentation & Live Spectrum */}
-        <div className="md:col-span-5 flex flex-col items-center justify-center space-y-4">
+        <div className="md:col-span-5 flex flex-col items-center justify-center space-y-4 relative">
+          {appearance.ambientLighting && (
+            <div
+              className="absolute -inset-4 rounded-3xl opacity-45 blur-3xl pointer-events-none transition-all duration-1000 -z-10"
+              style={{
+                background:
+                  'radial-gradient(circle, var(--ambient-primary) 10%, var(--ambient-secondary) 50%, transparent 75%)',
+              }}
+            />
+          )}
           {artworkMode === 'ambient' ? (
             /* Style A: Ambient Floating Artwork with Breathing Animation */
             <div
               className={`relative group w-72 h-72 sm:w-80 sm:h-80 rounded-2xl overflow-hidden bg-[#14141B] border border-[#272733] shadow-2xl flex items-center justify-center transition-all duration-700 ${
-                isPlaying ? 'animate-artwork-breathing shadow-[0_12px_40px_var(--glow-dynamic)]' : ''
+                isPlaying && appearance.albumArtworkAnimations && appearance.animationsEnabled
+                  ? 'animate-artwork-breathing shadow-[0_12px_40px_var(--glow-dynamic)]'
+                  : ''
               }`}
             >
               {currentTrack.artworkDataUrl ? (
@@ -450,6 +477,14 @@ export const NowPlayingView: React.FC = () => {
               </span>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => setIsBookmarksOpen(true)}
+                  title="Track Bookmarks & Timestamp Notes"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B]/80 hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[var(--accent-dynamic)] transition-colors"
+                >
+                  <Bookmark size={14} className="text-[var(--accent-dynamic)]" />
+                  <span>Bookmarks</span>
+                </button>
+                <button
                   onClick={() => setIsAddToPlaylistOpen(true)}
                   title="Add to Playlist"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#14141B]/80 hover:bg-[#1B1B24] border border-[#272733] text-xs font-semibold text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
@@ -587,26 +622,45 @@ export const NowPlayingView: React.FC = () => {
 
       {/* Bottom Transport Controls */}
       <div className="space-y-3 pt-3 border-t border-[#272733] z-10 shrink-0">
-        {/* Progress Bar & Seek */}
+        {/* Progress Bar & Seek / Real Waveform Navigation */}
         <div className="space-y-1">
-          <div className="relative group w-full h-2 rounded-full bg-[#1B1B24] overflow-hidden cursor-pointer">
-            <div
-              className="h-full bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] rounded-full transition-all duration-100"
-              style={{ width: `${progressPercent}%` }}
-            />
-            <input
-              type="range"
-              min="0"
-              max={duration || 100}
-              step="0.1"
-              value={currentTime}
-              onChange={(e) => seekTo(parseFloat(e.target.value))}
-              className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-            />
-          </div>
+          {timelineMode === 'waveform' ? (
+            <div className="p-2 rounded-xl bg-[#14141B]/70 border border-[#272733] backdrop-blur-sm shadow-inner">
+              <WaveformSeekbar
+                track={currentTrack}
+                currentTime={currentTime}
+                duration={duration}
+                onSeek={seekTo}
+                height={40}
+              />
+            </div>
+          ) : (
+            <div className="relative group w-full h-2.5 rounded-full bg-[#1B1B24] overflow-hidden cursor-pointer my-2">
+              <div
+                className="h-full bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] rounded-full transition-all duration-100"
+                style={{ width: `${progressPercent}%` }}
+              />
+              <input
+                type="range"
+                min="0"
+                max={duration || 100}
+                step="0.1"
+                value={currentTime}
+                onChange={(e) => seekTo(parseFloat(e.target.value))}
+                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+              />
+            </div>
+          )}
 
-          <div className="flex justify-between text-xs font-mono-numbers text-[#71717A]">
+          <div className="flex justify-between items-center text-xs font-mono-numbers text-[#71717A] px-1">
             <span>{formatTime(currentTime)}</span>
+            <button
+              onClick={() => setTimelineMode((m) => (m === 'waveform' ? 'classic' : 'waveform'))}
+              title="Toggle Waveform vs Classic Seekbar"
+              className="text-[10px] text-[#A1A1AA] hover:text-[var(--accent-dynamic)] transition-colors font-mono uppercase tracking-wider"
+            >
+              {timelineMode === 'waveform' ? 'Waveform Mode' : 'Classic Bar'}
+            </button>
             <span>-{formatTime(timeRemaining)}</span>
           </div>
         </div>
@@ -692,6 +746,12 @@ export const NowPlayingView: React.FC = () => {
         isOpen={isAddToPlaylistOpen}
         onClose={() => setIsAddToPlaylistOpen(false)}
         tracks={currentTrack ? [currentTrack] : []}
+      />
+
+      <MusicBookmarksModal
+        track={currentTrack}
+        isOpen={isBookmarksOpen}
+        onClose={() => setIsBookmarksOpen(false)}
       />
     </div>
   );

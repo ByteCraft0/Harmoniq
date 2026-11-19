@@ -274,3 +274,135 @@ input[type="range"].eq-slider:hover::-webkit-slider-thumb {
 .animate-audio-bar-1 { animation: audio-bounce 0.8s ease-in-out infinite; }
 .animate-audio-bar-2 { animation: audio-bounce 0.8s ease-in-out infinite 0.2s; }
 .animate-audio-bar-3 { animation: audio-bounce 0.8s ease-in-out infinite 0.4s; }
+
+/* Signature Waveform Volume Control Animations */
+@keyframes waveform-bar-pulse {
+  0% {
+    transform: scaleY(0.7);
+  }
+  100% {
+    transform: scaleY(1.2);
+  }
+}
+
+
+/* =========================================================================
+   PREMIUM UI/UX TRANSFORMATION: PAGE TRANSITIONS & MICRO-INTERACTIONS
+   ========================================================================= */
+
+/* Smooth Page Transitions (approx 220ms, non-flashing) */
+@keyframes page-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-page-enter {
+  animation: page-enter 220ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Card Interactive Elevate & Glow */
+.card-interactive {
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              box-shadow 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.28s ease,
+              background-color 0.28s ease;
+}
+
+.card-interactive:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 14px 34px -4px rgba(0, 0, 0, 0.5), 0 0 20px rgba(167, 139, 250, 0.16);
+  border-color: rgba(167, 139, 250, 0.35);
+}
+
+.card-interactive:active {
+  transform: translateY(-1px) scale(0.99);
+}
+
+/* Floating Hover Play Button */
+.floating-play-btn {
+  opacity: 0;
+  transform: translateY(8px) scale(0.92);
+  transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              background-color 0.15s ease;
+}
+
+.group:hover .floating-play-btn {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Button & Control Micro-Interactions */
+.btn-interactive {
+  transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1),
+              background-color 0.15s ease,
+              box-shadow 0.15s ease;
+}
+
+.btn-interactive:active {
+  transform: scale(0.95);
+}
+
+/* Appearance & Animation Settings Responders */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+[data-animations="disabled"] *,
+[data-reduced-motion="true"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+[data-animation-intensity="subtle"] .animate-page-enter {
+  animation-duration: 160ms;
+}
+
+[data-animation-intensity="enhanced"] .animate-page-enter {
+  animation-duration: 300ms;
+}
+
+[data-hover-effects="disabled"] .card-interactive:hover,
+[data-hover-effects="disabled"] [class*="group-hover:scale-"] {
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+[data-album-animations="disabled"] .animate-artwork-breathing,
+[data-album-animations="disabled"] .animate-vinyl {
+  animation: none !important;
+}
+
+[data-ambient-lighting="disabled"] .ambient-mesh-glow {
+  opacity: 0 !important;
+  display: none !important;
+}
+
+/* Harmoniq 2.0 High Contrast Accessibility Theme */
+[data-high-contrast="true"] {
+  --bg-main: #000000 !important;
+  --bg-sidebar: #050508 !important;
+  --bg-card: #0a0a0f !important;
+  --border-subtle: #4b4b5e !important;
+  --border-glass: rgba(255, 255, 255, 0.25) !important;
+  --text-primary: #ffffff !important;
+  --text-secondary: #e4e4e7 !important;
+  --text-muted: #a1a1aa !important;
+}
+
+[data-high-contrast="true"] .card-interactive {
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15) !important;
+}
+
