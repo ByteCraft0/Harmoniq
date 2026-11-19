@@ -1601,11 +1601,33 @@ export const SettingsView: React.FC = () => {
         </p>
       </div>
 
+      {/* Welcome Walkthrough & Onboarding (Phase 6.3) */}
+      <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-bold text-[#F5F3FF] flex items-center gap-2">
+              <Sparkles size={16} className="text-[var(--accent-dynamic)]" />
+              Harmoniq Welcome Walkthrough
+            </h3>
+            <p className="text-xs text-[#71717A]">
+              Revisit the first-run orientation tour to review library indexing, DSP capabilities, and AI discovery tools.
+            </p>
+          </div>
+          <button
+            onClick={() => window.dispatchEvent(new CustomEvent('harmoniq:openOnboarding'))}
+            className="px-4 py-2 rounded-xl bg-[var(--accent-dynamic)] text-white text-xs font-bold shadow-glow-sm hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2 shrink-0"
+          >
+            <Sparkles size={14} />
+            <span>Launch Tour</span>
+          </button>
+        </div>
+      </div>
+
       {/* Version & Technical Architecture Specs */}
       <div className="p-4 rounded-xl bg-[#09090B] border border-[#272733] text-[11px] font-mono-numbers text-[#71717A] space-y-1">
         <div className="flex justify-between">
           <span>Application:</span>
-          <span className="text-[#A1A1AA]">Harmoniq Reference Audio v1.0.0</span>
+          <span className="text-[#A1A1AA]">Harmoniq Reference Audio v2.0.0</span>
         </div>
         <div className="flex justify-between">
           <span>Dual-Deck Buffer Architecture:</span>

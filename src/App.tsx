@@ -34,6 +34,7 @@ import { VinylCollectionView } from './components/views/VinylCollectionView';
 import { ImmersiveAlbumView } from './components/views/ImmersiveAlbumView';
 import { NavigationProvider } from './context/NavigationContext';
 import { HarmoniqAssistantContainer } from './components/assistant/HarmoniqAssistantContainer';
+import { FirstRunOnboardingModal } from './components/onboarding/FirstRunOnboardingModal';
 import { useAssistant } from './hooks/useAssistant';
 import { useDSP } from './context/DSPContext';
 import { audioEngine } from './services/audioEngine';
@@ -72,6 +73,23 @@ const MainLayout: React.FC = () => {
   const { setAssistantContext } = useAssistant();
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isMini, setIsMini] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  // Check first-run onboarding status & listen for re-open events
+  useEffect(() => {
+    try {
+      const completed = localStorage.getItem('harmoniq_onboarding_completed');
+      if (completed !== 'true') {
+        setShowOnboarding(true);
+      }
+    } catch {}
+
+    const handleOpenOnboarding = () => setShowOnboarding(true);
+    window.addEventListener('harmoniq:openOnboarding', handleOpenOnboarding);
+    return () => {
+      window.removeEventListener('harmoniq:openOnboarding', handleOpenOnboarding);
+    };
+  }, []);
 
   // Synchronize live playback context with Harmoniq Assistant (Phase 5A.1)
   useEffect(() => {
@@ -310,6 +328,12 @@ const MainLayout: React.FC = () => {
         {/* Harmoniq Assistant (Phase 5A.4): Persistent Container with Smoothly Docking Pulse Orb */}
         <HarmoniqAssistantContainer
           onOpenSettings={() => setActiveView('settings')}
+        />
+
+        {/* First-Run Welcome & Audio Experience Onboarding Modal (Phase 6.3) */}
+        <FirstRunOnboardingModal
+          isOpen={showOnboarding}
+          onClose={() => setShowOnboarding(false)}
         />
       </div>
     </NavigationProvider>
