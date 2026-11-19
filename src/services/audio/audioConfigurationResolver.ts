@@ -138,7 +138,8 @@ export class AudioConfigurationResolver {
 
   /**
    * Evaluates the combined frequency response of graphic/parametric filters and tone controls
-   * across a dense logarithmic grid (40 points from 20 Hz to 20,000 Hz) to find the true composite peak boost in dB.
+   * across an adaptively refined frequency grid (120 logarithmic base points + exact center & half-power frequencies)
+   * to guarantee no narrow, high-Q parametric peaks are missed in headroom calculations.
    */
   public static evaluateCompositePeakBoost(
     eqMode: 'graphic' | 'parametric',
@@ -148,14 +149,44 @@ export class AudioConfigurationResolver {
     treble: number
   ): number {
     const fs = 48000;
-    const numPoints = 40;
+    const numPoints = 120;
     const minLog = Math.log10(20);
     const maxLog = Math.log10(20000);
 
-    const testFrequencies: number[] = [];
+    const freqSet = new Set<number>();
+
+    // 1. Denser baseline logarithmic distribution (120 points)
     for (let i = 0; i < numPoints; i++) {
-      testFrequencies.push(Math.pow(10, minLog + (i / (numPoints - 1)) * (maxLog - minLog)));
+      const f = Math.pow(10, minLog + (i / (numPoints - 1)) * (maxLog - minLog));
+      freqSet.add(Math.round(f * 10) / 10);
     }
+
+    // 2. ISO standard Graphic EQ frequencies
+    const ISO_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+    ISO_FREQS.forEach((f) => freqSet.add(f));
+
+    // 3. Tone control transition corners
+    if (bassBoost && bassBoost > 0) freqSet.add(100);
+    if (treble && treble !== 0) freqSet.add(10000);
+
+    // 4. Adaptive frequency injection for all enabled Parametric Filters
+    // Injects exact center frequency f0 and half-power points to prevent high-Q peak undersampling
+    if (eqMode === 'parametric' && Array.isArray(parametricFilters)) {
+      for (const pf of parametricFilters) {
+        if (pf.enabled && pf.frequency >= 20 && pf.frequency <= 20000) {
+          freqSet.add(pf.frequency);
+          const q = Math.max(0.1, pf.q || 1.0);
+          // Evaluate half-power points around center frequency
+          const bandwidthFactor = Math.pow(2, 1 / (2 * q));
+          const fLower = pf.frequency / bandwidthFactor;
+          const fUpper = pf.frequency * bandwidthFactor;
+          if (fLower >= 20 && fLower <= 20000) freqSet.add(Math.round(fLower * 10) / 10);
+          if (fUpper >= 20 && fUpper <= 20000) freqSet.add(Math.round(fUpper * 10) / 10);
+        }
+      }
+    }
+
+    const testFrequencies = Array.from(freqSet);
 
     // Helper to evaluate single biquad filter dB gain at frequency f
     const evalBiquadDb = (type: string, f0: number, gainDb: number, q: number, f: number): number => {
@@ -235,8 +266,6 @@ export class AudioConfigurationResolver {
       const magLinearSq = numMagSq / denMagSq;
       return 10 * Math.log10(Math.max(1e-10, magLinearSq));
     };
-
-    const ISO_FREQS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
 
     let maxCombinedBoost = 0;
 

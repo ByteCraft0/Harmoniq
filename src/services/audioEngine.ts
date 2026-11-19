@@ -718,6 +718,9 @@ class AudioEngine {
 
     // If queue ends or no next track exists
     if (!nextTrack) {
+      if (this.isTransitioning) {
+        this.cancelCrossfade();
+      }
       this.standbyDeck.currentTrack = null;
       this.standbyDeck.currentUrl = '';
       this.standbyDeck.element.src = '';
@@ -916,8 +919,21 @@ class AudioEngine {
   public pause(): void {
     if (!this.activeDeck) return;
     this.activeDeck.element.pause();
-    if (this.isTransitioning && this.standbyDeck) {
+    if (this.isTransitioning) {
+      this.cancelCrossfade();
+    }
+    this.emitStatus();
+  }
+
+  public stop(): void {
+    if (!this.activeDeck) return;
+    this.activeDeck.element.pause();
+    this.activeDeck.element.currentTime = 0;
+    if (this.isTransitioning) {
+      this.cancelCrossfade();
+    } else if (this.standbyDeck) {
       this.standbyDeck.element.pause();
+      this.standbyDeck.element.currentTime = 0;
     }
     this.emitStatus();
   }

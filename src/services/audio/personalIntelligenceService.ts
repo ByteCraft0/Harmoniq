@@ -103,6 +103,10 @@ export class PersonalIntelligenceService {
     this.emit();
   }
 
+  public clearIntelligenceData(): void {
+    this.resetIntelligenceData();
+  }
+
   /**
    * Compute comprehensive listening profile for the specified time range
    */
