@@ -1,6 +1,6 @@
 {
   "name": "harmoniq",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "HARMONIQ - Premium High-Fidelity Audio Player for Windows",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -19,6 +19,7 @@
       "output": "release"
     },
     "win": {
+      "icon": "assets/icon.ico",
       "target": [
         "nsis",
         "portable"
@@ -28,11 +29,60 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "shortcutName": "Harmoniq"
     },
+    "fileAssociations": [
+      {
+        "ext": "flac",
+        "name": "FLAC Audio",
+        "description": "Free Lossless Audio Codec",
+        "role": "Viewer",
+        "icon": "assets/icon.ico"
+      },
+      {
+        "ext": "mp3",
+        "name": "MP3 Audio",
+        "description": "MPEG-1/2 Audio Layer III",
+        "role": "Viewer",
+        "icon": "assets/icon.ico"
+      },
+      {
+        "ext": "wav",
+        "name": "WAV Audio",
+        "description": "Waveform Audio File Format",
+        "role": "Viewer",
+        "icon": "assets/icon.ico"
+      },
+      {
+        "ext": "m4a",
+        "name": "M4A Audio",
+        "description": "MPEG-4 Audio",
+        "role": "Viewer",
+        "icon": "assets/icon.ico"
+      },
+      {
+        "ext": "alac",
+        "name": "ALAC Audio",
+        "description": "Apple Lossless Audio Codec",
+        "role": "Viewer",
+        "icon": "assets/icon.ico"
+      },
+      {
+        "ext": "ogg",
+        "name": "OGG Audio",
+        "description": "Ogg Vorbis Audio",
+        "role": "Viewer",
+        "icon": "assets/icon.ico"
+      }
+    ],
     "files": [
       "dist/**/*",
       "dist-electron/**/*",
+      "assets/**/*",
       "node_modules/**/*",
       "package.json"
     ]

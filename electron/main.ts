@@ -338,6 +338,81 @@ const AUDIO_EXTENSIONS = new Set([
   '.wma',
 ]);
 
+// Windows File Association & CLI argument parsing
+function extractAudioFileFromArgv(argv: string[]): string | null {
+  if (!argv || argv.length <= 1) return null;
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (!arg || arg.startsWith('--') || arg.startsWith('-')) continue;
+    try {
+      const ext = path.extname(arg).toLowerCase();
+      if (AUDIO_EXTENSIONS.has(ext) && fs.existsSync(arg)) {
+        return path.resolve(arg);
+      }
+    } catch {}
+  }
+  return null;
+}
+
+let pendingOpenFile: string | null = extractAudioFileFromArgv(process.argv);
+
+// Windows Taskbar Thumbnail Toolbar (setThumbarButtons)
+function getThumbarIcon(filename: string): Electron.NativeImage {
+  const candidates = [
+    path.join(__dirname, '../assets', filename),
+    path.join(process.resourcesPath, 'assets', filename),
+    path.join(process.resourcesPath, 'app.asar.unpacked', 'assets', filename),
+    path.join(app.getAppPath(), 'assets', filename),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) {
+      try {
+        const img = nativeImage.createFromPath(c);
+        if (!img.isEmpty()) return img;
+      } catch {}
+    }
+  }
+  return nativeImage.createEmpty();
+}
+
+function updateThumbarButtons(isPlaying: boolean = false) {
+  if (process.platform !== 'win32' || !mainWindow || mainWindow.isDestroyed()) return;
+
+  try {
+    const prevIcon = getThumbarIcon('thumbar-prev.png');
+    const playIcon = getThumbarIcon('thumbar-play.png');
+    const pauseIcon = getThumbarIcon('thumbar-pause.png');
+    const nextIcon = getThumbarIcon('thumbar-next.png');
+
+    mainWindow.setThumbarButtons([
+      {
+        tooltip: 'Previous Track',
+        icon: prevIcon,
+        click: () => {
+          mainWindow?.webContents.send('media:command', 'prev');
+        },
+      },
+      {
+        tooltip: isPlaying ? 'Pause' : 'Play',
+        icon: isPlaying ? pauseIcon : playIcon,
+        click: () => {
+          mainWindow?.webContents.send('media:command', 'playpause');
+        },
+      },
+      {
+        tooltip: 'Next Track',
+        icon: nextIcon,
+        click: () => {
+          mainWindow?.webContents.send('media:command', 'next');
+        },
+      },
+    ]);
+  } catch (err) {
+    // Graceful fallback when DWM/Aero is disabled or platform doesn't support thumbar
+    console.warn('Taskbar thumbnail buttons update skipped:', err);
+  }
+}
+
 // Mini-player window state management
 let isMiniPlayer = false;
 let normalBounds: { x: number; y: number; width: number; height: number } | null = null;
@@ -608,6 +683,24 @@ protocol.registerSchemesAsPrivileged([
 ]);
 
 function createMainWindow() {
+  const iconCandidates = [
+    path.join(__dirname, '../assets/icon.ico'),
+    path.join(process.resourcesPath, 'assets/icon.ico'),
+    path.join(app.getAppPath(), 'assets/icon.ico'),
+  ];
+  let windowIcon: Electron.NativeImage | undefined;
+  for (const ic of iconCandidates) {
+    if (fs.existsSync(ic)) {
+      try {
+        const img = nativeImage.createFromPath(ic);
+        if (!img.isEmpty()) {
+          windowIcon = img;
+          break;
+        }
+      } catch {}
+    }
+  }
+
   mainWindow = new BrowserWindow({
     width: 1300,
     height: 840,
@@ -616,6 +709,7 @@ function createMainWindow() {
     frame: false, // Frameless for modern Windows design
     titleBarStyle: 'hidden',
     backgroundColor: '#0b0c10',
+    icon: windowIcon,
     show: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -658,6 +752,14 @@ function createMainWindow() {
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow && !mainWindow.isVisible()) {
       mainWindow.show();
+    }
+    updateThumbarButtons(currentTrackSMTC?.isPlaying ?? false);
+    if (pendingOpenFile) {
+      const fileToOpen = pendingOpenFile;
+      pendingOpenFile = null;
+      setTimeout(() => {
+        mainWindow?.webContents.send('app:openExternalFile', fileToOpen);
+      }, 500);
     }
   });
 
@@ -1118,7 +1220,7 @@ function setupIpc() {
     if (typeof filePath === 'string' && filePath) shell.showItemInFolder(filePath);
   });
 
-  // Now-playing info -> window title, Windows SMTC, and System Tray
+  // Now-playing info -> window title, Windows SMTC, System Tray, and Taskbar Thumbar
   ipcMain.handle('system:updateSMTC', async (_e, track: { title?: string; artist?: string; album?: string; isPlaying?: boolean }) => {
     if (!mainWindow || !track) return false;
     currentTrackSMTC = track;
@@ -1128,7 +1230,15 @@ function setupIpc() {
         : 'HARMONIQ'
     );
     updateTrayMenu();
+    updateThumbarButtons(Boolean(track.isPlaying));
     return true;
+  });
+
+  // Windows File Association & initial cold-start file retrieval
+  ipcMain.handle('app:getPendingOpenFile', async () => {
+    const f = pendingOpenFile;
+    pendingOpenFile = null;
+    return f;
   });
 
   // Real ID3 & FLAC tag writing
@@ -3472,12 +3582,17 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
     if (mainWindow) {
       if (!mainWindow.isVisible()) mainWindow.show();
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
       updateTrayMenu();
+
+      const targetFile = extractAudioFileFromArgv(argv);
+      if (targetFile) {
+        mainWindow.webContents.send('app:openExternalFile', targetFile);
+      }
     }
   });
 

@@ -94,6 +94,8 @@ const harmoniqApi = {
   onWatcherFileAddedOrUpdated: (callback: (track: any) => void) => subscribe('watcher:fileAddedOrUpdated', callback),
   onWatcherFileRemoved: (callback: (filePath: string) => void) => subscribe('watcher:fileRemoved', callback),
   onWatcherSyncStatus: (callback: (status: any) => void) => subscribe('watcher:syncStatus', callback),
+  onOpenExternalFile: (callback: (filePath: string) => void) => subscribe('app:openExternalFile', callback),
+  getPendingOpenFile: () => ipcRenderer.invoke('app:getPendingOpenFile'),
 };
 
 contextBridge.exposeInMainWorld('harmoniqApi', harmoniqApi);

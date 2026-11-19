@@ -1321,6 +1321,36 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
   }, [currentTrack, isPlaying]);
 
+  // Windows File Association (double-click in Explorer or CLI argument)
+  useEffect(() => {
+    const handleOpenFile = async (filePath: string) => {
+      if (!filePath) return;
+      try {
+        const track = await window.harmoniqApi?.parseAudioFile?.(filePath);
+        if (track) {
+          libraryService.addTracks([track]);
+          await playTrack(track);
+        }
+      } catch (err) {
+        console.warn('Failed to open file from external trigger:', err);
+      }
+    };
+
+    const off = window.harmoniqApi?.onOpenExternalFile?.((filePath) => {
+      handleOpenFile(filePath);
+    });
+
+    window.harmoniqApi?.getPendingOpenFile?.().then((pending) => {
+      if (pending) {
+        handleOpenFile(pending);
+      }
+    }).catch(() => {});
+
+    return () => {
+      off?.();
+    };
+  }, []);
+
   return (
     <PlayerContext.Provider
       value={{

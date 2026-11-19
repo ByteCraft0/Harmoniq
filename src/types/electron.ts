@@ -172,6 +172,8 @@ export interface HarmoniqApi {
   onWatcherFileAddedOrUpdated?: (callback: (track: TrackMetadata) => void) => () => void;
   onWatcherFileRemoved?: (callback: (filePath: string) => void) => () => void;
   onWatcherSyncStatus?: (callback: (status: WatcherSyncStatus) => void) => () => void;
+  onOpenExternalFile?: (callback: (filePath: string) => void) => () => void;
+  getPendingOpenFile?: () => Promise<string | null>;
 }
 
 declare global {
