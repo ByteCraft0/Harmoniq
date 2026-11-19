@@ -21,9 +21,13 @@ import { AppView } from '../../context/LibraryContext';
 import { getSuggestedQuestions } from '../../services/assistantKnowledge';
 import { HarmoniqPulseOrb } from './HarmoniqPulseOrb';
 import { DiscoveryResultsList } from './DiscoveryResultsList';
+import { PlaylistPreviewCard } from './PlaylistPreviewCard';
 import { AssistantAction, AssistantMessage } from '../../types/assistant';
 import { UnifiedTrack, unifiedTrackToTrackMetadata } from '../../types/universalMusic';
+import { GeneratedPlaylistPreview } from '../../types/playlistAssistant';
 import { assistantService } from '../../services/assistantService';
+import { playlistGenerationEngine } from '../../services/playlistGenerationEngine';
+import { playlistIntentService } from '../../services/playlistIntentService';
 
 interface HarmoniqAssistantPanelProps {
   isOpen?: boolean;
@@ -131,6 +135,42 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
         addToQueue(unifiedTrackToTrackMetadata(ut));
       }
     }
+  };
+
+  // Conversational Playlist Assistant Handlers (Phase 5A.3)
+  const handleSavePlaylistPreview = async (preview: GeneratedPlaylistPreview) => {
+    const res = await playlistGenerationEngine.savePlaylistPreview(preview);
+    if (res.success) {
+      assistantService.updateActivePlaylistPreview(preview);
+    }
+  };
+
+  const handlePlayAllPlaylistTracks = async (tracks: UnifiedTrack[]) => {
+    if (tracks.length === 0) return;
+    const first = tracks[0];
+    await playTrack(unifiedTrackToTrackMetadata(first));
+    for (let i = 1; i < tracks.length; i++) {
+      addToQueue(unifiedTrackToTrackMetadata(tracks[i]));
+    }
+  };
+
+  const handleQueueAllPlaylistTracks = (tracks: UnifiedTrack[]) => {
+    for (const t of tracks) {
+      addToQueue(unifiedTrackToTrackMetadata(t));
+    }
+  };
+
+  const handleRemoveTrackFromPreview = (trackId: string) => {
+    assistantService.removeTrackFromPreview(trackId);
+  };
+
+  const handleDiscardPreview = () => {
+    playlistIntentService.clearSession();
+    assistantService.updateActivePlaylistPreview({} as any);
+  };
+
+  const handleNavigatePlaylists = () => {
+    setActiveView('playlists');
   };
 
   // Auto-scroll chat to bottom
@@ -339,6 +379,22 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
                   onAddToQueue={handleAddToQueueDiscoveredTrack}
                   onPlayNext={handlePlayNextDiscoveredTrack}
                   onQueueAll={handleQueueAllDiscoveredTracks}
+                  currentTrackId={currentTrack?.id}
+                  isPlaying={isPlaying}
+                />
+              )}
+
+              {/* Conversational Playlist Preview Card (Phase 5A.3) */}
+              {msg.playlistPreview && (
+                <PlaylistPreviewCard
+                  preview={msg.playlistPreview}
+                  onSave={handleSavePlaylistPreview}
+                  onPlayAll={handlePlayAllPlaylistTracks}
+                  onQueueAll={handleQueueAllPlaylistTracks}
+                  onPlayTrack={handlePlayDiscoveredTrack}
+                  onRemoveTrack={handleRemoveTrackFromPreview}
+                  onDiscard={handleDiscardPreview}
+                  onNavigatePlaylists={handleNavigatePlaylists}
                   currentTrackId={currentTrack?.id}
                   isPlaying={isPlaying}
                 />

@@ -12,6 +12,9 @@ import { generateLocalAnswer, searchKnowledge } from './assistantKnowledge';
 import { formatContextForPrompt } from './assistantContextService';
 import { discoveryIntentService } from './discoveryIntentService';
 import { musicDiscoveryEngine } from './musicDiscoveryEngine';
+import { playlistIntentService } from './playlistIntentService';
+import { playlistGenerationEngine } from './playlistGenerationEngine';
+import { GeneratedPlaylistPreview } from '../types/playlistAssistant';
 import { UnifiedTrack } from '../types/universalMusic';
 import { PlaybackCommand } from '../types/discovery';
 import { speechService } from './speechService';
@@ -201,6 +204,27 @@ class AssistantService {
     };
   }
 
+  public updateActivePlaylistPreview(preview: GeneratedPlaylistPreview): void {
+    for (let i = this.messages.length - 1; i >= 0; i--) {
+      if (this.messages[i].playlistPreview) {
+        this.messages[i].playlistPreview = { ...preview };
+        break;
+      }
+    }
+    this.saveMessagesToStorage();
+    this.notify();
+  }
+
+  public removeTrackFromPreview(trackId: string): void {
+    playlistIntentService.removeTrackFromActivePreview(trackId);
+    const updated = playlistIntentService.getActivePreview();
+    if (updated) {
+      this.updateActivePlaylistPreview(updated);
+    } else {
+      this.notify();
+    }
+  }
+
   public getOrbState(): PulseOrbState {
     return this.orbState;
   }
@@ -303,6 +327,106 @@ class AssistantService {
     this.setOrbState('processing');
     this.saveMessagesToStorage();
     this.notify();
+
+    // Conversational Playlist Assistant & Generation (Phase 5A.3)
+    if (playlistIntentService.isPlaylistIntent(prompt)) {
+      const pIntent = playlistIntentService.parseIntent(prompt);
+      let replyContent = '';
+      const actions: AssistantAction[] = [];
+      let previewToAttach: GeneratedPlaylistPreview | undefined = undefined;
+
+      if (pIntent.action === 'save') {
+        const activePreview = playlistIntentService.getActivePreview();
+        if (!activePreview) {
+          replyContent = `There is no active playlist preview to save. Try asking me to create a playlist first, e.g. *"Create a playlist for late-night coding"*.`;
+        } else {
+          if (pIntent.name && pIntent.name.trim()) {
+            activePreview.name = pIntent.name.trim();
+          }
+          const saveRes = await playlistGenerationEngine.savePlaylistPreview(activePreview);
+          if (saveRes.success) {
+            replyContent = `### Playlist Saved! 🎵\n\n**"${saveRes.playlistName}"** has been saved to your Harmoniq library with **${saveRes.trackCount} tracks**.\n\nYou can access, play, or edit it anytime from your library [Open Playlists].`;
+            actions.push({ id: 'open_playlists', label: 'Open Playlists', actionType: 'navigate', target: 'playlists' });
+            previewToAttach = { ...activePreview };
+          } else {
+            replyContent = `Could not save playlist: ${saveRes.error || 'Unknown error'}.`;
+            previewToAttach = activePreview;
+          }
+        }
+      } else if (pIntent.action === 'cancel') {
+        playlistIntentService.clearSession();
+        replyContent = `Playlist preview discarded. Whenever you're ready, just ask and I can generate another one for you!`;
+      } else if (pIntent.action === 'inspect') {
+        const activePreview = playlistIntentService.getActivePreview();
+        if (!activePreview) {
+          replyContent = `There is no active playlist preview to inspect. Ask me to generate one first!`;
+        } else {
+          const comp = activePreview.composition;
+          replyContent = `### Playlist Preview: "${activePreview.name}" ℹ️\n\n- **Tracks:** ${activePreview.tracks.length} (~${Math.round(activePreview.totalDuration / 60)} mins)\n- **Composition:** ${comp.localCount} local, ${comp.onlineFullCount} full stream, ${comp.previewCount} preview\n${comp.excludedExternalCount > 0 ? `- **Excluded:** ${comp.excludedExternalCount} external streaming links\n` : ''}- **Description:** ${activePreview.description}\n\nYou can refine this playlist or save it to your library!`;
+          actions.push({ id: 'open_playlists', label: 'Open Playlists', actionType: 'navigate', target: 'playlists' });
+          previewToAttach = activePreview;
+        }
+      } else if (pIntent.action === 'edit' || pIntent.action === 'refine') {
+        const activePreview = playlistIntentService.getActivePreview();
+        if (!activePreview) {
+          replyContent = `There is no active playlist preview to modify. You can ask me to *"Create a playlist for late-night coding"* to get started.`;
+        } else {
+          const updated = await playlistGenerationEngine.refinePlaylist(activePreview, pIntent, this.currentContext);
+          let changeDesc = 'Updated your playlist preview';
+          if (pIntent.editOperation?.type === 'rename') {
+            changeDesc = `Renamed playlist preview to **"${updated.name}"**`;
+          } else if (pIntent.editOperation?.type === 'remove_tracks') {
+            changeDesc = `Removed track from playlist preview (${updated.tracks.length} tracks remaining)`;
+          } else if (pIntent.editOperation?.type === 'add_tracks') {
+            changeDesc = `Added more tracks to preview (${updated.tracks.length} total tracks)`;
+          } else if (pIntent.editOperation?.type === 'replace_tracks') {
+            changeDesc = `Replaced tracks with calmer selections (${updated.tracks.length} total tracks)`;
+          } else if (pIntent.editOperation?.type === 'undo') {
+            changeDesc = `Reverted your previous modification (${updated.tracks.length} tracks)`;
+          } else if (pIntent.preferences.isAcoustic) {
+            changeDesc = `Refined preview to focus on acoustic selections`;
+          } else if (pIntent.preferences.isInstrumental) {
+            changeDesc = `Refined preview to focus on instrumental tracks`;
+          } else if (pIntent.preferences.energy === 'low') {
+            changeDesc = `Removed high-energy tracks for a calmer mood`;
+          }
+
+          replyContent = `### ${changeDesc} 🎶\n\n${updated.description}\n\nReview the updated tracklist below. You can make further changes or click **Save to Library** when ready!`;
+          actions.push({ id: 'open_playlists', label: 'Open Playlists', actionType: 'navigate', target: 'playlists' });
+          previewToAttach = updated;
+        }
+      } else {
+        // 'create'
+        const preview = await playlistGenerationEngine.generatePlaylist(pIntent, this.currentContext);
+        const comp = preview.composition;
+        let compSummary = `${preview.tracks.length} tracks (~${Math.round(preview.totalDuration / 60)} mins)`;
+        if (comp.previewCount > 0) {
+          compSummary += ` • includes ${comp.previewCount} preview${comp.previewCount > 1 ? 's' : ''} (30s)`;
+        }
+        if (comp.excludedExternalCount > 0) {
+          compSummary += ` • ${comp.excludedExternalCount} external link${comp.excludedExternalCount > 1 ? 's' : ''} excluded`;
+        }
+
+        replyContent = `### Playlist Preview: "${preview.name}" 🎧\n\nI've generated a playlist with **${compSummary}**.\n\n${preview.description}\n\nReview the tracks below. You can refine it (e.g. *"add 5 more songs"*, *"more acoustic"*, *"remove track 2"*, or *"rename to Focus"*), or click **Save to Library** / say *"save"* when you're ready!`;
+        actions.push({ id: 'open_playlists', label: 'Open Playlists', actionType: 'navigate', target: 'playlists' });
+        previewToAttach = preview;
+      }
+
+      const assistantMsg: AssistantMessage = {
+        id: `ast_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        role: 'assistant',
+        content: replyContent,
+        timestamp: Date.now(),
+        actions,
+        playlistPreview: previewToAttach,
+      };
+
+      this.messages.push(assistantMsg);
+      this.saveMessagesToStorage();
+      this.setOrbState('idle');
+      this.notify();
+      return assistantMsg;
+    }
 
     // Natural Language Music Discovery & Playback Actions (Phase 5A.2)
     if (discoveryIntentService.isDiscoveryOrPlaybackIntent(prompt)) {
