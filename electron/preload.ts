@@ -66,6 +66,7 @@ const harmoniqApi = {
   fetchPodcastFeed: (feedUrl: string) => ipcRenderer.invoke('podcast:fetchFeed', feedUrl),
   resolvePodcastUrl: (urlOrQuery: string) => ipcRenderer.invoke('podcast:resolveUrl', urlOrQuery),
   searchOnlineMusic: (query: string, filter?: string) => ipcRenderer.invoke('online:searchMusic', query, filter),
+  universalSearch: (request: any) => ipcRenderer.invoke('universal:search', request),
   verifyRadioStream: (streamUrl: string) => ipcRenderer.invoke('radio:verifyStream', streamUrl),
 
   // Portable Mode

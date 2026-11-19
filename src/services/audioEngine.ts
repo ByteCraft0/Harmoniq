@@ -22,9 +22,33 @@ export type PlaybackErrorCallback = (message: string, track: TrackMetadata | nul
 
 export type TrackTransitionCallback = (nextTrack: TrackMetadata, type: 'gapless' | 'crossfade') => void;
 
-/** Build a robust media URL: constant host + per-segment encoded path (drive colons, spaces, #, % are safe). */
+/**
+ * Build a robust media URL:
+ * - Validated external HTTP/HTTPS streams are returned directly without local path corruption.
+ * - Local files use the custom protocol: constant host + per-segment encoded path (drive colons, spaces, #, % are safe).
+ */
 export function buildMediaUrl(filePath: string): string {
-  const norm = filePath.replace(/\\/g, '/');
+  if (!filePath || typeof filePath !== 'string') return '';
+  const trimmed = filePath.trim();
+
+  // Safely support validated external HTTP and HTTPS streams
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return parsed.href;
+      }
+    } catch {
+      // Invalid URL format, fall through to path handling or error
+    }
+  }
+
+  // Reject unauthorized/insecure schemes (prevent arbitrary code execution / file leak)
+  if (/^(javascript|data|blob|file|ftp):/i.test(trimmed)) {
+    throw new Error(`Unsupported audio URI scheme: ${trimmed.slice(0, 30)}`);
+  }
+
+  const norm = trimmed.replace(/\\/g, '/');
   const isUnc = norm.startsWith('//');
   const body = norm.replace(/^\/+/, '');
   const encoded = body.split('/').map(encodeURIComponent).join('/');

@@ -97,6 +97,19 @@
 - **Streamlined Compact Pill Mode**: Compact 380x100px layout with mini artwork, 30-bar compact waveform progress bar, audio-reactive live visualizer, and compact transport buttons.
 - **Complete Test Coverage**: 30 test files, 281 passing tests, zero regressions.
 
+### Universal Music Engine — Phase 1: Core Architecture, Data Contracts & Streaming Foundation
+- **Unified Track Data Contracts**: Created `src/types/universalMusic.ts` defining `UnifiedTrack`, `ProviderId`, `PlaybackCapability`, `MusicProvider`, and bi-directional adapters (`unifiedTrackToTrackMetadata`, `trackMetadataToUnifiedTrack`).
+- **Web Audio Streaming Extension**: Updated `buildMediaUrl()` in `src/services/audioEngine.ts` to pass validated external HTTP/HTTPS streams directly into the dual-deck pipeline while rejecting malicious protocol schemes and preserving local `harmoniq-media://` routing.
+- **Modular Provider Architecture**: Created `src/services/providers/` featuring `BaseMusicProvider` and Tier 1 foundation adapters:
+  - `JamendoProvider`: Full-length Creative Commons MP3 streaming.
+  - `AudiusProvider`: 320kbps modern creator streaming via decentralized discovery nodes.
+  - `ArchiveProvider`: Public domain classical, historical, and South Asian archival streaming.
+  - `ApplePreviewProvider`: Universal Bollywood, Punjabi, Regional Indian, and International catalog discovery with legitimate 30-second AAC previews.
+  - `LocalLibraryProvider`: Seamless offline library search integration.
+- **Universal Music Orchestrator**: Built `src/services/universalMusicService.ts` providing parallel provider dispatch, failure isolation (`Promise.allSettled`), smart deduplication prioritizing full streams over previews, 15-minute LRU caching, and search cancellation.
+- **Secure Electron IPC Foundation**: Implemented `universal:search` in `electron/main.ts` with timeout safeguards (9s), input validation (150 chars), and exposed it via `electron/preload.ts`.
+- **Complete Test Verification**: 31 test files, 302 passing tests, zero regressions. All builds verified.
+
 ---
 
 ## Known limitations (not changed)

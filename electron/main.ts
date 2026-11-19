@@ -1889,6 +1889,291 @@ function setupIpc() {
     return combined;
   });
 
+  // Universal Music Engine: Multi-Provider Aggregation (Phase 1)
+  ipcMain.handle('universal:search', async (_e, request: any) => {
+    const rawQuery = request?.query;
+    if (typeof rawQuery !== 'string' || !rawQuery.trim()) {
+      return {
+        query: '',
+        filter: 'all',
+        results: [],
+        providerResponses: {},
+        totalResults: 0,
+        searchedAt: Date.now(),
+      };
+    }
+    const cleanQ = rawQuery.trim().slice(0, 150);
+    const filter =
+      request?.filter === 'album' || request?.filter === 'artist' || request?.filter === 'song'
+        ? request.filter
+        : 'all';
+    const limit = Math.min(50, Math.max(1, typeof request?.limit === 'number' ? request.limit : 20));
+
+    const providerResponses: Record<string, any> = {};
+
+    // 1. Apple Music / iTunes Catalog (Universal Bollywood, Punjabi, Regional Indian & International + 30s previews)
+    const appleTask = (async () => {
+      const t0 = Date.now();
+      try {
+        const entity = filter === 'album' ? 'album' : 'song';
+        const url = `https://itunes.apple.com/search?term=${encodeURIComponent(cleanQ)}&entity=${entity}&limit=${limit}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const rawResults = data?.results || [];
+        const tracks = rawResults.map((item: any) => {
+          const rawId = item.trackId || item.collectionId;
+          const art = item.artworkUrl100
+            ? item.artworkUrl100.replace('100x100bb.jpg', '600x600bb.jpg')
+            : undefined;
+          const durSec = item.trackTimeMillis ? Math.round(item.trackTimeMillis / 1000) : 0;
+          const yr = item.releaseDate ? parseInt(item.releaseDate.substring(0, 4), 10) : undefined;
+          return {
+            id: `apple:${rawId}`,
+            providerId: 'apple',
+            providerTrackId: String(rawId),
+            title: item.trackName || item.collectionName || 'Untitled Track',
+            artist: item.artistName || 'Unknown Artist',
+            album: item.collectionName || undefined,
+            duration: durSec,
+            artworkUrl: art,
+            genre: item.primaryGenreName || undefined,
+            releaseYear: isNaN(yr!) ? undefined : yr,
+            playbackCapability: 'preview_stream',
+            streamUrl: item.previewUrl || undefined,
+            format: 'AAC',
+            bitrate: 256,
+            license: 'Official 30-Second Audio Preview',
+            attributionText: `${item.artistName} (Official 30s Preview via Apple Music)`,
+            providerWebUrl: item.trackViewUrl || item.collectionViewUrl,
+            isOnline: true,
+          };
+        });
+        return { providerId: 'apple', success: true, tracks, durationMs: Date.now() - t0 };
+      } catch (err: any) {
+        return {
+          providerId: 'apple',
+          success: false,
+          tracks: [],
+          errorMessage: err.message,
+          durationMs: Date.now() - t0,
+        };
+      }
+    })();
+
+    // 2. Internet Archive (Public domain classical, vintage & historical archives)
+    const archiveTask = (async () => {
+      const t0 = Date.now();
+      try {
+        let fieldQuery = `(title:("${cleanQ}") OR creator:("${cleanQ}") OR description:("${cleanQ}"))`;
+        if (filter === 'song') fieldQuery = `title:("${cleanQ}")`;
+        else if (filter === 'artist') fieldQuery = `creator:("${cleanQ}")`;
+        else if (filter === 'album') fieldQuery = `(album:("${cleanQ}") OR title:("${cleanQ}"))`;
+
+        const url = `https://archive.org/advancedsearch.php?q=mediatype:audio%20AND%20${encodeURIComponent(
+          fieldQuery
+        )}&fl[]=identifier,title,creator,album,year,description,downloads&sort[]=downloads%20desc&rows=${limit}&output=json`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const docs = data?.response?.docs || [];
+        const tracks = docs.map((doc: any) => {
+          const id = doc.identifier;
+          const title = Array.isArray(doc.title) ? doc.title[0] : (doc.title || 'Untitled Audio');
+          const artist = Array.isArray(doc.creator) ? doc.creator[0] : (doc.creator || 'Unknown Artist');
+          const album = Array.isArray(doc.album) ? doc.album[0] : doc.album;
+          const yr = doc.year ? parseInt(doc.year, 10) : undefined;
+          return {
+            id: `archive:${id}`,
+            providerId: 'archive',
+            providerTrackId: String(id),
+            title,
+            artist,
+            album: album || undefined,
+            duration: 0,
+            artworkUrl: `https://archive.org/services/img/${id}`,
+            releaseYear: isNaN(yr!) ? undefined : yr,
+            playbackCapability: 'full_stream',
+            streamUrl: `https://archive.org/download/${id}/${id}_vbr.mp3`,
+            format: 'MP3',
+            license: 'Public Domain / Creative Commons',
+            attributionText: `${artist} via Internet Archive`,
+            providerWebUrl: `https://archive.org/details/${id}`,
+            isOnline: true,
+          };
+        });
+        return { providerId: 'archive', success: true, tracks, durationMs: Date.now() - t0 };
+      } catch (err: any) {
+        return {
+          providerId: 'archive',
+          success: false,
+          tracks: [],
+          errorMessage: err.message,
+          durationMs: Date.now() - t0,
+        };
+      }
+    })();
+
+    // 3. Jamendo Music (Full-track Creative Commons streaming)
+    const jamendoTask = (async () => {
+      const t0 = Date.now();
+      try {
+        const url = `https://api.jamendo.com/v3.0/tracks/?client_id=b6747d04&format=jsonpretty&limit=${limit}&namesearch=${encodeURIComponent(
+          cleanQ
+        )}&include=musicinfo`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const results = data?.results || [];
+        const tracks = results.map((item: any) => ({
+          id: `jamendo:${item.id}`,
+          providerId: 'jamendo',
+          providerTrackId: String(item.id),
+          title: item.name || 'Untitled Track',
+          artist: item.artist_name || 'Unknown Artist',
+          album: item.album_name || undefined,
+          duration: Math.max(0, parseInt(item.duration, 10) || 0),
+          artworkUrl: item.image || item.album_image || undefined,
+          genre: item.musicinfo?.tags?.genres?.[0] || undefined,
+          releaseYear: item.releasedate ? parseInt(item.releasedate.slice(0, 4), 10) : undefined,
+          playbackCapability: 'full_stream',
+          streamUrl: item.audio || item.audiodl || undefined,
+          format: 'MP3',
+          bitrate: 128,
+          license: item.license_ccurl || 'Creative Commons',
+          attributionText: `${item.artist_name} via Jamendo (Creative Commons)`,
+          providerWebUrl: item.shareurl || `https://www.jamendo.com/track/${item.id}`,
+          isOnline: true,
+        }));
+        return { providerId: 'jamendo', success: true, tracks, durationMs: Date.now() - t0 };
+      } catch (err: any) {
+        return {
+          providerId: 'jamendo',
+          success: false,
+          tracks: [],
+          errorMessage: err.message,
+          durationMs: Date.now() - t0,
+        };
+      }
+    })();
+
+    // 4. Audius (Full-track 320k streaming from decentralized nodes)
+    const audiusTask = (async () => {
+      const t0 = Date.now();
+      try {
+        const host = 'https://discoveryprovider.audius.co';
+        const url = `${host}/v1/tracks/search?query=${encodeURIComponent(
+          cleanQ
+        )}&app_name=HarmoniqAudioPlayer&limit=${limit}`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 9000);
+        const res = await fetch(url, {
+          headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const rawTracks = data?.data || [];
+        const tracks = rawTracks.map((raw: any) => {
+          const rawId = raw.id;
+          const art =
+            raw.artwork?.['480x480'] ||
+            raw.artwork?.['150x150'] ||
+            raw.artwork?.['1000x1000'] ||
+            undefined;
+          return {
+            id: `audius:${rawId}`,
+            providerId: 'audius',
+            providerTrackId: String(rawId),
+            title: raw.title || 'Untitled Track',
+            artist: raw.user?.name || raw.user?.handle || 'Unknown Artist',
+            album: undefined,
+            duration: Math.max(0, parseInt(raw.duration, 10) || 0),
+            artworkUrl: art,
+            genre: raw.genre || undefined,
+            releaseYear: raw.release_date ? parseInt(raw.release_date.slice(0, 4), 10) : undefined,
+            playbackCapability: 'full_stream',
+            streamUrl: `${host}/v1/tracks/${rawId}/stream?app_name=HarmoniqAudioPlayer`,
+            format: 'MP3',
+            bitrate: 320,
+            license: 'Free Creator Streaming via Audius',
+            attributionText: `${raw.user?.name || 'Artist'} on Audius`,
+            providerWebUrl: raw.permalink
+              ? `https://audius.co${raw.permalink}`
+              : `https://audius.co/tracks/${rawId}`,
+            isOnline: true,
+          };
+        });
+        return { providerId: 'audius', success: true, tracks, durationMs: Date.now() - t0 };
+      } catch (err: any) {
+        return {
+          providerId: 'audius',
+          success: false,
+          tracks: [],
+          errorMessage: err.message,
+          durationMs: Date.now() - t0,
+        };
+      }
+    })();
+
+    const responses = await Promise.all([appleTask, archiveTask, jamendoTask, audiusTask]);
+    const allTracks: any[] = [];
+    for (const r of responses) {
+      providerResponses[r.providerId] = r;
+      if (r.success) {
+        allTracks.push(...r.tracks);
+      }
+    }
+
+    // Smart deduplication: prioritize full_stream over preview_stream
+    const seen = new Map<string, any>();
+    for (const track of allTracks) {
+      const key = `${(track.title || '')
+        .toLowerCase()
+        .replace(/[^\w\s]/gi, '')
+        .trim()}:::${(track.artist || '')
+        .toLowerCase()
+        .replace(/[^\w\s]/gi, '')
+        .trim()}`;
+      const existing = seen.get(key);
+      if (!existing) {
+        seen.set(key, track);
+      } else if (existing.playbackCapability !== 'full_stream' && track.playbackCapability === 'full_stream') {
+        seen.set(key, track);
+      }
+    }
+
+    const deduplicated = Array.from(seen.values());
+
+    return {
+      query: cleanQ,
+      filter,
+      results: deduplicated,
+      providerResponses,
+      totalResults: deduplicated.length,
+      searchedAt: Date.now(),
+    };
+  });
+
   // Harmoniq Assistant IPC Handlers (Phase 7)
   ipcMain.handle('assistant:getConfig', async () => {
     return loadStoredDataSync('assistant_config', {

@@ -1,3 +1,5 @@
+export * from './universalMusic';
+
 export interface OnlineSearchResult {
   id: string;
   title: string;
@@ -5,7 +7,7 @@ export interface OnlineSearchResult {
   album?: string;
   year?: number;
   duration?: number;
-  source: 'Internet Archive' | 'Free Music Archive' | 'Public Domain';
+  source: string;
   streamUrl?: string;
   detailUrl?: string;
   artworkUrl?: string;
