@@ -127,6 +127,44 @@
 - **Security & SSRF Hardening**: Enforced HTTP/HTTPS restrictions, private/loopback IP blocking (`isSafePublicUrl`), 9-second request timeouts, and sanitized responses.
 - **Complete Test Coverage**: Created `src/test/universal_music_phase2.test.ts` (14 new tests). Full suite: 32 test files, 316 passed tests, zero regressions. All Vite and Electron builds verified.
 
+### Universal Music Engine — Phase 3: Commercial Music Discovery & Provider Expansion
+- **Comprehensive Provider Capability Audit**:
+  - **Spotify Web API**: Investigated and implemented official OAuth 2.0 Client Credentials flow (`/api/token`). Audited catalog search, high-res 640x640 artwork, ISRC identification, popularity metrics (0-100), and official track destination links (`open.spotify.com`). Confirmed Spotify's broad deprecation of unauthenticated 30s audio previews for modern API applications. Full audio playback via Spotify Web Playback SDK requires Widevine CDM (not bundled in standard Electron) and user Spotify Premium account with `streaming` OAuth scope. Classified as `external_link` (or `preview_stream` when audio previews are present).
+  - **YouTube Data API v3**: Investigated and implemented official Google Cloud YouTube Data API v3 search with music category filtering (`videoCategoryId=10`) and video duration enrichment. Strictly enforces YouTube Terms of Service Section II.10: stream ripping, audio extraction, or separating audio from video is strictly prohibited. Classified as `authorized_embed` with explicit watch links and video metadata.
+  - **Apple Music / MusicKit**: Audited dual-tier architecture: verified that the unauthenticated iTunes Catalog API provides zero-fee, instant discovery across Bollywood, Punjabi, Regional Indian, and International catalogs with 30s AAC previews (`preview_stream`) and open CORS. Audited MusicKit JS, documenting requirements for Apple Developer Program membership ($99/year), Team ID, Key ID, private `.p8` key, and active user Apple Music subscription for full playback.
+  - **JioSaavn & Regional Indian Music Services**: Conducted definitive API investigation for JioSaavn, Gaana, Wynk, and Hungama. Confirmed that none of these services provide official public third-party developer APIs or open SDKs. Third-party scraping libraries rely on reverse-engineered private mobile endpoints that violate terms of service and break unpredictably. Strictly prohibited unauthorized scraping per project guidelines. Certified JioSaavn as `NOT AVAILABLE` in compliance status matrix. Complete Indian music coverage is provided legitimately via Apple Music (30s previews), YouTube official music label channels (T-Series, Zee Music, YRF, Sony Music India, Speed Records), Spotify catalog metadata, and Internet Archive historical collections.
+- **Provider Adapters & Type Contracts**:
+  - Created `SpotifyProvider` (`src/services/providers/spotifyProvider.ts`) with automatic token renewal, cached access tokens, popularity and ISRC parsing, and graceful error handling.
+  - Created `YouTubeProvider` (`src/services/providers/youtubeProvider.ts`) with ISO-8601 duration parsing (`parseIsoDuration`), channel attribution, and thumbnail extraction.
+  - Extended `ProviderId` to include `'spotify'`, `'youtube'`, `'jiosaavn'`.
+  - Extended `PlaybackCapability` to include `'authorized_embed'`, `'external_link'`, `'metadata_only'`, `'unavailable'`.
+  - Extended `UnifiedTrack` with `popularity?: number`, `isrc?: string`.
+  - Added `ProviderCapabilityAudit` contract and `getCapabilityAudit()` method to providers and `universalMusicService.ts`.
+- **Rank-Based Deduplication**:
+  - Upgraded deduplication logic to score candidates by playback capability: `full_stream (10) > preview_stream (8) > authorized_embed (6) > external_link (4) > metadata_only (2)`.
+  - Ensures users always receive the most playable, authorized version of a song while retaining rich metadata.
+- **UI Capability Badging & Explicit Actions**:
+  - Upgraded `src/components/online/OnlineMusicSearchView.tsx` with capability badges: `Full Track`, `30s Preview`, `Authorized Video`, `Official Link`, `Metadata Only`, `Local File`.
+  - Implemented branded provider badges for Spotify (emerald `#1ed760`), YouTube (red `#ff4e4e`), and Apple Music (violet).
+  - Enforced strict playback action rules: suppressed internal audio Play and Queue buttons on `external_link`, `metadata_only`, and `authorized_embed` tracks.
+  - Provided explicit destination actions: "Open in Spotify" / "Open External Source" for external-link items, and "Watch Video" for YouTube video results.
+  - Displayed popularity scores (`★ {popularity}%`) and ISRC identifiers.
+  - Added Spotify and YouTube filter chips with live result counts.
+  - Updated initial discovery hero cards to highlight Spotify and YouTube integrations.
+- **Multi-Provider Configuration & Compliance Hub**:
+  - Expanded `src/components/views/SettingsView.tsx` with a unified Multi-Provider Hub.
+  - Added Spotify Web API configuration card (Client ID and masked Client Secret with persistence and clear actions).
+  - Added YouTube Data API v3 configuration card (API key input, validation, persistence, and clear actions).
+  - Added Provider Capability & Compliance Matrix table summarizing status, coverage, playback capability, and authentication requirements across all 7 audited providers.
+- **IPC & Security Hardening**:
+  - Updated `electron/main.ts` with `spotifyTask` and `youtubeTask` executing in the background with timeouts and capability rankings.
+  - Added secure `universal:getProviderConfigs` and `universal:saveProviderConfigs` IPC handlers keeping API secrets protected.
+  - Exposed handlers via `electron/preload.ts` and `src/types/electron.ts`.
+- **Complete Test Verification**:
+  - Created `src/test/universal_music_phase3.test.ts` (15 comprehensive unit and integration tests).
+  - Full test suite: 33 test files, 331 tests passing, 0 failures.
+  - Verified `tsc`, `npm run build:electron`, and `npm run build` with zero errors.
+
 ---
 
 ## Known limitations (not changed)

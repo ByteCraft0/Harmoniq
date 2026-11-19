@@ -7,13 +7,18 @@ export type ProviderId =
   | 'archive'
   | 'apple'
   | 'youtube'
-  | 'spotify';
+  | 'spotify'
+  | 'jiosaavn';
 
 export type PlaybackCapability =
-  | 'full_stream'    // Authorized full-length direct audio stream (Jamendo, Audius, Archive.org)
-  | 'preview_stream' // Authorized 30-second audio preview (Apple / iTunes)
-  | 'external_embed' // Authorized external embedded player (YouTube iframe)
-  | 'local_file';    // Local storage file
+  | 'full_stream'       // Authorized full-length direct audio stream (Jamendo, Audius, Archive.org)
+  | 'preview_stream'    // Authorized 30-second audio preview (Apple / iTunes)
+  | 'authorized_embed'  // Authorized embedded video/audio playback (YouTube IFrame API)
+  | 'external_embed'    // Legacy alias for authorized_embed
+  | 'external_link'     // Official destination link (Spotify, YouTube, Apple Music)
+  | 'metadata_only'     // Metadata & artwork catalog discovery without streaming
+  | 'unavailable'       // Content or stream currently unavailable
+  | 'local_file';       // Local storage file
 
 export interface UnifiedTrack {
   id: string; // Unique provider-prefixed identifier, e.g. "jamendo:1928374", "audius:abc123"
@@ -34,6 +39,8 @@ export interface UnifiedTrack {
   attributionText?: string;
   providerWebUrl?: string;
   streamExpiresAt?: number;
+  popularity?: number; // 0-100 popularity score (e.g. Spotify)
+  isrc?: string; // International Standard Recording Code
   isOnline: boolean;
 }
 
@@ -76,6 +83,22 @@ export interface UniversalSearchResponse {
   searchedAt: number;
 }
 
+export interface ProviderCapabilityAudit {
+  providerId: ProviderId;
+  name: string;
+  searchAvailable: boolean;
+  metadataAvailable: boolean;
+  playbackCapability: PlaybackCapability;
+  requiresAuth: boolean;
+  developerRegistration: string;
+  officialDestinationUrl: string;
+  providerAttribution: string;
+  geographicAvailability: string;
+  rateLimits: string;
+  commercialRestrictions: string;
+  desktopCompatibility: string;
+}
+
 export interface MusicProvider {
   readonly id: ProviderId;
   readonly name: string;
@@ -83,6 +106,7 @@ export interface MusicProvider {
   isAvailable(): Promise<boolean>;
   search(query: string, options?: ProviderSearchOptions): Promise<ProviderSearchResponse>;
   normalize(raw: unknown): UnifiedTrack | null;
+  getCapabilityAudit?(): ProviderCapabilityAudit;
 }
 
 /**
@@ -135,6 +159,8 @@ export function unifiedTrackToTrackMetadata(ut: UnifiedTrack): TrackMetadata {
   (metadata as any).providerWebUrl = ut.providerWebUrl;
   (metadata as any).attributionText = ut.attributionText;
   (metadata as any).license = ut.license;
+  (metadata as any).popularity = ut.popularity;
+  (metadata as any).isrc = ut.isrc;
 
   return metadata;
 }
@@ -167,6 +193,8 @@ export function trackMetadataToUnifiedTrack(track: TrackMetadata): UnifiedTrack 
     license: (track as any).license || (isOnline ? 'Online Authorized Audio' : 'Local Media File'),
     attributionText: (track as any).attributionText || `${track.artist} (${isOnline ? providerId : 'Local File'})`,
     providerWebUrl: (track as any).providerWebUrl,
+    popularity: (track as any).popularity,
+    isrc: (track as any).isrc,
     isOnline,
   };
 }

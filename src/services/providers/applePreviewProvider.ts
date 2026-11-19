@@ -5,12 +5,35 @@ import {
   UnifiedTrack,
   ProviderSearchOptions,
   ProviderSearchResponse,
+  ProviderCapabilityAudit,
 } from '../../types/universalMusic';
 
 export class ApplePreviewProvider extends BaseMusicProvider {
   readonly id: ProviderId = 'apple';
   readonly name: string = 'Apple Music Catalog';
   readonly defaultCapability: PlaybackCapability = 'preview_stream';
+
+  getCapabilityAudit(): ProviderCapabilityAudit {
+    return {
+      providerId: this.id,
+      name: this.name,
+      searchAvailable: true,
+      metadataAvailable: true,
+      playbackCapability: this.defaultCapability,
+      requiresAuth: false,
+      developerRegistration:
+        'Unauthenticated open iTunes Catalog API (No developer key required for search & 30s previews)',
+      officialDestinationUrl: 'https://music.apple.com',
+      providerAttribution: 'Apple Music / iTunes Search API',
+      geographicAvailability:
+        'Global (Comprehensive Bollywood, Punjabi, Regional Indian & International catalogs)',
+      rateLimits: 'Approximately 20 requests per minute per IP',
+      commercialRestrictions:
+        '30-second promotional audio previews for discovery. Full track playback requires MusicKit with user Apple Music subscription.',
+      desktopCompatibility:
+        'Direct HTML5 Audio & Web Audio DSP streaming (CORS: * enabled, HTTP 206 supported)',
+    };
+  }
 
   normalize(raw: any): UnifiedTrack | null {
     if (!raw || typeof raw !== 'object') return null;

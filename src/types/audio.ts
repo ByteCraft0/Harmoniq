@@ -67,6 +67,15 @@ export interface TrackMetadata {
   lastPlayed?: number; // timestamp
   resumePosition?: number; // in seconds, remembered for audiobooks/podcasts
   customPlaybackSpeed?: number; // custom speed remembered for this specific file
+
+  // Universal Online Music metadata
+  isOnline?: boolean;
+  providerId?: string;
+  providerTrackId?: string;
+  playbackCapability?: string;
+  providerWebUrl?: string;
+  popularity?: number;
+  isrc?: string;
 }
 
 export type RepeatMode = 'off' | 'all' | 'one';

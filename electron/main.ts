@@ -2148,7 +2148,241 @@ function setupIpc() {
       }
     })();
 
-    const responses = await Promise.all([appleTask, archiveTask, jamendoTask, audiusTask]);
+    // 5. Spotify Web API (Global mainstream, Bollywood, Punjabi & Regional Indian metadata, popularity)
+    const spotifyTask = (async () => {
+      const t0 = Date.now();
+      try {
+        const spotConfig = loadStoredDataSync<{ clientId?: string; clientSecret?: string }>('spotify_config', {});
+        const clientId =
+          typeof request?.spotifyClientId === 'string' && request.spotifyClientId.trim()
+            ? request.spotifyClientId.trim()
+            : spotConfig.clientId || '';
+        const clientSecret =
+          typeof request?.spotifyClientSecret === 'string' && request.spotifyClientSecret.trim()
+            ? request.spotifyClientSecret.trim()
+            : spotConfig.clientSecret || '';
+
+        if (!clientId || !clientSecret) {
+          return {
+            providerId: 'spotify',
+            success: false,
+            tracks: [],
+            errorMessage:
+              'Spotify Client ID and Secret not configured. Add credentials in Settings to search Spotify.',
+            durationMs: Date.now() - t0,
+          };
+        }
+
+        const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+        const tokenController = new AbortController();
+        const tokenTimeout = setTimeout(() => tokenController.abort(), 9000);
+        const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
+          method: 'POST',
+          headers: {
+            Authorization: `Basic ${basicAuth}`,
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: 'grant_type=client_credentials',
+          signal: tokenController.signal,
+        });
+        clearTimeout(tokenTimeout);
+
+        if (!tokenRes.ok) throw new Error(`Spotify Auth HTTP ${tokenRes.status}`);
+        const tokenData = await tokenRes.json();
+        const accessToken = tokenData.access_token;
+
+        const searchController = new AbortController();
+        const searchTimeout = setTimeout(() => searchController.abort(), 9000);
+        const url = `https://api.spotify.com/v1/search?q=${encodeURIComponent(
+          cleanQ
+        )}&type=track&limit=${limit}`;
+        const searchRes = await fetch(url, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: searchController.signal,
+        });
+        clearTimeout(searchTimeout);
+
+        if (!searchRes.ok) throw new Error(`Spotify Search HTTP ${searchRes.status}`);
+        const searchData = await searchRes.json();
+        const rawTracks = searchData?.tracks?.items || [];
+
+        const tracks = rawTracks.map((item: any) => {
+          const rawId = item.id;
+          const artistNames = Array.isArray(item.artists)
+            ? item.artists.map((a: any) => a.name).filter(Boolean).join(', ')
+            : 'Unknown Artist';
+          const art = item.album?.images?.[0]?.url || item.album?.images?.[1]?.url;
+          const durSec = item.duration_ms ? Math.round(item.duration_ms / 1000) : 0;
+          const yr = item.album?.release_date
+            ? parseInt(item.album.release_date.slice(0, 4), 10)
+            : undefined;
+          const preview = item.preview_url || undefined;
+          const capability = preview ? 'preview_stream' : 'external_link';
+
+          return {
+            id: `spotify:${rawId}`,
+            providerId: 'spotify',
+            providerTrackId: String(rawId),
+            title: item.name || 'Untitled Track',
+            artist: artistNames,
+            album: item.album?.name || undefined,
+            duration: durSec,
+            artworkUrl: art,
+            releaseYear: isNaN(yr!) ? undefined : yr,
+            playbackCapability: capability,
+            streamUrl: preview,
+            format: preview ? 'MP3' : undefined,
+            bitrate: preview ? 160 : undefined,
+            popularity: item.popularity,
+            isrc: item.external_ids?.isrc || undefined,
+            license: 'Official Spotify Catalog',
+            attributionText: `${artistNames} on Spotify`,
+            providerWebUrl: item.external_urls?.spotify || `https://open.spotify.com/track/${rawId}`,
+            isOnline: true,
+          };
+        });
+
+        return { providerId: 'spotify', success: true, tracks, durationMs: Date.now() - t0 };
+      } catch (err: any) {
+        return {
+          providerId: 'spotify',
+          success: false,
+          tracks: [],
+          errorMessage: err.message,
+          durationMs: Date.now() - t0,
+        };
+      }
+    })();
+
+    // 6. YouTube Data API v3 (Official Indian record labels, music videos & independent channels)
+    const youtubeTask = (async () => {
+      const t0 = Date.now();
+      try {
+        const ytConfig = loadStoredDataSync<{ apiKey?: string }>('youtube_config', {});
+        const apiKey =
+          typeof request?.youtubeApiKey === 'string' && request.youtubeApiKey.trim()
+            ? request.youtubeApiKey.trim()
+            : ytConfig.apiKey || '';
+
+        if (!apiKey) {
+          return {
+            providerId: 'youtube',
+            success: false,
+            tracks: [],
+            errorMessage:
+              'YouTube Data API key not configured. Add an API key in Settings to search YouTube Music and videos.',
+            durationMs: Date.now() - t0,
+          };
+        }
+
+        const ytController = new AbortController();
+        const ytTimeout = setTimeout(() => ytController.abort(), 9000);
+        const searchUrl = `https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(
+          cleanQ
+        )}&type=video&videoCategoryId=10&maxResults=${Math.min(limit, 25)}&key=${encodeURIComponent(
+          apiKey
+        )}`;
+
+        const res = await fetch(searchUrl, {
+          headers: { 'User-Agent': 'Harmoniq-Universal-Audio/1.0.0' },
+          signal: ytController.signal,
+        });
+        clearTimeout(ytTimeout);
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(
+            `YouTube API HTTP ${res.status}: ${errData?.error?.message || 'Search failed'}`
+          );
+        }
+
+        const data = await res.json();
+        const items = data?.items || [];
+        const videoIds = items.map((i: any) => i.id?.videoId).filter(Boolean);
+
+        const durationMap: Record<string, number> = {};
+        if (videoIds.length > 0) {
+          try {
+            const detailController = new AbortController();
+            const detailTimeout = setTimeout(() => detailController.abort(), 5000);
+            const detailUrl = `https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${videoIds.join(
+              ','
+            )}&key=${encodeURIComponent(apiKey)}`;
+            const detailRes = await fetch(detailUrl, { signal: detailController.signal });
+            clearTimeout(detailTimeout);
+            if (detailRes.ok) {
+              const detailData = await detailRes.json();
+              for (const v of detailData?.items || []) {
+                if (v.id && v.contentDetails?.duration) {
+                  const match = v.contentDetails.duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+                  if (match) {
+                    const h = parseInt(match[1] || '0', 10);
+                    const m = parseInt(match[2] || '0', 10);
+                    const s = parseInt(match[3] || '0', 10);
+                    durationMap[v.id] = h * 3600 + m * 60 + s;
+                  }
+                }
+              }
+            }
+          } catch {
+            /* duration enrichment failure is non-fatal */
+          }
+        }
+
+        const tracks = items.map((item: any) => {
+          const videoId = item.id?.videoId;
+          const snippet = item.snippet || {};
+          const title = (snippet.title || 'Untitled Video')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>');
+          const artist = (snippet.channelTitle || 'Unknown Artist')
+            .replace(/&amp;/g, '&')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'");
+          const art = snippet.thumbnails?.high?.url || snippet.thumbnails?.medium?.url;
+          const yr = snippet.publishedAt ? parseInt(snippet.publishedAt.slice(0, 4), 10) : undefined;
+          const dur = durationMap[videoId] || 0;
+
+          return {
+            id: `youtube:${videoId}`,
+            providerId: 'youtube',
+            providerTrackId: String(videoId),
+            title,
+            artist,
+            duration: dur,
+            artworkUrl: art,
+            releaseYear: isNaN(yr!) ? undefined : yr,
+            playbackCapability: 'authorized_embed',
+            providerWebUrl: `https://www.youtube.com/watch?v=${videoId}`,
+            license: 'Official YouTube Video',
+            attributionText: `${artist} on YouTube`,
+            isOnline: true,
+          };
+        });
+
+        return { providerId: 'youtube', success: true, tracks, durationMs: Date.now() - t0 };
+      } catch (err: any) {
+        return {
+          providerId: 'youtube',
+          success: false,
+          tracks: [],
+          errorMessage: err.message,
+          durationMs: Date.now() - t0,
+        };
+      }
+    })();
+
+    const responses = await Promise.all([
+      appleTask,
+      archiveTask,
+      jamendoTask,
+      audiusTask,
+      spotifyTask,
+      youtubeTask,
+    ]);
     const allTracks: any[] = [];
     for (const r of responses) {
       providerResponses[r.providerId] = r;
@@ -2157,7 +2391,26 @@ function setupIpc() {
       }
     }
 
-    // Smart deduplication: prioritize full_stream over preview_stream
+    // Rank-based deduplication: full_stream (10) > preview_stream (8) > authorized_embed (6) > external_link (4) > metadata_only (2)
+    const getCapRank = (cap: string) => {
+      switch (cap) {
+        case 'full_stream':
+        case 'local_file':
+          return 10;
+        case 'preview_stream':
+          return 8;
+        case 'authorized_embed':
+        case 'external_embed':
+          return 6;
+        case 'external_link':
+          return 4;
+        case 'metadata_only':
+          return 2;
+        default:
+          return 0;
+      }
+    };
+
     const seen = new Map<string, any>();
     for (const track of allTracks) {
       const key = `${(track.title || '')
@@ -2170,7 +2423,7 @@ function setupIpc() {
       const existing = seen.get(key);
       if (!existing) {
         seen.set(key, track);
-      } else if (existing.playbackCapability !== 'full_stream' && track.playbackCapability === 'full_stream') {
+      } else if (getCapRank(track.playbackCapability) > getCapRank(existing.playbackCapability)) {
         seen.set(key, track);
       }
     }
@@ -2422,6 +2675,31 @@ function setupIpc() {
         return { success: false, error: 'Stream URL unavailable from Jamendo' };
       }
 
+      if (providerId === 'spotify') {
+        if (currentStreamUrl && isSafePublicUrl(currentStreamUrl)) {
+          return {
+            success: true,
+            streamUrl: currentStreamUrl,
+            capability: 'preview_stream',
+            format: 'MP3',
+            bitrate: 160,
+          };
+        }
+        return {
+          success: true,
+          streamUrl: '',
+          capability: 'external_link',
+        };
+      }
+
+      if (providerId === 'youtube') {
+        return {
+          success: true,
+          streamUrl: '',
+          capability: 'authorized_embed',
+        };
+      }
+
       if (providerId === 'local') {
         return {
           success: true,
@@ -2444,6 +2722,42 @@ function setupIpc() {
     const cleanKey = typeof config?.clientId === 'string' ? config.clientId.trim() : '';
     saveStoredDataSync('jamendo_client_id', cleanKey);
     return { success: true, clientId: cleanKey };
+  });
+
+  ipcMain.handle('universal:getProviderConfigs', async () => {
+    return {
+      jamendoClientId: loadStoredDataSync<string>('jamendo_client_id', ''),
+      spotify: loadStoredDataSync<{ clientId: string; clientSecret: string }>('spotify_config', {
+        clientId: '',
+        clientSecret: '',
+      }),
+      youtube: loadStoredDataSync<{ apiKey: string }>('youtube_config', { apiKey: '' }),
+    };
+  });
+
+  ipcMain.handle('universal:saveProviderConfigs', async (_e, configs: any) => {
+    if (typeof configs?.jamendoClientId === 'string') {
+      saveStoredDataSync('jamendo_client_id', configs.jamendoClientId.trim());
+    }
+    if (configs?.spotifyClientId !== undefined || configs?.spotifyClientSecret !== undefined) {
+      const cur = loadStoredDataSync<any>('spotify_config', {});
+      saveStoredDataSync('spotify_config', {
+        clientId:
+          configs.spotifyClientId !== undefined
+            ? String(configs.spotifyClientId).trim()
+            : cur.clientId || '',
+        clientSecret:
+          configs.spotifyClientSecret !== undefined
+            ? String(configs.spotifyClientSecret).trim()
+            : cur.clientSecret || '',
+      });
+    }
+    if (configs?.youtubeApiKey !== undefined) {
+      saveStoredDataSync('youtube_config', {
+        apiKey: typeof configs.youtubeApiKey === 'string' ? configs.youtubeApiKey.trim() : '',
+      });
+    }
+    return { success: true };
   });
 
   // Harmoniq Assistant IPC Handlers (Phase 7)

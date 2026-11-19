@@ -6,6 +6,7 @@ import {
   ProviderSearchOptions,
   ProviderSearchResponse,
   UniversalSearchResponse,
+  ProviderCapabilityAudit,
   unifiedTrackToTrackMetadata,
 } from '../types/universalMusic';
 import { OnlineSearchResult } from '../types/online';
@@ -16,6 +17,8 @@ import {
   ArchiveProvider,
   ApplePreviewProvider,
   LocalLibraryProvider,
+  SpotifyProvider,
+  YouTubeProvider,
 } from './providers';
 
 export class UniversalMusicService {
@@ -26,21 +29,43 @@ export class UniversalMusicService {
     'archive',
     'apple',
     'local',
+    'spotify',
+    'youtube',
   ]);
   private searchCache = new Map<string, { timestamp: number; response: UniversalSearchResponse }>();
   private readonly CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
   private activeAbortController: AbortController | null = null;
   private jamendoClientId: string = '';
+  private spotifyClientId: string = '';
+  private spotifyClientSecret: string = '';
+  private youtubeApiKey: string = '';
 
   constructor() {
-    // Register verified Tier 1 foundation providers
+    // Register verified Tier 1 & Tier 2 foundation providers
     const jamendo = new JamendoProvider();
+    const spotify = new SpotifyProvider();
+    const youtube = new YouTubeProvider();
+
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const savedKey = window.localStorage.getItem('harmoniq_jamendo_client_id');
-        if (savedKey && savedKey.trim()) {
-          this.jamendoClientId = savedKey.trim();
-          jamendo.setClientId(savedKey.trim());
+        const savedJamendo = window.localStorage.getItem('harmoniq_jamendo_client_id');
+        if (savedJamendo && savedJamendo.trim()) {
+          this.jamendoClientId = savedJamendo.trim();
+          jamendo.setClientId(savedJamendo.trim());
+        }
+
+        const savedSpotId = window.localStorage.getItem('harmoniq_spotify_client_id');
+        const savedSpotSec = window.localStorage.getItem('harmoniq_spotify_client_secret');
+        if (savedSpotId && savedSpotSec) {
+          this.spotifyClientId = savedSpotId.trim();
+          this.spotifyClientSecret = savedSpotSec.trim();
+          spotify.setCredentials(savedSpotId.trim(), savedSpotSec.trim());
+        }
+
+        const savedYt = window.localStorage.getItem('harmoniq_youtube_api_key');
+        if (savedYt && savedYt.trim()) {
+          this.youtubeApiKey = savedYt.trim();
+          youtube.setApiKey(savedYt.trim());
         }
       }
     } catch {
@@ -52,6 +77,133 @@ export class UniversalMusicService {
     this.registerProvider(new ArchiveProvider());
     this.registerProvider(new ApplePreviewProvider());
     this.registerProvider(new LocalLibraryProvider());
+    this.registerProvider(spotify);
+    this.registerProvider(youtube);
+  }
+
+  /**
+   * Get configured Spotify credentials
+   */
+  public getSpotifyCredentials(): { clientId: string; hasSecret: boolean } {
+    const sp = this.providers.get('spotify') as SpotifyProvider | undefined;
+    return sp
+      ? sp.getCredentials()
+      : { clientId: this.spotifyClientId, hasSecret: Boolean(this.spotifyClientSecret) };
+  }
+
+  /**
+   * Configure custom user Spotify Client ID & Secret
+   */
+  public setSpotifyCredentials(clientId: string, clientSecret: string): void {
+    this.spotifyClientId = (clientId || '').trim();
+    this.spotifyClientSecret = (clientSecret || '').trim();
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        if (this.spotifyClientId) {
+          window.localStorage.setItem('harmoniq_spotify_client_id', this.spotifyClientId);
+        } else {
+          window.localStorage.removeItem('harmoniq_spotify_client_id');
+        }
+
+        if (this.spotifyClientSecret) {
+          window.localStorage.setItem(
+            'harmoniq_spotify_client_secret',
+            this.spotifyClientSecret
+          );
+        } else {
+          window.localStorage.removeItem('harmoniq_spotify_client_secret');
+        }
+      }
+      const api =
+        typeof window !== 'undefined'
+          ? (window as any).harmoniqApi
+          : (globalThis as any).harmoniqApi;
+      if (api?.saveProviderConfigs) {
+        api.saveProviderConfigs({
+          spotifyClientId: this.spotifyClientId,
+          spotifyClientSecret: this.spotifyClientSecret,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+    const sp = this.providers.get('spotify') as SpotifyProvider | undefined;
+    if (sp) {
+      sp.setCredentials(this.spotifyClientId, this.spotifyClientSecret);
+    }
+    this.clearCache();
+  }
+
+  /**
+   * Get configured YouTube Data API Key
+   */
+  public getYouTubeApiKey(): string {
+    const yt = this.providers.get('youtube') as YouTubeProvider | undefined;
+    return yt ? yt.getApiKey() : this.youtubeApiKey;
+  }
+
+  /**
+   * Configure YouTube Data API Key
+   */
+  public setYouTubeApiKey(key: string): void {
+    this.youtubeApiKey = (key || '').trim();
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        if (this.youtubeApiKey) {
+          window.localStorage.setItem('harmoniq_youtube_api_key', this.youtubeApiKey);
+        } else {
+          window.localStorage.removeItem('harmoniq_youtube_api_key');
+        }
+      }
+      const api =
+        typeof window !== 'undefined'
+          ? (window as any).harmoniqApi
+          : (globalThis as any).harmoniqApi;
+      if (api?.saveProviderConfigs) {
+        api.saveProviderConfigs({
+          youtubeApiKey: this.youtubeApiKey,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+    const yt = this.providers.get('youtube') as YouTubeProvider | undefined;
+    if (yt) {
+      yt.setApiKey(this.youtubeApiKey);
+    }
+    this.clearCache();
+  }
+
+  /**
+   * Audit all supported and investigated music providers
+   */
+  public getProviderCapabilityAudits(): ProviderCapabilityAudit[] {
+    const audits: ProviderCapabilityAudit[] = [];
+    for (const p of this.providers.values()) {
+      if (p.getCapabilityAudit) {
+        audits.push(p.getCapabilityAudit());
+      }
+    }
+    // Add official audit assessment for JioSaavn
+    audits.push({
+      providerId: 'jiosaavn',
+      name: 'JioSaavn',
+      searchAvailable: false,
+      metadataAvailable: false,
+      playbackCapability: 'unavailable',
+      requiresAuth: false,
+      developerRegistration:
+        'NOT AVAILABLE: JioSaavn does not provide an official public third-party developer API or SDK',
+      officialDestinationUrl: 'https://www.jiosaavn.com',
+      providerAttribution: 'JioSaavn (No official third-party API)',
+      geographicAvailability: 'India & diaspora',
+      rateLimits: 'N/A',
+      commercialRestrictions:
+        'Reverse-engineering internal mobile endpoints violates Terms of Service. Unofficial scraping strictly prohibited.',
+      desktopCompatibility:
+        'Not available via third-party developer integration. Legitimate Indian catalog is provided via Apple Music, YouTube, and Spotify.',
+    });
+    return audits;
   }
 
   /**
@@ -184,6 +336,23 @@ export class UniversalMusicService {
       };
     }
 
+    if (track.providerId === 'spotify') {
+      const capability: PlaybackCapability = track.streamUrl ? 'preview_stream' : 'external_link';
+      return {
+        track: { ...track, playbackCapability: capability },
+        streamUrl: track.streamUrl || '',
+        capability,
+      };
+    }
+
+    if (track.providerId === 'youtube') {
+      return {
+        track: { ...track, playbackCapability: 'authorized_embed' },
+        streamUrl: '',
+        capability: 'authorized_embed',
+      };
+    }
+
     // Default return current stream URL or fallback
     const finalUrl = track.streamUrl || '';
     if (!finalUrl && track.providerId !== 'local') {
@@ -195,6 +364,29 @@ export class UniversalMusicService {
       streamUrl: finalUrl,
       capability: track.playbackCapability,
     };
+  }
+
+  /**
+   * Numeric ranking for playback capabilities during deduplication.
+   * Full tracks rank highest, followed by previews, authorized embeds, and external links.
+   */
+  private getCapabilityRank(cap: PlaybackCapability): number {
+    switch (cap) {
+      case 'full_stream':
+      case 'local_file':
+        return 10;
+      case 'preview_stream':
+        return 8;
+      case 'authorized_embed':
+      case 'external_embed':
+        return 6;
+      case 'external_link':
+        return 4;
+      case 'metadata_only':
+        return 2;
+      default:
+        return 0;
+    }
   }
 
   /**
@@ -256,7 +448,7 @@ export class UniversalMusicService {
 
   /**
    * Deduplicate track collection across heterogeneous providers.
-   * Prioritizes full-length direct audio streams over 30-second previews.
+   * Respects full_stream > preview_stream > authorized_embed > external_link hierarchy.
    */
   public deduplicateTracks(tracks: UnifiedTrack[]): UnifiedTrack[] {
     const seen = new Map<string, UnifiedTrack>();
@@ -270,11 +462,9 @@ export class UniversalMusicService {
       if (!existing) {
         seen.set(key, track);
       } else {
-        // Preference hierarchy: full_stream > preview_stream > external_embed
-        const isExistingFull = existing.playbackCapability === 'full_stream';
-        const isCurrentFull = track.playbackCapability === 'full_stream';
-
-        if (!isExistingFull && isCurrentFull) {
+        const existingRank = this.getCapabilityRank(existing.playbackCapability);
+        const currentRank = this.getCapabilityRank(track.playbackCapability);
+        if (currentRank > existingRank) {
           seen.set(key, track);
         }
       }
@@ -341,6 +531,9 @@ export class UniversalMusicService {
           filter,
           limit: options?.limit || 25,
           jamendoClientId: this.getJamendoClientId(),
+          spotifyClientId: this.spotifyClientId,
+          spotifyClientSecret: this.spotifyClientSecret,
+          youtubeApiKey: this.youtubeApiKey,
         });
 
         if (ipcResponse && Array.isArray(ipcResponse.results)) {

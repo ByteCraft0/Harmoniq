@@ -130,6 +130,17 @@ export interface HarmoniqApi {
   }>;
   getJamendoConfig?: () => Promise<{ clientId: string }>;
   saveJamendoConfig?: (config: { clientId: string }) => Promise<{ success: boolean; clientId: string }>;
+  getProviderConfigs?: () => Promise<{
+    jamendoClientId: string;
+    spotify: { clientId: string; clientSecret: string };
+    youtube: { apiKey: string };
+  }>;
+  saveProviderConfigs?: (configs: {
+    jamendoClientId?: string;
+    spotifyClientId?: string;
+    spotifyClientSecret?: string;
+    youtubeApiKey?: string;
+  }) => Promise<{ success: boolean }>;
   verifyRadioStream: (streamUrl: string) => Promise<{
     accessible: boolean;
     directStreamUrl: string;

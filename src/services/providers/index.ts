@@ -4,3 +4,5 @@ export * from './audiusProvider';
 export * from './archiveProvider';
 export * from './applePreviewProvider';
 export * from './localProvider';
+export * from './spotifyProvider';
+export * from './youtubeProvider';

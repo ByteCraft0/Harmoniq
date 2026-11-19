@@ -70,6 +70,8 @@ const harmoniqApi = {
   resolveUniversalStream: (request: any) => ipcRenderer.invoke('universal:resolveStream', request),
   getJamendoConfig: () => ipcRenderer.invoke('universal:getJamendoConfig'),
   saveJamendoConfig: (config: { clientId: string }) => ipcRenderer.invoke('universal:saveJamendoConfig', config),
+  getProviderConfigs: () => ipcRenderer.invoke('universal:getProviderConfigs'),
+  saveProviderConfigs: (configs: any) => ipcRenderer.invoke('universal:saveProviderConfigs', configs),
   verifyRadioStream: (streamUrl: string) => ipcRenderer.invoke('radio:verifyStream', streamUrl),
 
   // Portable Mode

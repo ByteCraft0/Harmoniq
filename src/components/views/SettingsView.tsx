@@ -132,12 +132,46 @@ export const SettingsView: React.FC = () => {
     return k === 'b6747d04' ? '' : k;
   });
 
+  const [spotifyClientId, setSpotifyClientId] = useState<string>(() => {
+    return universalMusicService.getSpotifyCredentials().clientId || '';
+  });
+  const [spotifyClientSecret, setSpotifyClientSecret] = useState<string>('');
+  const [hasSpotifySecret, setHasSpotifySecret] = useState<boolean>(() => {
+    return universalMusicService.getSpotifyCredentials().hasSecret;
+  });
+
+  const [youtubeApiKey, setYoutubeApiKey] = useState<string>(() => {
+    return universalMusicService.getYouTubeApiKey() || '';
+  });
+
   const handleSaveJamendoKey = () => {
     universalMusicService.setJamendoClientId(jamendoKey.trim());
     showToast(
       jamendoKey.trim()
         ? 'Jamendo Client ID saved. High-volume searches enabled.'
         : 'Jamendo Client ID reset to default open catalog mode.',
+      'success'
+    );
+  };
+
+  const handleSaveSpotifyCredentials = () => {
+    universalMusicService.setSpotifyCredentials(spotifyClientId.trim(), spotifyClientSecret.trim());
+    setHasSpotifySecret(Boolean(spotifyClientSecret.trim() || (spotifyClientId.trim() && hasSpotifySecret)));
+    setSpotifyClientSecret('');
+    showToast(
+      spotifyClientId.trim()
+        ? 'Spotify API credentials saved. Commercial catalog discovery active.'
+        : 'Spotify credentials reset/cleared.',
+      'success'
+    );
+  };
+
+  const handleSaveYouTubeKey = () => {
+    universalMusicService.setYouTubeApiKey(youtubeApiKey.trim());
+    showToast(
+      youtubeApiKey.trim()
+        ? 'YouTube Data API key saved. Video music discovery active.'
+        : 'YouTube Data API key cleared.',
       'success'
     );
   };
@@ -1059,51 +1093,257 @@ export const SettingsView: React.FC = () => {
         <VolumeProfilesCard />
       )}
 
-      {/* Universal Music & Jamendo Integration */}
+      {/* Universal Music Multi-Provider Configuration Hub */}
       {(activeTab === 'all' || activeTab === 'playback') && (
-        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-5 shadow-card">
+        <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-6 shadow-card">
           <div className="flex items-center justify-between border-b border-[#272733] pb-3">
             <div>
               <h3 className="font-bold text-sm text-[#F5F3FF] flex items-center gap-2">
-                <Globe size={16} className="text-emerald-400" />
-                <span>Universal Music — Jamendo API Settings</span>
+                <Globe size={16} className="text-violet-400" />
+                <span>Universal Music Engine — Multi-Provider Hub</span>
               </h3>
               <p className="text-xs text-[#A1A1AA]">
-                Optional developer Client ID for Jamendo Creative Commons music catalog searches and streaming.
+                Configure official developer API keys, audit provider capabilities, and expand commercial catalog discovery.
               </p>
             </div>
-            <span className="text-[10px] uppercase font-mono px-2.5 py-0.5 rounded-full bg-emerald-950/40 text-emerald-400 border border-emerald-800/30">
-              Creative Commons
+            <span className="text-[10px] uppercase font-mono px-2.5 py-0.5 rounded-full bg-violet-950/60 text-violet-300 border border-violet-800/40">
+              Phase 3 Expanded
             </span>
           </div>
 
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-[#1B1B24]/80 border border-[#272733] space-y-2 text-xs text-[#A1A1AA]">
-              <p>
-                <strong className="text-[#F5F3FF]">Multi-Provider Overview:</strong> Apple Music, Audius, and Internet Archive provide direct open searching and streaming without requiring user API keys.
-              </p>
-              <p>
-                Jamendo&apos;s public demo credentials enforce strict rate-limits (&quot;Usage limits exceeded&quot;). Providing your own free Jamendo Client ID ensures uninterrupted full-track streaming across independent artists.
-              </p>
+          {/* Provider Capability & Compliance Status Table */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-semibold text-[#F5F3FF]">Provider Capability & Compliance Matrix</h4>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="border-b border-[#272733] text-[#71717A] text-[11px]">
+                    <th className="pb-2 font-medium">Provider</th>
+                    <th className="pb-2 font-medium">Status</th>
+                    <th className="pb-2 font-medium">Catalog / Coverage</th>
+                    <th className="pb-2 font-medium">Playback Mode</th>
+                    <th className="pb-2 font-medium">Authentication</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#272733]/50 text-[#A1A1AA]">
+                  <tr>
+                    <td className="py-2.5 font-medium text-[#F5F3FF]">Apple Music</td>
+                    <td className="py-2.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">Active</span>
+                    </td>
+                    <td className="py-2.5">Bollywood, Hindi, Punjabi & Global</td>
+                    <td className="py-2.5 font-mono text-violet-300">30s Previews</td>
+                    <td className="py-2.5 text-[#71717A]">Unauthenticated Open API</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 font-medium text-[#F5F3FF]">Audius Network</td>
+                    <td className="py-2.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">Active</span>
+                    </td>
+                    <td className="py-2.5">Independent & Decentralized Creators</td>
+                    <td className="py-2.5 font-mono text-emerald-300">Full 320k Stream</td>
+                    <td className="py-2.5 text-[#71717A]">Unauthenticated Open API</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 font-medium text-[#F5F3FF]">Internet Archive</td>
+                    <td className="py-2.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">Active</span>
+                    </td>
+                    <td className="py-2.5">Historical, Vintage & Live Concerts</td>
+                    <td className="py-2.5 font-mono text-emerald-300">Full Audio Stream</td>
+                    <td className="py-2.5 text-[#71717A]">Unauthenticated Open API</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 font-medium text-[#F5F3FF]">Jamendo Music</td>
+                    <td className="py-2.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-emerald-950/60 text-emerald-300 border border-emerald-800/40">Active</span>
+                    </td>
+                    <td className="py-2.5">Creative Commons Independent Tracks</td>
+                    <td className="py-2.5 font-mono text-emerald-300">Full Audio Stream</td>
+                    <td className="py-2.5 text-[#71717A]">Client ID (Optional Key)</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 font-medium text-[#F5F3FF]">Spotify</td>
+                    <td className="py-2.5">
+                      <span className={`px-2 py-0.5 rounded text-[10px] border ${
+                        spotifyClientId ? 'bg-[#0f2e1b] text-[#1ed760] border-[#1ed760]/30' : 'bg-[#272733] text-[#71717A] border-[#3F3F46]'
+                      }`}>
+                        {spotifyClientId ? 'Connected' : 'Optional'}
+                      </span>
+                    </td>
+                    <td className="py-2.5">Mainstream Commercial Catalog</td>
+                    <td className="py-2.5 font-mono text-sky-300">Metadata + Links</td>
+                    <td className="py-2.5 text-[#71717A]">Client Credentials Flow</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 font-medium text-[#F5F3FF]">YouTube Platform</td>
+                    <td className="py-2.5">
+                      <span className={`px-2 py-0.5 rounded text-[10px] border ${
+                        youtubeApiKey ? 'bg-[#3b1212] text-[#ff4e4e] border-[#ff4e4e]/30' : 'bg-[#272733] text-[#71717A] border-[#3F3F46]'
+                      }`}>
+                        {youtubeApiKey ? 'Connected' : 'Optional'}
+                      </span>
+                    </td>
+                    <td className="py-2.5">Official Music Videos & Labels</td>
+                    <td className="py-2.5 font-mono text-amber-300">Authorized Video Link</td>
+                    <td className="py-2.5 text-[#71717A]">YouTube Data API v3 Key</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 font-medium text-[#71717A]">JioSaavn / Gaana / Wynk</td>
+                    <td className="py-2.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] bg-zinc-900 text-zinc-500 border border-zinc-800">
+                        Not Available
+                      </span>
+                    </td>
+                    <td className="py-2.5 text-zinc-500">Regional Indian Music Platforms</td>
+                    <td className="py-2.5 font-mono text-zinc-500">N/A</td>
+                    <td className="py-2.5 text-zinc-500">No official public API. Scraping prohibited.</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
+          </div>
 
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-[#F5F3FF] block">
-                Jamendo Client ID (Optional)
+          {/* Spotify Web API Configuration */}
+          <div className="p-4 rounded-xl bg-[#1B1B24]/80 border border-[#272733] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#1ed760]" />
+                <h4 className="text-xs font-semibold text-[#F5F3FF]">Spotify Web API Integration</h4>
+              </div>
+              <span className="text-[10px] text-[#A1A1AA]">
+                Client Credentials Flow (developer.spotify.com)
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+              Provides commercial track discovery, high-resolution artwork, popularity scores, and official track links. Does not require user passwords and strictly adheres to Spotify Developer Policy.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[11px] font-medium text-[#A1A1AA] block mb-1">
+                  Spotify Client ID
+                </label>
+                <input
+                  type="text"
+                  value={spotifyClientId}
+                  onChange={(e) => setSpotifyClientId(e.target.value)}
+                  placeholder="Paste Spotify Client ID..."
+                  className="w-full bg-[#101014] border border-[#272733] focus:border-[#1ed760] text-xs text-[#F5F3FF] rounded-xl px-3 py-2 outline-none font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] font-medium text-[#A1A1AA] block mb-1">
+                  Spotify Client Secret {hasSpotifySecret && <span className="text-[#1ed760] font-normal">(Configured)</span>}
+                </label>
+                <input
+                  type="password"
+                  value={spotifyClientSecret}
+                  onChange={(e) => setSpotifyClientSecret(e.target.value)}
+                  placeholder={hasSpotifySecret ? "•••••••••••••••• (Leave blank to keep)" : "Paste Spotify Client Secret..."}
+                  className="w-full bg-[#101014] border border-[#272733] focus:border-[#1ed760] text-xs text-[#F5F3FF] rounded-xl px-3 py-2 outline-none font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                onClick={handleSaveSpotifyCredentials}
+                className="px-4 py-1.5 bg-[#1ed760] hover:bg-[#1db954] text-black font-semibold text-xs rounded-xl transition"
+              >
+                Save Spotify Credentials
+              </button>
+              {(spotifyClientId || hasSpotifySecret) && (
+                <button
+                  onClick={() => {
+                    setSpotifyClientId('');
+                    setSpotifyClientSecret('');
+                    setHasSpotifySecret(false);
+                    universalMusicService.setSpotifyCredentials('', '');
+                    showToast('Spotify credentials cleared', 'info');
+                  }}
+                  className="px-3 py-1.5 bg-[#14141B] hover:bg-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] text-xs rounded-xl transition border border-[#272733]"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* YouTube Data API v3 Configuration */}
+          <div className="p-4 rounded-xl bg-[#1B1B24]/80 border border-[#272733] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-[#ff4e4e]" />
+                <h4 className="text-xs font-semibold text-[#F5F3FF]">YouTube Data API v3 Integration</h4>
+              </div>
+              <span className="text-[10px] text-[#A1A1AA]">
+                Google Cloud Console API Key
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+              Provides music video discovery across global labels and Indian music channels (T-Series, Zee Music, etc.) with authorized destination links. Per YouTube Terms of Service Section II.10, audio stream extraction is strictly prohibited.
+            </p>
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-[#A1A1AA] block mb-1">
+                YouTube Data API v3 Key
               </label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={youtubeApiKey}
+                  onChange={(e) => setYoutubeApiKey(e.target.value)}
+                  placeholder="Paste YouTube Data API key (e.g. AIzaSy...)..."
+                  className="flex-1 bg-[#101014] border border-[#272733] focus:border-[#ff4e4e] text-xs text-[#F5F3FF] rounded-xl px-3.5 py-2 outline-none transition font-mono"
+                />
+                <button
+                  onClick={handleSaveYouTubeKey}
+                  className="px-4 py-1.5 bg-[#ff4e4e] hover:bg-[#e03a3a] text-white font-semibold text-xs rounded-xl transition shrink-0"
+                >
+                  Save API Key
+                </button>
+                {youtubeApiKey && (
+                  <button
+                    onClick={() => {
+                      setYoutubeApiKey('');
+                      universalMusicService.setYouTubeApiKey('');
+                      showToast('YouTube API key cleared', 'info');
+                    }}
+                    className="px-3 py-1.5 bg-[#14141B] hover:bg-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] text-xs rounded-xl transition shrink-0 border border-[#272733]"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Jamendo Creative Commons API Configuration */}
+          <div className="p-4 rounded-xl bg-[#1B1B24]/80 border border-[#272733] space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                <h4 className="text-xs font-semibold text-[#F5F3FF]">Jamendo Developer Client ID (Optional)</h4>
+              </div>
+              <span className="text-[10px] text-[#A1A1AA]">
+                developer.jamendo.com
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A1A1AA] leading-relaxed">
+              Jamendo&apos;s public demo credentials enforce strict rate-limits. Providing your own free developer Client ID ensures uninterrupted full-track streaming across independent artists.
+            </p>
+            <div className="space-y-1">
               <div className="flex gap-2">
                 <input
                   type="text"
                   value={jamendoKey}
                   onChange={(e) => setJamendoKey(e.target.value)}
-                  placeholder="Paste your Jamendo developer Client ID (e.g. 5a89b...)..."
-                  className="flex-1 bg-[#101014] border border-[#272733] focus:border-[#A78BFA] text-xs text-[#F5F3FF] rounded-xl px-3.5 py-2.5 outline-none transition font-mono"
+                  placeholder="Paste Jamendo developer Client ID (e.g. 5a89b...)..."
+                  className="flex-1 bg-[#101014] border border-[#272733] focus:border-emerald-400 text-xs text-[#F5F3FF] rounded-xl px-3.5 py-2 outline-none transition font-mono"
                 />
                 <button
                   onClick={handleSaveJamendoKey}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl transition shrink-0"
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-xl transition shrink-0"
                 >
-                  Save Key
+                  Save Client ID
                 </button>
                 {jamendoKey && (
                   <button
@@ -1112,7 +1352,7 @@ export const SettingsView: React.FC = () => {
                       universalMusicService.setJamendoClientId('');
                       showToast('Jamendo Client ID cleared', 'info');
                     }}
-                    className="px-3 py-2 bg-[#1B1B24] hover:bg-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] text-xs rounded-xl transition shrink-0"
+                    className="px-3 py-1.5 bg-[#14141B] hover:bg-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] text-xs rounded-xl transition shrink-0 border border-[#272733]"
                   >
                     Reset
                   </button>

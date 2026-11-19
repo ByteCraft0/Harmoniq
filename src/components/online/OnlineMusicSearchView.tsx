@@ -33,7 +33,15 @@ import {
 } from 'lucide-react';
 
 type FilterType = 'all' | 'song' | 'artist' | 'album';
-type ProviderFilterType = 'all' | 'apple' | 'audius' | 'archive' | 'jamendo' | 'local';
+type ProviderFilterType =
+  | 'all'
+  | 'apple'
+  | 'audius'
+  | 'archive'
+  | 'jamendo'
+  | 'spotify'
+  | 'youtube'
+  | 'local';
 
 const POPULAR_SUGGESTIONS = [
   'Moonlight',
@@ -152,6 +160,8 @@ export const OnlineMusicSearchView: React.FC = () => {
       audius: 0,
       archive: 0,
       jamendo: 0,
+      spotify: 0,
+      youtube: 0,
       local: 0,
     };
     for (const t of allTracks) {
@@ -173,6 +183,8 @@ export const OnlineMusicSearchView: React.FC = () => {
           audius: 'Audius',
           archive: 'Internet Archive',
           jamendo: 'Jamendo',
+          spotify: 'Spotify',
+          youtube: 'YouTube',
           local: 'Local Library',
         };
         fails.push({
@@ -252,6 +264,21 @@ export const OnlineMusicSearchView: React.FC = () => {
         return {
           label: 'Jamendo',
           className: 'bg-emerald-950/60 text-emerald-300 border-emerald-800/40',
+        };
+      case 'spotify':
+        return {
+          label: 'Spotify',
+          className: 'bg-[#0f2e1b]/70 text-[#1ed760] border-[#1ed760]/30',
+        };
+      case 'youtube':
+        return {
+          label: 'YouTube',
+          className: 'bg-[#3b1212]/70 text-[#ff4e4e] border-[#ff4e4e]/30',
+        };
+      case 'jiosaavn':
+        return {
+          label: 'JioSaavn',
+          className: 'bg-teal-950/60 text-teal-300 border-teal-800/40',
         };
       case 'local':
         return {
@@ -484,6 +511,38 @@ export const OnlineMusicSearchView: React.FC = () => {
               </button>
             )}
 
+            {providerCounts.spotify > 0 && (
+              <button
+                onClick={() => setProviderFilter('spotify')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition shrink-0 flex items-center gap-1.5 ${
+                  providerFilter === 'spotify'
+                    ? 'bg-emerald-600/30 text-emerald-200 border border-[#1ed760]/50'
+                    : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+                }`}
+              >
+                Spotify
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#0f2e1b] text-[#1ed760] border border-[#1ed760]/30">
+                  {providerCounts.spotify}
+                </span>
+              </button>
+            )}
+
+            {providerCounts.youtube > 0 && (
+              <button
+                onClick={() => setProviderFilter('youtube')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition shrink-0 flex items-center gap-1.5 ${
+                  providerFilter === 'youtube'
+                    ? 'bg-red-600/30 text-red-200 border border-[#ff4e4e]/50'
+                    : 'bg-[#14141B] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733]'
+                }`}
+              >
+                YouTube
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-[#3b1212] text-[#ff4e4e] border border-[#ff4e4e]/30">
+                  {providerCounts.youtube}
+                </span>
+              </button>
+            )}
+
             {providerCounts.local > 0 && (
               <button
                 onClick={() => setProviderFilter('local')}
@@ -509,6 +568,11 @@ export const OnlineMusicSearchView: React.FC = () => {
               const isResolving = resolvingTrackId === item.id;
               const badge = getProviderBadge(item.providerId);
               const durFormatted = formatDuration(item.duration);
+              const canStreamAudio =
+                item.playbackCapability === 'full_stream' ||
+                item.playbackCapability === 'preview_stream' ||
+                item.playbackCapability === 'local_file';
+              const isEmbed = item.playbackCapability === 'authorized_embed';
 
               return (
                 <div
@@ -533,23 +597,37 @@ export const OnlineMusicSearchView: React.FC = () => {
                           }}
                         />
                       )}
-                      {/* Play overlay on artwork hover */}
-                      <button
-                        onClick={() => handlePlayTrack(item)}
-                        className={`absolute inset-0 z-20 flex items-center justify-center transition bg-black/40 ${
-                          isCurrentPlaying || isResolving
-                            ? 'opacity-100'
-                            : 'opacity-0 group-hover:opacity-100'
-                        }`}
-                      >
-                        {isResolving ? (
-                          <Loader2 size={18} className="animate-spin text-white" />
-                        ) : isCurrentPlaying ? (
-                          <Pause size={18} className="text-white" />
-                        ) : (
-                          <Play size={18} fill="currentColor" className="text-white ml-0.5" />
-                        )}
-                      </button>
+                      {/* Artwork hover action */}
+                      {canStreamAudio ? (
+                        <button
+                          onClick={() => handlePlayTrack(item)}
+                          className={`absolute inset-0 z-20 flex items-center justify-center transition bg-black/40 ${
+                            isCurrentPlaying || isResolving
+                              ? 'opacity-100'
+                              : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
+                          {isResolving ? (
+                            <Loader2 size={18} className="animate-spin text-white" />
+                          ) : isCurrentPlaying ? (
+                            <Pause size={18} className="text-white" />
+                          ) : (
+                            <Play size={18} fill="currentColor" className="text-white ml-0.5" />
+                          )}
+                        </button>
+                      ) : (
+                        item.providerWebUrl && (
+                          <a
+                            href={item.providerWebUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="absolute inset-0 z-20 flex items-center justify-center transition bg-black/50 opacity-0 group-hover:opacity-100 text-white"
+                            title={`Open on ${badge.label}`}
+                          >
+                            <ExternalLink size={18} />
+                          </a>
+                        )
+                      )}
                     </div>
 
                     {/* Metadata */}
@@ -578,11 +656,33 @@ export const OnlineMusicSearchView: React.FC = () => {
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-950/50 text-violet-300 border border-violet-800/40">
                             30s Preview
                           </span>
+                        ) : item.playbackCapability === 'authorized_embed' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-red-950/50 text-red-300 border border-red-800/40">
+                            Authorized Video
+                          </span>
+                        ) : item.playbackCapability === 'external_link' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#272733] text-[#D4D4D8] border border-[#3F3F46]">
+                            Official Link
+                          </span>
+                        ) : item.playbackCapability === 'metadata_only' ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-[#272733] text-[#A1A1AA] border border-[#3F3F46]">
+                            Metadata Only
+                          </span>
                         ) : item.playbackCapability === 'local_file' ? (
                           <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-sky-950/50 text-sky-300 border border-sky-800/40">
                             Local File
                           </span>
                         ) : null}
+
+                        {/* Popularity metric if available */}
+                        {typeof item.popularity === 'number' && (
+                          <span
+                            className="text-[10px] text-amber-300/90 font-mono flex items-center gap-0.5"
+                            title={`Popularity score: ${item.popularity}/100`}
+                          >
+                            ★ {item.popularity}%
+                          </span>
+                        )}
 
                         {/* Bitrate / Quality badge if verified */}
                         {item.bitrate && (
@@ -603,63 +703,97 @@ export const OnlineMusicSearchView: React.FC = () => {
 
                   {/* Actions */}
                   <div className="flex items-center gap-1.5 shrink-0">
-                    {/* Add to Queue */}
-                    <button
-                      onClick={() => handleAddToQueue(item)}
-                      className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition"
-                      title="Add to queue"
-                    >
-                      <Plus size={15} />
-                    </button>
+                    {canStreamAudio ? (
+                      <>
+                        {/* Add to Queue */}
+                        <button
+                          onClick={() => handleAddToQueue(item)}
+                          className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition"
+                          title="Add to queue"
+                        >
+                          <Plus size={15} />
+                        </button>
 
-                    {/* Play Next */}
-                    <button
-                      onClick={() => handlePlayNext(item)}
-                      className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition"
-                      title="Play next"
-                    >
-                      <ListPlus size={15} />
-                    </button>
+                        {/* Play Next */}
+                        <button
+                          onClick={() => handlePlayNext(item)}
+                          className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition"
+                          title="Play next"
+                        >
+                          <ListPlus size={15} />
+                        </button>
 
-                    {/* Play Button */}
-                    <button
-                      onClick={() => handlePlayTrack(item)}
-                      disabled={isResolving}
-                      className={`p-2.5 rounded-full transition shadow-sm ${
-                        isCurrentPlaying
-                          ? 'bg-violet-500 text-white shadow-violet-900/40'
-                          : isCurrentPaused
-                          ? 'bg-violet-600/30 text-violet-300 border border-violet-500/40'
-                          : 'bg-[#1B1B24] text-[#A78BFA] hover:bg-[#272733] hover:text-[#F5F3FF]'
-                      }`}
-                      title={
-                        isCurrentPlaying
-                          ? 'Pause playback'
-                          : isCurrentPaused
-                          ? 'Resume playback'
-                          : 'Play track'
-                      }
-                    >
-                      {isResolving ? (
-                        <Loader2 size={15} className="animate-spin text-[#A78BFA]" />
-                      ) : isCurrentPlaying ? (
-                        <Pause size={15} />
-                      ) : (
-                        <Play size={15} fill="currentColor" />
-                      )}
-                    </button>
+                        {/* Play Button */}
+                        <button
+                          onClick={() => handlePlayTrack(item)}
+                          disabled={isResolving}
+                          className={`p-2.5 rounded-full transition shadow-sm ${
+                            isCurrentPlaying
+                              ? 'bg-violet-500 text-white shadow-violet-900/40'
+                              : isCurrentPaused
+                              ? 'bg-violet-600/30 text-violet-300 border border-violet-500/40'
+                              : 'bg-[#1B1B24] text-[#A78BFA] hover:bg-[#272733] hover:text-[#F5F3FF]'
+                          }`}
+                          title={
+                            isCurrentPlaying
+                              ? 'Pause playback'
+                              : isCurrentPaused
+                              ? 'Resume playback'
+                              : 'Play track'
+                          }
+                        >
+                          {isResolving ? (
+                            <Loader2 size={15} className="animate-spin text-[#A78BFA]" />
+                          ) : isCurrentPlaying ? (
+                            <Pause size={15} />
+                          ) : (
+                            <Play size={15} fill="currentColor" />
+                          )}
+                        </button>
 
-                    {/* External Link */}
-                    {item.providerWebUrl && (
+                        {/* External Link */}
+                        {item.providerWebUrl && (
+                          <a
+                            href={item.providerWebUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition ml-0.5"
+                            title="View on source website"
+                          >
+                            <ExternalLink size={14} />
+                          </a>
+                        )}
+                      </>
+                    ) : isEmbed ? (
+                      /* Authorized Video Platform action (YouTube) */
                       <a
-                        href={item.providerWebUrl}
+                        href={item.providerWebUrl || item.streamUrl}
                         target="_blank"
                         rel="noreferrer"
-                        className="p-2 hover:bg-[#272733] rounded-xl text-[#71717A] hover:text-[#F5F3FF] transition ml-0.5"
-                        title="View on source website"
+                        className="px-3 py-1.5 bg-[#3b1212]/80 hover:bg-[#4a1717] text-[#ff4e4e] border border-[#ff4e4e]/30 rounded-xl text-xs font-medium transition flex items-center gap-1.5 shadow-sm"
+                        title="Watch video on official YouTube platform"
                       >
-                        <ExternalLink size={14} />
+                        <ExternalLink size={13} />
+                        <span>Watch Video</span>
                       </a>
+                    ) : (
+                      /* External-link or metadata-only track (e.g. Spotify without preview) */
+                      item.providerWebUrl ? (
+                        <a
+                          href={item.providerWebUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-3 py-1.5 bg-[#1B1B24] hover:bg-[#272733] text-[#F5F3FF] border border-[#3F3F46] rounded-xl text-xs font-medium transition flex items-center gap-1.5 shadow-sm"
+                          title={`Open on official ${badge.label} platform`}
+                        >
+                          <ExternalLink size={13} />
+                          <span>Open in {badge.label}</span>
+                        </a>
+                      ) : (
+                        <span className="text-[11px] text-[#71717A] italic px-2 py-1">
+                          Catalog Only
+                        </span>
+                      )
                     )}
                   </div>
                 </div>
@@ -699,13 +833,14 @@ export const OnlineMusicSearchView: React.FC = () => {
               </h2>
               <p className="text-xs text-[#A1A1AA] max-w-2xl leading-relaxed">
                 Harmoniq Universal Music aggregates authorized music from Apple Music previews,
-                Audius 320kbps full-track streaming, the Internet Archive historical collection,
-                Jamendo Creative Commons, and your own offline local library.
+                Audius 320kbps full-track streaming, Jamendo Creative Commons, Spotify commercial
+                catalog discovery, YouTube music video discovery, the Internet Archive historical collection,
+                and your offline local library.
               </p>
             </div>
 
             {/* Feature Highlights Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 relative z-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 relative z-10">
               <div className="p-4 rounded-2xl bg-[#1B1B24]/70 border border-[#272733] space-y-1">
                 <div className="flex items-center gap-2 text-violet-400">
                   <Globe size={16} />
@@ -713,6 +848,26 @@ export const OnlineMusicSearchView: React.FC = () => {
                 </div>
                 <p className="text-[11px] text-[#A1A1AA]">
                   30s high-definition previews across Bollywood, Hindi, Punjabi & International charts.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#1B1B24]/70 border border-[#272733] space-y-1">
+                <div className="flex items-center gap-2 text-[#1ed760]">
+                  <Disc size={16} />
+                  <span className="text-xs font-semibold text-[#F5F3FF]">Spotify Catalog</span>
+                </div>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  Official commercial track discovery, rich metadata, popularity scores, and links.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-2xl bg-[#1B1B24]/70 border border-[#272733] space-y-1">
+                <div className="flex items-center gap-2 text-[#ff4e4e]">
+                  <Radio size={16} />
+                  <span className="text-xs font-semibold text-[#F5F3FF]">YouTube Platform</span>
+                </div>
+                <p className="text-[11px] text-[#A1A1AA]">
+                  Music video discovery across global and regional channels with authorized links.
                 </p>
               </div>
 
