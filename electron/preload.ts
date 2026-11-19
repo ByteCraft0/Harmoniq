@@ -73,6 +73,12 @@ const harmoniqApi = {
   setPortableMode: (enabled: boolean, customPath?: string) => ipcRenderer.invoke('portable:setMode', enabled, customPath),
   migratePortableData: (direction: 'toPortable' | 'toStandard', customPath?: string) => ipcRenderer.invoke('portable:migrateData', direction, customPath),
 
+  // Harmoniq Assistant (Phase 7)
+  getAssistantConfig: () => ipcRenderer.invoke('assistant:getConfig'),
+  saveAssistantConfig: (config: any) => ipcRenderer.invoke('assistant:saveConfig', config),
+  testAssistantConnection: (config: any) => ipcRenderer.invoke('assistant:testConnection', config),
+  sendAssistantChat: (payload: any) => ipcRenderer.invoke('assistant:sendChat', payload),
+
   // Events
   onScanProgress: (callback: (progress: any) => void) => subscribe('scan:progress', callback),
   onMediaCommand: (callback: (command: string) => void) => subscribe('media:command', callback),

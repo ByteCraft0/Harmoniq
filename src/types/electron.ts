@@ -124,6 +124,15 @@ export interface HarmoniqApi {
   setPortableMode?: (enabled: boolean, customPath?: string) => Promise<any>;
   migratePortableData?: (direction: 'toPortable' | 'toStandard', customPath?: string) => Promise<any>;
 
+  // Harmoniq Assistant (Phase 7)
+  getAssistantConfig?: () => Promise<any>;
+  saveAssistantConfig?: (config: any) => Promise<boolean>;
+  testAssistantConnection?: (config: any) => Promise<{ success: boolean; message: string; model?: string }>;
+  sendAssistantChat?: (payload: {
+    messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
+    context?: string;
+  }) => Promise<{ content: string; actions?: string[]; error?: string }>;
+
   // Events
   onMediaCommand?: (callback: (command: 'prev' | 'playpause' | 'next' | 'volumeup' | 'volumedown' | 'togglemute') => void) => () => void;
   onWindowMaximizedChange?: (callback: (isMaximized: boolean) => void) => () => void;

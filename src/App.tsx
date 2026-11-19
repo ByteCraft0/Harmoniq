@@ -30,6 +30,9 @@ import { ABXComparisonView } from './components/views/ABXComparisonView';
 import { VinylCollectionView } from './components/views/VinylCollectionView';
 import { ImmersiveAlbumView } from './components/views/ImmersiveAlbumView';
 import { NavigationProvider } from './context/NavigationContext';
+import { HarmoniqPulseOrb } from './components/assistant/HarmoniqPulseOrb';
+import { HarmoniqAssistantPanel } from './components/assistant/HarmoniqAssistantPanel';
+import { useAssistant } from './hooks/useAssistant';
 
 const MainLayout: React.FC = () => {
   const {
@@ -41,6 +44,12 @@ const MainLayout: React.FC = () => {
     restoreNavigationState,
   } = useLibrary();
   const { togglePlayPause, seekTo, currentTime, setVolume, volume, nextTrack, prevTrack, toggleMute } = usePlayer();
+  const {
+    config: assistantConfig,
+    orbState: assistantOrbState,
+    isOpen: isAssistantOpen,
+    openAssistant,
+  } = useAssistant();
   const [isQueueOpen, setIsQueueOpen] = useState(false);
   const [isMini, setIsMini] = useState(false);
 
@@ -224,6 +233,22 @@ const MainLayout: React.FC = () => {
           onToggleQueue={() => setIsQueueOpen(!isQueueOpen)}
           isQueueOpen={isQueueOpen}
         />
+
+        {/* Harmoniq Assistant (Phase 7): Pulse Orb & Floating Assistant Panel */}
+        {assistantConfig.enabled && !isAssistantOpen && (
+          <div className="fixed bottom-24 right-6 z-40">
+            <HarmoniqPulseOrb
+              state={assistantOrbState}
+              onClick={openAssistant}
+              reducedMotion={assistantConfig.reducedMotion}
+            />
+          </div>
+        )}
+        {assistantConfig.enabled && (
+          <HarmoniqAssistantPanel
+            onOpenSettings={() => setActiveView('settings')}
+          />
+        )}
       </div>
     </NavigationProvider>
   );

@@ -1472,6 +1472,256 @@ function setupIpc() {
     }
     return combined;
   });
+
+  // Harmoniq Assistant IPC Handlers (Phase 7)
+  ipcMain.handle('assistant:getConfig', async () => {
+    return loadStoredDataSync('assistant_config', {
+      enabled: true,
+      provider: 'gemini',
+      apiKey: '',
+      model: 'gemini-1.5-flash',
+      speechEnabled: false,
+      speechVolume: 0.85,
+      speechRate: 1.0,
+      speechLang: 'en-US',
+      reducedMotion: false,
+      saveHistory: true,
+    });
+  });
+
+  ipcMain.handle('assistant:saveConfig', async (_e, config: any) => {
+    try {
+      saveStoredDataSync('assistant_config', config);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle('assistant:testConnection', async (_e, config: any) => {
+    const provider = config?.provider || 'local';
+    const apiKey = (config?.apiKey || '').trim();
+    const model = config?.model || '';
+
+    if (provider === 'local') {
+      return { success: true, message: 'Local Grounded Assistant is online and operational.' };
+    }
+
+    if (!apiKey) {
+      return { success: false, message: 'API key is required to connect to external AI provider.' };
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    try {
+      if (provider === 'gemini') {
+        const geminiModel = model || 'gemini-1.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Respond with OK' }] }]
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData?.error?.message || `HTTP ${res.status} ${res.statusText}`;
+          return { success: false, message: `Gemini connection failed: ${errMsg}` };
+        }
+        return { success: true, message: `Successfully connected to Google Gemini (${geminiModel}).`, model: geminiModel };
+      }
+
+      if (provider === 'openai') {
+        const openAiModel = model || 'gpt-4o-mini';
+        const res = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: openAiModel,
+            messages: [{ role: 'user', content: 'Ping' }],
+            max_tokens: 5
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData?.error?.message || `HTTP ${res.status} ${res.statusText}`;
+          return { success: false, message: `OpenAI connection failed: ${errMsg}` };
+        }
+        return { success: true, message: `Successfully connected to OpenAI (${openAiModel}).`, model: openAiModel };
+      }
+
+      if (provider === 'groq') {
+        const groqModel = model || 'llama-3.1-8b-instant';
+        const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: groqModel,
+            messages: [{ role: 'user', content: 'Ping' }],
+            max_tokens: 5
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData?.error?.message || `HTTP ${res.status} ${res.statusText}`;
+          return { success: false, message: `Groq connection failed: ${errMsg}` };
+        }
+        return { success: true, message: `Successfully connected to Groq (${groqModel}).`, model: groqModel };
+      }
+
+      clearTimeout(timeout);
+      return { success: false, message: `Unsupported provider: ${provider}` };
+    } catch (err: any) {
+      clearTimeout(timeout);
+      return { success: false, message: err?.message || 'Connection test timed out or network error.' };
+    }
+  });
+
+  ipcMain.handle('assistant:sendChat', async (_e, payload: {
+    messages: { role: 'user' | 'assistant' | 'system'; content: string }[];
+    context?: string;
+  }) => {
+    const config = loadStoredDataSync<any>('assistant_config', null);
+    const provider = config?.provider || 'local';
+    const apiKey = (config?.apiKey || '').trim();
+    const model = config?.model;
+
+    if (provider === 'local' || !apiKey) {
+      return { fallbackToLocal: true, content: '' };
+    }
+
+    const systemInstruction = `You are Harmoniq Assistant, the intelligent companion built into the Harmoniq 2.0 desktop music player.
+Harmoniq 2.0 is a premium Windows audio player with a signature obsidian, violet, and lavender aesthetic.
+Key features include:
+- 10-band Equalizer Studio with preamp and 16+ genre presets
+- Audio Quality Inspector with Bit-Perfect WASAPI exclusive mode & ReplayGain
+- ABX Blind Audio Comparison tool for testing audible differences
+- Interactive Waveform Navigation and dynamic volume profiles
+- Audio Device Routing & multichannel speaker layout
+- Playlists, Playlist Folders, and Playlist Revision History
+- Multiple Saved Queues (Study, Night Drive, Workout, Relaxation, Weekend)
+- Genuine Listening Calendar with activity heatmaps and milestone badges
+- Lyrics Studio with synchronized line-by-line scrolling and timestamp correction
+- Full-screen Immersive Album Mode and 3D Vinyl Collection Mode
+- Floating Desktop Mini-Player with always-on-top and compact layouts
+- Hotkey Profiles & global Windows media keys
+- Extended Sleep Timer with gentle volume fade-out and auto-shutdown
+- Offline Backup/Restore and fully portable USB drive mode
+- Signature musical navigation with Violin (Back) and Trumpet (Forward) icons
+- Internet Radio and RSS Podcast streaming
+
+Instructions:
+1. Always give helpful, concise, well-structured answers using numbered steps when teaching how to do something.
+2. If relevant, include action tags in square brackets like [Open Equalizer Studio], [Open Playlists], [Open Listening Calendar], [Open Theme Studio], [Open Audio Inspector], [Open Lyrics Studio], [Open Visualizer], [Open Podcasts], [Open Internet Radio], [Open ABX Comparator], or [Open Settings].
+3. Only recommend features that genuinely exist in Harmoniq. Never invent fake menus.
+${payload.context ? `\nApplication Feature Context:\n${payload.context}` : ''}`;
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 14000);
+
+    try {
+      if (provider === 'gemini') {
+        const geminiModel = model || 'gemini-1.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+        const contents = payload.messages.map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        }));
+
+        const body = {
+          system_instruction: {
+            parts: [{ text: systemInstruction }]
+          },
+          contents,
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: 800
+          }
+        };
+
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData?.error?.message || `HTTP ${res.status}`;
+          return { fallbackToLocal: true, error: `Gemini API error: ${errMsg}` };
+        }
+
+        const data = await res.json();
+        const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        return { content, fallbackToLocal: false };
+      }
+
+      if (provider === 'openai' || provider === 'groq') {
+        const baseUrl = provider === 'groq'
+          ? 'https://api.groq.com/openai/v1/chat/completions'
+          : 'https://api.openai.com/v1/chat/completions';
+        const defaultModel = provider === 'groq' ? 'llama-3.1-8b-instant' : 'gpt-4o-mini';
+        const targetModel = model || defaultModel;
+
+        const openAiMessages = [
+          { role: 'system', content: systemInstruction },
+          ...payload.messages.map(m => ({
+            role: m.role,
+            content: m.content
+          }))
+        ];
+
+        const res = await fetch(baseUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({
+            model: targetModel,
+            messages: openAiMessages,
+            max_tokens: 800,
+            temperature: 0.7
+          }),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          const errMsg = errData?.error?.message || `HTTP ${res.status}`;
+          return { fallbackToLocal: true, error: `${provider.toUpperCase()} error: ${errMsg}` };
+        }
+
+        const data = await res.json();
+        const content = data?.choices?.[0]?.message?.content || '';
+        return { content, fallbackToLocal: false };
+      }
+
+      clearTimeout(timeout);
+      return { fallbackToLocal: true };
+    } catch (err: any) {
+      clearTimeout(timeout);
+      return { fallbackToLocal: true, error: err?.message || 'Network request failed' };
+    }
+  });
 }
 
 function isSafePublicUrl(urlString: string): boolean {

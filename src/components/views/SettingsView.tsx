@@ -25,6 +25,7 @@ import { ABRepeatControls } from '../audio/ABRepeatControls';
 import { HotkeyProfilesCard } from '../desktop/HotkeyProfilesCard';
 import { BackupRestoreCard } from '../desktop/BackupRestoreCard';
 import { PortableModeCard } from '../desktop/PortableModeCard';
+import { AssistantSettingsCard } from '../assistant/AssistantSettingsCard';
 import { visualizerSettingsService } from '../../services/visualizerSettingsService';
 import { appearanceService } from '../../services/appearanceService';
 import {
@@ -136,6 +137,7 @@ export const SettingsView: React.FC = () => {
 
   type SettingsTab =
     | 'all'
+    | 'assistant'
     | 'appearance'
     | 'devices'
     | 'quality'
@@ -148,6 +150,7 @@ export const SettingsView: React.FC = () => {
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { id: 'all', label: 'All Settings', icon: <Sparkles size={13} /> },
+    { id: 'assistant', label: 'Harmoniq Assistant', icon: <Sparkles size={13} /> },
     { id: 'appearance', label: 'Appearance & Animations', icon: <Wand2 size={13} /> },
     { id: 'devices', label: 'Output Devices', icon: <Speaker size={13} /> },
     { id: 'quality', label: 'Audio Quality', icon: <FileAudio size={13} /> },
@@ -283,6 +286,11 @@ export const SettingsView: React.FC = () => {
           </button>
         ))}
       </div>
+
+      {/* Harmoniq Assistant Configuration (Phase 7) */}
+      {(activeTab === 'all' || activeTab === 'assistant') && (
+        <AssistantSettingsCard />
+      )}
 
       {/* Appearance & Animations Section (Part 8) */}
       {(activeTab === 'all' || activeTab === 'appearance') && (
