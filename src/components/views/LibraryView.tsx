@@ -87,6 +87,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
   const [sortBy, setSortBy] = useState<'title' | 'artist' | 'album' | 'duration' | 'bitrate' | 'playCount' | 'dateAdded'>('title');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
+  // Progressive rendering window for 60 FPS scrolling on large libraries (10k+ tracks)
+  const [renderLimit, setRenderLimit] = useState<number>(150);
+
   // Album Collection Filtering
   const [albumDecade, setAlbumDecade] = useState<string>('all');
   const [albumSortBy, setAlbumSortBy] = useState<'title' | 'artist' | 'year' | 'trackCount'>('title');
@@ -201,6 +204,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
 
     return list;
   }, [albums, albumDecade, albumSortBy, albumSortOrder]);
+
+  // Reset progressive render window when query, filter, sort, or tab changes
+  useEffect(() => {
+    setRenderLimit(150);
+  }, [searchQuery, formatFilter, sortBy, sortOrder, activeTab]);
+
+  const visibleTracks = useMemo(() => {
+    return processedTracks.slice(0, renderLimit);
+  }, [processedTracks, renderLimit]);
 
   const handlePlay = useCallback(
     (track: TrackMetadata) => {
@@ -493,7 +505,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
             </div>
 
             {/* Song Table */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
+            <div
+              className="flex-1 overflow-y-auto custom-scrollbar"
+              onScroll={(e) => {
+                const target = e.currentTarget;
+                if (target.scrollTop + target.clientHeight >= target.scrollHeight - 300) {
+                  if (renderLimit < processedTracks.length) {
+                    setRenderLimit((prev) => Math.min(processedTracks.length, prev + 150));
+                  }
+                }
+              }}
+            >
               {processedTracks.length === 0 ? (
                 <HarmoniqEmptyState
                   type="empty_library"
@@ -508,7 +530,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
                 <div className="w-full">
                   <SongTableHeader showAlbum={true} />
                   <div className="space-y-0.5">
-                    {processedTracks.map((track, idx) => (
+                    {visibleTracks.map((track, idx) => (
                       <SongRow
                         key={track.id}
                         track={track}
@@ -527,6 +549,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({ initialTab = 'songs' }
                       />
                     ))}
                   </div>
+                  {visibleTracks.length < processedTracks.length && (
+                    <div className="py-3 text-center text-[11px] text-[#71717A]">
+                      Showing {visibleTracks.length} of {processedTracks.length} tracks — scroll down to load more
+                    </div>
+                  )}
                 </div>
               )}
             </div>
