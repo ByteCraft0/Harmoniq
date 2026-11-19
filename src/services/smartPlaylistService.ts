@@ -317,7 +317,8 @@ export function evaluateSmartPlaylist(
     if (track.isOnline) {
       if (
         track.playbackCapability === 'unavailable' ||
-        track.playbackCapability === 'metadata_only'
+        track.playbackCapability === 'metadata_only' ||
+        track.playbackCapability === 'external_link'
       ) {
         return false;
       }

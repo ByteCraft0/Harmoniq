@@ -30,6 +30,7 @@ export interface HistoryQueryOptions {
   statusFilter?: 'all' | HistoryCompletionStatus;
   providerId?: string;
   artist?: string;
+  limit?: number;
 }
 
 // Harmoniq 2.0 Personalization: Goals & Milestones

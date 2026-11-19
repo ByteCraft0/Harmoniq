@@ -94,12 +94,16 @@ export class HistoryService {
     const duration = track.duration || 0;
     const cleanDuration = Math.max(0, Math.round(playbackDuration));
 
+    const isPreview =
+      track.playbackCapability === 'preview_stream' ||
+      track.playbackCapability === 'preview_only';
+
     let status: HistoryCompletionStatus = 'partial';
     let isCompleted = false;
 
     if (cleanDuration < 15) {
       status = 'skipped';
-    } else if (cleanDuration >= 30 && (duration <= 0 || cleanDuration >= duration * 0.5 || cleanDuration >= 120)) {
+    } else if (!isPreview && cleanDuration >= 30 && (duration <= 0 || cleanDuration >= duration * 0.5 || cleanDuration >= 120)) {
       status = 'completed';
       isCompleted = true;
     }
@@ -153,7 +157,9 @@ export class HistoryService {
         case 'yesterday': {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
-          const yesterday = new Date(today.getTime() - 86400 * 1000);
+          const yesterday = new Date(today);
+          yesterday.setDate(today.getDate() - 1);
+          yesterday.setHours(0, 0, 0, 0);
           result = result.filter((e) => e.playedAt >= yesterday.getTime() && e.playedAt < today.getTime());
           break;
         }
@@ -210,6 +216,10 @@ export class HistoryService {
       const valB = b[sortBy] ?? 0;
       return isAsc ? (valA as number) - (valB as number) : (valB as number) - (valA as number);
     });
+
+    if (options?.limit && options.limit > 0) {
+      result = result.slice(0, options.limit);
+    }
 
     return result;
   }

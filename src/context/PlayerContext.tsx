@@ -383,6 +383,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   useEffect(() => {
     const handleBeforeUnload = () => {
+      commitListeningSession();
       if (currentTrackRef.current || queueRef.current.length > 0) {
         sessionRecoveryService.saveSessionImmediate({
           currentTrackId: currentTrackRef.current?.id || null,
@@ -561,7 +562,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     if (newQueue) {
-      setQueue(newQueue);
+      setQueue(newQueue.filter(isPlayableAudioTrack));
     } else {
       setQueue((prev) => {
         if (prev.length === 0) return [playableTrack];
@@ -804,10 +805,16 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return success;
   };
 
+  const isPlayableAudioTrack = (t: TrackMetadata): boolean => {
+    if (!t) return false;
+    const cap = t.playbackCapability;
+    return cap !== 'external_link' && cap !== 'metadata_only' && cap !== 'unavailable';
+  };
+
   // Queue actions
   const addToQueue = (track: TrackMetadata) => {
-    if (track.playbackCapability === 'external_link' || track.playbackCapability === 'metadata_only') {
-      showToast('External link items cannot be added to audio playback queue', 'info');
+    if (!isPlayableAudioTrack(track)) {
+      showToast('External or unavailable items cannot be added to audio playback queue', 'info');
       return;
     }
     setQueue((prev) => {
@@ -820,8 +827,8 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const playNext = (track: TrackMetadata) => {
-    if (track.playbackCapability === 'external_link' || track.playbackCapability === 'metadata_only') {
-      showToast('External link items cannot be added to audio playback queue', 'info');
+    if (!isPlayableAudioTrack(track)) {
+      showToast('External or unavailable items cannot be added to audio playback queue', 'info');
       return;
     }
     setQueue((prev) => {
@@ -867,7 +874,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const replaceQueue = (tracks: TrackMetadata[]) => {
-    setQueue([...tracks]);
+    setQueue(tracks.filter(isPlayableAudioTrack));
     playNextCountRef.current = 0;
   };
 

@@ -127,6 +127,7 @@ export class DiscoveryService {
   constructor() {
     this.loadUserMoods();
     this.loadBioCache();
+    this.loadResetTimestamp();
   }
 
   private loadUserMoods(): void {
@@ -416,6 +417,16 @@ export class DiscoveryService {
   }
 
   private refreshSeed = 0;
+  private recommendationsResetAt = 0;
+
+  private loadResetTimestamp(): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const val = localStorage.getItem('harmoniq_recommendations_reset_v1');
+        if (val) this.recommendationsResetAt = Number(val) || 0;
+      }
+    } catch {}
+  }
 
   public refreshPersonalizedDiscovery(): void {
     this.refreshSeed += 1;
@@ -423,6 +434,12 @@ export class DiscoveryService {
 
   public resetRecommendationProfile(): void {
     this.refreshSeed = 0;
+    this.recommendationsResetAt = Date.now();
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('harmoniq_recommendations_reset_v1', String(this.recommendationsResetAt));
+      }
+    } catch {}
   }
 
   /**
@@ -430,7 +447,11 @@ export class DiscoveryService {
    * Learns from listening history, favorites, skips, and play counts without any external AI API.
    */
   public getPersonalizedDiscovery(candidateTracks?: TrackMetadata[]): PersonalizedDiscoverySections {
-    const history = historyService.getHistory();
+    const rawHistory = historyService.getHistory();
+    const history =
+      this.recommendationsResetAt > 0
+        ? rawHistory.filter((e) => e.playedAt > this.recommendationsResetAt)
+        : rawHistory;
     const favorites = favoritesService.getFavorites();
     const allTracks = candidateTracks || libraryService.getAllTracks();
 
@@ -515,7 +536,7 @@ export class DiscoveryService {
     const validCandidates = combinedTracks.filter((t) => (skippedTracks.get(t.id) || 0) < 3);
 
     // Section 1: Made for You (Tracks from high affinity artists/genres, not played in last 48h)
-    const madeForYou: RecommendationItem[] = validCandidates
+    const madeForYouPool = validCandidates
       .filter((t) => !recentlyPlayedIds.has(t.id))
       .map((t) => {
         const aScore = artistScores.get((t.artist || '').toLowerCase().trim()) || 0;
@@ -535,7 +556,17 @@ export class DiscoveryService {
           score,
         };
       })
-      .sort((a, b) => b.score - a.score)
+      .sort((a, b) => b.score - a.score);
+
+    const rotatedMadeForYou =
+      this.refreshSeed > 0 && madeForYouPool.length > 3
+        ? [
+            ...madeForYouPool.slice(this.refreshSeed % madeForYouPool.length),
+            ...madeForYouPool.slice(0, this.refreshSeed % madeForYouPool.length),
+          ]
+        : madeForYouPool;
+
+    const madeForYou: RecommendationItem[] = rotatedMadeForYou
       .slice(0, 10)
       .map(({ track, reason, signal, isPlayable }) => ({ track, reason, signal, isPlayable }));
 

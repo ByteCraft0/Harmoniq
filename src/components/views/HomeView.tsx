@@ -76,9 +76,9 @@ export const HomeView: React.FC = () => {
     return favoritesService.getFavorites();
   }, [tick]);
 
-  // History entries
+  // History entries (optimized with limit to avoid full array loads)
   const recentHistory = useMemo(() => {
-    return historyService.getHistory();
+    return historyService.getHistory({ limit: 8 });
   }, [tick]);
 
   // Top artists

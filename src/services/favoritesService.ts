@@ -162,14 +162,9 @@ export class FavoritesService {
       if (existing) {
         const rKey = recordingKey(existing);
         this.recordingIndex.delete(rKey);
+        libraryService.syncFavorites(existing.id, false);
       }
-      // If local track, sync libraryService
-      if (!track.providerId || track.providerId === 'local') {
-        const localTrack = libraryService.getTrack(track.id);
-        if (localTrack) {
-          localTrack.isFavorite = false;
-        }
-      }
+      libraryService.syncFavorites(track.id, false);
       track.isFavorite = false;
       this.save();
       return false;
@@ -186,13 +181,7 @@ export class FavoritesService {
       if (rKey !== ':::') {
         this.recordingIndex.set(rKey, track.id);
       }
-      // If local track, sync libraryService
-      if (!track.providerId || track.providerId === 'local') {
-        const localTrack = libraryService.getTrack(track.id);
-        if (localTrack) {
-          localTrack.isFavorite = true;
-        }
-      }
+      libraryService.syncFavorites(track.id, true);
       track.isFavorite = true;
       this.save();
       return true;
@@ -205,12 +194,7 @@ export class FavoritesService {
       this.favorites.delete(trackId);
       const rKey = recordingKey(existing);
       this.recordingIndex.delete(rKey);
-      if (!existing.providerId || existing.providerId === 'local') {
-        const localTrack = libraryService.getTrack(trackId);
-        if (localTrack) {
-          localTrack.isFavorite = false;
-        }
-      }
+      libraryService.syncFavorites(existing.id, false);
       this.save();
     }
   }

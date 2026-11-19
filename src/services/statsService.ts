@@ -198,9 +198,9 @@ export class StatsService {
     const now = new Date();
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i);
-      const start = d.getTime();
-      const end = start + 86400 * 1000;
-      const dateStr = d.toISOString().split('T')[0];
+      const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      const end = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1).getTime();
+      const dateStr = `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
       const dayLabel = d.toLocaleDateString([], { weekday: 'short', month: 'numeric', day: 'numeric' });
 
       let sec = 0;
@@ -507,7 +507,7 @@ export class StatsService {
     const trackMap = new Map<string, { id: string; title: string; artist: string; album: string; plays: number; seconds: number; artwork?: string; providerId?: string }>();
 
     for (const e of history) {
-      const key = e.trackId || `${e.title}:::${e.artist}`.toLowerCase();
+      const key = `${(e.title || '').toLowerCase().trim()}:::${(e.artist || '').toLowerCase().trim()}` || e.trackId;
       const existing = trackMap.get(key) || {
         id: e.trackId,
         title: e.title || 'Unknown Title',
@@ -699,15 +699,22 @@ export class StatsService {
       youtube: '#EF4444',
     };
 
+    const totalCount = Array.from(providerMap.values()).reduce((sum, d) => sum + d.count, 0);
+
     return Array.from(providerMap.entries())
       .map(([provider, data]) => ({
         provider: provider.charAt(0).toUpperCase() + provider.slice(1),
         count: data.count,
         seconds: data.seconds,
-        percentage: totalSec > 0 ? Math.round((data.seconds / totalSec) * 100) : 0,
+        percentage:
+          totalSec > 0
+            ? Math.round((data.seconds / totalSec) * 100)
+            : totalCount > 0
+            ? Math.round((data.count / totalCount) * 100)
+            : 0,
         color: colors[provider.toLowerCase()] || '#818CF8',
       }))
-      .sort((a, b) => b.seconds - a.seconds);
+      .sort((a, b) => b.seconds - a.seconds || b.count - a.count);
   }
 }
 
