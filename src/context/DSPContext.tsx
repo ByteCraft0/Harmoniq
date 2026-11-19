@@ -39,6 +39,9 @@ interface DSPContextType {
   updateParametricFilter: (id: string, updates: Partial<ParametricFilterConfig>) => void;
   removeParametricFilter: (id: string) => void;
   toggleParametricFilter: (id: string) => void;
+  auditionFilterId: string | null;
+  soloFilter: (id: string | null) => void;
+  importAutoEqProfile: (filters: ParametricFilterConfig[], preamp?: number) => void;
 
   // Custom Preset Management
   saveCustomPreset: (name: string) => void;
@@ -75,7 +78,7 @@ const num = (v: unknown, min: number, max: number, fallback: number): number =>
   typeof v === 'number' && Number.isFinite(v) ? Math.max(min, Math.min(max, v)) : fallback;
 
 function sanitizeParametricFilter(raw: any, index: number): ParametricFilterConfig {
-  const validTypes = ['peaking', 'lowshelf', 'highshelf', 'lowpass', 'highpass'];
+  const validTypes = ['peaking', 'lowshelf', 'highshelf', 'lowpass', 'highpass', 'notch', 'bandpass'];
   const type = validTypes.includes(raw?.type) ? raw.type : 'peaking';
   return {
     id: typeof raw?.id === 'string' && raw.id ? raw.id : `p_${Date.now()}_${index}`,
@@ -142,6 +145,9 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     gainReductionDb: 0,
     peakLevel: 0,
   });
+  const [auditionFilterId, setAuditionFilterId] = useState<string | null>(null);
+  const auditionFilterIdRef = useRef<string | null>(null);
+  auditionFilterIdRef.current = auditionFilterId;
 
   // Load custom presets and settings on mount
   useEffect(() => {
@@ -199,21 +205,47 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => clearInterval(interval);
   }, []);
 
+  const getEffectiveSettingsForEngine = useCallback(
+    (baseSettings: DSPSettings, soloId: string | null): DSPSettings => {
+      if (!soloId || baseSettings.eqMode !== 'parametric') {
+        return baseSettings;
+      }
+      return {
+        ...baseSettings,
+        parametricFilters: baseSettings.parametricFilters.map((f) => {
+          if (f.id === soloId) return f;
+          return {
+            ...f,
+            gain: 0,
+          };
+        }),
+      };
+    },
+    []
+  );
+
   // Sync settings with audio engine and localStorage
-  const updateSettings = useCallback((newSettings: DSPSettings) => {
-    settingsRef.current = newSettings;
-    setSettings(newSettings);
-    audioEngine.applyDSPSettings(newSettings);
-    try {
-      localStorage.setItem(STORAGE_DSP_SETTINGS_KEY, JSON.stringify(newSettings));
-    } catch (e) {
-      // Ignore storage errors
-    }
-  }, []);
+  const updateSettings = useCallback(
+    (newSettings: DSPSettings, overrideSoloId?: string | null) => {
+      settingsRef.current = newSettings;
+      setSettings(newSettings);
+      const currentSolo = overrideSoloId !== undefined ? overrideSoloId : auditionFilterIdRef.current;
+      const effective = getEffectiveSettingsForEngine(newSettings, currentSolo);
+      audioEngine.applyDSPSettings(effective);
+      try {
+        localStorage.setItem(STORAGE_DSP_SETTINGS_KEY, JSON.stringify(newSettings));
+      } catch (e) {
+        // Ignore storage errors
+      }
+    },
+    [getEffectiveSettingsForEngine]
+  );
 
   const patch = (changes: Partial<DSPSettings>) => updateSettings({ ...settingsRef.current, ...changes });
 
   const setEQMode = (mode: 'graphic' | 'parametric') => {
+    setAuditionFilterId(null);
+    auditionFilterIdRef.current = null;
     patch({ eqMode: mode, activePresetId: null });
   };
 
@@ -288,18 +320,57 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const removeParametricFilter = (id: string) => {
+    if (auditionFilterIdRef.current === id) {
+      setAuditionFilterId(null);
+      auditionFilterIdRef.current = null;
+    }
     const remaining = settingsRef.current.parametricFilters.filter((f) => f.id !== id);
     patch({ parametricFilters: remaining, activePresetId: null });
   };
 
   const toggleParametricFilter = (id: string) => {
+    if (auditionFilterIdRef.current === id) {
+      setAuditionFilterId(null);
+      auditionFilterIdRef.current = null;
+    }
     const updated = settingsRef.current.parametricFilters.map((f) =>
       f.id === id ? { ...f, enabled: !f.enabled } : f
     );
     patch({ parametricFilters: updated, activePresetId: null });
   };
 
+  const soloFilter = useCallback(
+    (id: string | null) => {
+      const nextSolo = auditionFilterIdRef.current === id ? null : id;
+      setAuditionFilterId(nextSolo);
+      auditionFilterIdRef.current = nextSolo;
+      const effective = getEffectiveSettingsForEngine(settingsRef.current, nextSolo);
+      audioEngine.applyDSPSettings(effective);
+    },
+    [getEffectiveSettingsForEngine]
+  );
+
+  const importAutoEqProfile = useCallback(
+    (filters: ParametricFilterConfig[], newPreamp?: number) => {
+      setAuditionFilterId(null);
+      auditionFilterIdRef.current = null;
+      const sanitized = filters.slice(0, 12).map(sanitizeParametricFilter);
+      patch({
+        eqMode: 'parametric',
+        parametricFilters: sanitized,
+        preamp:
+          newPreamp !== undefined
+            ? num(newPreamp, -12, 12, settingsRef.current.preamp)
+            : settingsRef.current.preamp,
+        activePresetId: null,
+      });
+    },
+    []
+  );
+
   const resetToFlat = () => {
+    setAuditionFilterId(null);
+    auditionFilterIdRef.current = null;
     if (settingsRef.current.eqMode === 'graphic') {
       applyPreset('flat');
     } else {
@@ -316,6 +387,9 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const applyPreset = (presetId: string) => {
     const preset = presets.find((p) => p.id === presetId);
     if (!preset) return;
+
+    setAuditionFilterId(null);
+    auditionFilterIdRef.current = null;
 
     const targetMode = preset.mode || 'graphic';
     patch({
@@ -487,6 +561,9 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateParametricFilter,
         removeParametricFilter,
         toggleParametricFilter,
+        auditionFilterId,
+        soloFilter,
+        importAutoEqProfile,
         saveCustomPreset,
         renameCustomPreset,
         deleteCustomPreset,

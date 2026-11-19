@@ -4,6 +4,8 @@ import { useToast } from '../../context/ToastContext';
 import { EQ_FREQUENCIES, ParametricFilterType, ParametricFilterConfig } from '../../types/dsp';
 import { audioEngine } from '../../services/audioEngine';
 import { AudioVisualizer } from '../visualizer/AudioVisualizer';
+import { ParametricEQCurve } from './ParametricEQCurve';
+import { AutoEqImportModal } from './AutoEqImportModal';
 import {
   Sliders,
   RotateCcw,
@@ -24,6 +26,7 @@ import {
   X,
   Gauge,
   HelpCircle,
+  Headphones,
 } from 'lucide-react';
 
 export const EqualizerStudio: React.FC = () => {
@@ -49,6 +52,9 @@ export const EqualizerStudio: React.FC = () => {
     updateParametricFilter,
     removeParametricFilter,
     toggleParametricFilter,
+    auditionFilterId,
+    soloFilter,
+    importAutoEqProfile,
     saveCustomPreset,
     renameCustomPreset,
     deleteCustomPreset,
@@ -60,6 +66,7 @@ export const EqualizerStudio: React.FC = () => {
   const { showToast } = useToast();
   const [newPresetName, setNewPresetName] = useState('');
   const [showSaveModal, setShowSaveModal] = useState(false);
+  const [showAutoEqModal, setShowAutoEqModal] = useState(false);
   const [renamingPresetId, setRenamingPresetId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
@@ -526,35 +533,46 @@ export const EqualizerStudio: React.FC = () => {
         </div>
       </div>
 
-      {/* Interactive Physical Biquad Response Curve Canvas */}
+      {/* Interactive Frequency Response Curve */}
       <div className="p-5 rounded-2xl bg-[#09090B] border border-[#272733] space-y-2 shadow-card">
         <div className="flex justify-between items-center text-xs text-[#71717A] font-mono-numbers">
           <span className="flex items-center gap-1.5 text-xs text-[#A1A1AA]">
-            <span>Combined Audio Response Curve ({settings.eqMode === 'graphic' ? '10-Band Graphic' : 'Parametric'})</span>
+            <span>Combined Audio Response Curve ({settings.eqMode === 'graphic' ? '10-Band Graphic' : 'Parametric Studio'})</span>
             {settings.eqMode === 'parametric' && (
               <span className="text-[10px] text-[var(--accent-dynamic)] bg-[#1B1B24] px-2 py-0.5 rounded-full border border-[#272733]">
-                Drag nodes to adjust Hz & dB
+                Drag nodes • Wheel Q • Double-click 0dB • [S] Solo
               </span>
             )}
           </span>
-          <span>±12 dB Reference Scale</span>
+          <span>±18 dB Reference Scale</span>
         </div>
 
-        <div className="w-full h-44 bg-[#14141B] rounded-xl border border-[#272733] relative overflow-hidden flex items-center justify-center">
-          {/* Subtle live visualizer background under curve */}
-          <div className="absolute inset-x-4 bottom-2 opacity-20 pointer-events-none">
-            <AudioVisualizer height={55} mode="spectrum" />
-          </div>
-
-          <canvas
-            ref={canvasRef}
-            onMouseDown={handleCanvasMouseDown}
-            onMouseMove={handleCanvasMouseMove}
-            onMouseUp={handleCanvasMouseUp}
-            onMouseLeave={handleCanvasMouseUp}
-            className={`w-full h-full block ${settings.eqMode === 'parametric' ? 'cursor-crosshair' : 'cursor-default'}`}
+        {settings.eqMode === 'parametric' ? (
+          <ParametricEQCurve
+            filters={settings.parametricFilters}
+            enabled={settings.enabled}
+            auditionFilterId={auditionFilterId}
+            onUpdateFilter={updateParametricFilter}
+            onSoloFilter={soloFilter}
+            onRemoveFilter={removeParametricFilter}
           />
-        </div>
+        ) : (
+          <div className="w-full h-44 bg-[#14141B] rounded-xl border border-[#272733] relative overflow-hidden flex items-center justify-center">
+            {/* Subtle live visualizer background under curve */}
+            <div className="absolute inset-x-4 bottom-2 opacity-20 pointer-events-none">
+              <AudioVisualizer height={55} mode="spectrum" />
+            </div>
+
+            <canvas
+              ref={canvasRef}
+              onMouseDown={handleCanvasMouseDown}
+              onMouseMove={handleCanvasMouseMove}
+              onMouseUp={handleCanvasMouseUp}
+              onMouseLeave={handleCanvasMouseUp}
+              className="w-full h-full block cursor-default"
+            />
+          </div>
+        )}
       </div>
 
       {/* Main Mode View: 10-Band Graphic Sliders OR Parametric Filter Table */}
@@ -603,43 +621,93 @@ export const EqualizerStudio: React.FC = () => {
       ) : (
         /* Parametric Equalizer Filter Editor */
         <div className="p-6 rounded-2xl bg-[#14141B] border border-[#272733] space-y-4 shadow-card">
-          <div className="flex items-center justify-between border-b border-[#272733] pb-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#272733] pb-3">
             <div>
               <h3 className="font-bold text-[#F5F3FF] text-sm">Parametric Filter Nodes</h3>
               <p className="text-xs text-[#A1A1AA]">
-                Configurable Peaking, Shelving, and Cut filters with adjustable Frequency, Q factor, and Gain.
+                Configurable Peaking, Shelving, Notch, and Cut filters with adjustable Frequency, Q factor, and Gain.
               </p>
             </div>
-            <button
-              onClick={() => addParametricFilter()}
-              disabled={settings.parametricFilters.length >= 12}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] text-white text-xs font-bold shadow-glow-sm hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
-            >
-              <Plus size={14} />
-              <span>Add Filter Node</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setShowAutoEqModal(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#1B1B24] hover:bg-[#242432] border border-[#272733] text-xs font-semibold text-[#A78BFA] hover:text-[#C4B5FD] transition-all"
+                title="Import AutoEQ or Equalizer APO profile"
+              >
+                <Sparkles size={14} />
+                <span>AutoEQ Import</span>
+              </button>
+              <button
+                onClick={() => addParametricFilter()}
+                disabled={settings.parametricFilters.length >= 12}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-[var(--accent-dynamic)] to-[#A78BFA] text-white text-xs font-bold shadow-glow-sm hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+              >
+                <Plus size={14} />
+                <span>Add Filter Node</span>
+              </button>
+            </div>
           </div>
+
+          {auditionFilterId && (
+            <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">
+              <div className="flex items-center gap-2">
+                <Headphones size={15} className="text-amber-400" />
+                <span>
+                  <strong>Audition Mode Active:</strong> Isolating individual filter. All other parametric bands are temporarily bypassed.
+                </span>
+              </div>
+              <button
+                onClick={() => soloFilter(null)}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-bold transition-colors"
+              >
+                Exit Solo
+              </button>
+            </div>
+          )}
 
           <div className="space-y-3">
             {settings.parametricFilters.map((filter, idx) => (
               <div
                 key={filter.id}
                 className={`p-3.5 rounded-xl border transition-all flex flex-col md:flex-row md:items-center justify-between gap-4 ${
-                  filter.enabled
+                  auditionFilterId === filter.id
+                    ? 'bg-amber-950/20 border-amber-500/50 shadow-glow-sm'
+                    : filter.enabled
                     ? 'bg-[#0D0D12] border-[#272733]'
                     : 'bg-[#09090B]/60 border-[#1B1B24] opacity-60'
                 }`}
               >
-                <div className="flex items-center gap-3 shrink-0">
+                <div className="flex items-center gap-2.5 shrink-0">
                   <input
                     type="checkbox"
                     checked={filter.enabled}
                     onChange={() => toggleParametricFilter(filter.id)}
                     className="w-4 h-4 accent-[var(--accent-dynamic)] rounded cursor-pointer"
                   />
-                  <span className="w-5 h-5 rounded-full bg-[var(--accent-dynamic)]/20 border border-[var(--accent-dynamic)] text-[var(--accent-dynamic)] font-mono-numbers text-xs font-bold flex items-center justify-center">
+                  <span
+                    className={`w-5 h-5 rounded-full border text-xs font-mono-numbers font-bold flex items-center justify-center ${
+                      auditionFilterId === filter.id
+                        ? 'bg-amber-500/30 border-amber-400 text-amber-300'
+                        : 'bg-[var(--accent-dynamic)]/20 border-[var(--accent-dynamic)] text-[var(--accent-dynamic)]'
+                    }`}
+                  >
                     {idx + 1}
                   </span>
+
+                  {/* Solo / Audition Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => soloFilter(filter.id)}
+                    title={auditionFilterId === filter.id ? 'Exit Solo' : 'Solo / Audition this filter'}
+                    className={`p-1.5 rounded-lg border transition-all ${
+                      auditionFilterId === filter.id
+                        ? 'bg-amber-500 text-black border-amber-400 font-bold shadow-glow-sm'
+                        : 'bg-[#1B1B24] text-[#A1A1AA] hover:text-[#F5F3FF] border-[#272733]'
+                    }`}
+                  >
+                    <Headphones size={13} />
+                  </button>
 
                   {/* Filter Type Selector */}
                   <select
@@ -656,6 +724,8 @@ export const EqualizerStudio: React.FC = () => {
                     <option value="highshelf">High Shelf</option>
                     <option value="lowpass">Low Pass</option>
                     <option value="highpass">High Pass</option>
+                    <option value="notch">Notch</option>
+                    <option value="bandpass">Bandpass</option>
                   </select>
                 </div>
 
@@ -697,7 +767,11 @@ export const EqualizerStudio: React.FC = () => {
                             : 'text-[#71717A]'
                         }`}
                       >
-                        {filter.gain > 0 ? `+${filter.gain.toFixed(1)}` : filter.gain.toFixed(1)} dB
+                        {['lowpass', 'highpass', 'notch', 'bandpass'].includes(filter.type)
+                          ? 'N/A'
+                          : filter.gain > 0
+                          ? `+${filter.gain.toFixed(1)} dB`
+                          : `${filter.gain.toFixed(1)} dB`}
                       </span>
                     </div>
                     <input
@@ -705,7 +779,7 @@ export const EqualizerStudio: React.FC = () => {
                       min="-18"
                       max="18"
                       step="0.5"
-                      disabled={filter.type === 'lowpass' || filter.type === 'highpass'}
+                      disabled={['lowpass', 'highpass', 'notch', 'bandpass'].includes(filter.type)}
                       value={filter.gain}
                       onChange={(e) =>
                         updateParametricFilter(filter.id, {
@@ -727,8 +801,8 @@ export const EqualizerStudio: React.FC = () => {
                     <input
                       type="range"
                       min="0.1"
-                      max="10.0"
-                      step="0.1"
+                      max="18.0"
+                      step="0.05"
                       value={filter.q}
                       onChange={(e) =>
                         updateParametricFilter(filter.id, {
@@ -999,6 +1073,15 @@ export const EqualizerStudio: React.FC = () => {
           </div>
         </div>
       )}
+      {/* AutoEQ Profile Import Modal */}
+      <AutoEqImportModal
+        isOpen={showAutoEqModal}
+        onClose={() => setShowAutoEqModal(false)}
+        onApply={(filters, preamp) => {
+          importAutoEqProfile(filters, preamp);
+          showToast(`Imported ${filters.length} AutoEQ parametric bands`, 'success');
+        }}
+      />
     </div>
   );
 };

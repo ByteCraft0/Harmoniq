@@ -9,7 +9,9 @@ export type ParametricFilterType =
   | 'lowshelf'
   | 'highshelf'
   | 'lowpass'
-  | 'highpass';
+  | 'highpass'
+  | 'notch'
+  | 'bandpass';
 
 export interface ParametricFilterConfig {
   id: string;
