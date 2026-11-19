@@ -6,6 +6,7 @@ import { usePlayer } from '../../context/PlayerContext';
 import { useLibrary } from '../../context/LibraryContext';
 import { useToast } from '../../context/ToastContext';
 import { AddToPlaylistModal } from '../layout/AddToPlaylistModal';
+import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
 import {
   History,
   Trash2,
@@ -342,11 +343,11 @@ export const ListeningHistoryView: React.FC = () => {
       {/* History Entries Table */}
       <div className="flex-1 overflow-y-auto rounded-2xl bg-[#14141B] border border-[#272733] custom-scrollbar">
         {historyList.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-zinc-500 space-y-2">
-            <History size={36} className="text-zinc-600" />
-            <p className="text-sm font-medium">No listening history matches the current filter</p>
-            <p className="text-xs text-zinc-600">Play tracks in Harmoniq to build your history log</p>
-          </div>
+          <HarmoniqEmptyState
+            type="empty_history"
+            title="No Listening History"
+            description="Your playback history, track completions, and listening sessions will appear here as you enjoy your music."
+          />
         ) : (
           <table className="w-full text-left border-collapse">
             <thead>

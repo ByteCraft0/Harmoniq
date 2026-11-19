@@ -6,6 +6,7 @@ import { useLibrary } from '../../context/LibraryContext';
 import { useToast } from '../../context/ToastContext';
 import { TrackContextMenu, ContextMenuState } from '../layout/TrackContextMenu';
 import { AddToPlaylistModal } from '../layout/AddToPlaylistModal';
+import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
 import {
   Heart,
   Play,
@@ -226,15 +227,11 @@ export const FavoritesView: React.FC = () => {
       {/* Cards Grid */}
       <div className="flex-1 overflow-y-auto custom-scrollbar">
         {favoritesList.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-zinc-500 space-y-3">
-            <Heart size={42} className="text-zinc-600 stroke-[1.5]" />
-            <div className="text-center">
-              <p className="text-sm font-semibold text-zinc-400">No favorite tracks yet</p>
-              <p className="text-xs text-zinc-600 mt-1">
-                Click the heart icon on any track in your library or Universal Music to add it here
-              </p>
-            </div>
-          </div>
+          <HarmoniqEmptyState
+            type="empty_favorites"
+            title="No Favorite Tracks Yet"
+            description="Click the heart icon on any track in your library or Universal Music to curate your personal collection of favorites."
+          />
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
             {favoritesList.map((track, idx) => {
