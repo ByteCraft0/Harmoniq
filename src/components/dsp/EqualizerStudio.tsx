@@ -37,6 +37,9 @@ export const EqualizerStudio: React.FC = () => {
     setBassBoost,
     setTreble,
     setBalance,
+    setStereoWidth,
+    toggleStereoWidth,
+    resetStereoWidth,
     toggleMonoMix,
     toggleDSPEnabled,
     toggleLimiter,
@@ -751,8 +754,8 @@ export const EqualizerStudio: React.FC = () => {
         </div>
       )}
 
-      {/* Preamp, Tone Controls & Anti-Clipping Limiter */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Preamp, Tone Controls, Stereo Width & Anti-Clipping Limiter */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         {/* Preamp Gain */}
         <div className="p-5 rounded-2xl bg-[#14141B] border border-[#272733] space-y-3 shadow-card">
           <div className="flex justify-between items-center">
@@ -812,6 +815,66 @@ export const EqualizerStudio: React.FC = () => {
               className="w-full accent-[var(--accent-dynamic)]"
             />
           </div>
+        </div>
+
+        {/* Mid-Side Stereo Width */}
+        <div className="p-5 rounded-2xl bg-[#14141B] border border-[#272733] space-y-3 shadow-card flex flex-col justify-between">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <Activity size={16} className={settings.stereoWidthEnabled ? 'text-[#A78BFA]' : 'text-[#71717A]'} />
+              <span className="text-sm font-bold text-[#F5F3FF]">Stereo Width</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={resetStereoWidth}
+                title="Reset width to 100% (Standard)"
+                className="text-[10px] font-mono-numbers text-[#71717A] hover:text-[#A1A1AA] px-1.5 py-0.5 rounded hover:bg-[#1B1B24] transition-colors"
+              >
+                Reset
+              </button>
+              <button
+                onClick={toggleStereoWidth}
+                className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border transition-all ${
+                  settings.stereoWidthEnabled
+                    ? 'bg-purple-950/40 border-[#A78BFA]/40 text-[#A78BFA]'
+                    : 'bg-[#181822] border-[#272733] text-[#71717A]'
+                }`}
+              >
+                {settings.stereoWidthEnabled ? 'Active' : 'Bypass'}
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center text-xs">
+              <span className="text-[#A1A1AA]">
+                {(settings.stereoWidth ?? 100) === 100
+                  ? 'Standard Stereo'
+                  : (settings.stereoWidth ?? 100) < 100
+                  ? (settings.stereoWidth ?? 100) === 0
+                    ? 'Pure Mono'
+                    : 'Reduced Width'
+                  : 'Expanded Stage'}
+              </span>
+              <span className="font-mono-numbers font-bold text-[#A78BFA]">
+                {settings.stereoWidth ?? 100}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0"
+              max="150"
+              step="1"
+              value={settings.stereoWidth ?? 100}
+              onChange={(e) => setStereoWidth(parseFloat(e.target.value))}
+              onDoubleClick={resetStereoWidth}
+              className="w-full accent-[var(--accent-dynamic)]"
+            />
+          </div>
+
+          <p className="text-[11px] text-[#A1A1AA]">
+            M/S spatial matrix preserves center vocals while scaling stereo ambient field (0–150%).
+          </p>
         </div>
 
         {/* Anti-Clipping Brickwall Limiter */}

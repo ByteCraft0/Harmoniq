@@ -30,6 +30,7 @@ export interface EQPreset {
   preamp: number; // dB (-12 to +12)
   bassBoost?: number; // dB (0 to 12)
   treble?: number; // dB (-6 to 12)
+  stereoWidth?: number; // 0 to 150 (% width)
 }
 
 export type ChannelMode = 'stereo' | 'mono' | 'left_only' | 'right_only';
@@ -64,6 +65,8 @@ export interface DSPSettings {
   channelMode: ChannelMode; // Channel routing mode: stereo, mono, left_only, right_only
   limiterEnabled: boolean; // Anti-clipping brickwall limiter
   activePresetId: string | null;
+  stereoWidth?: number; // 0 to 150 (percentage, default 100)
+  stereoWidthEnabled?: boolean; // default false
 }
 
 export interface LimiterMetrics {

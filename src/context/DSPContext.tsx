@@ -24,6 +24,9 @@ interface DSPContextType {
   setTreble: (gainDb: number) => void;
   setBalance: (balance: number) => void;
   resetBalance: () => void;
+  setStereoWidth: (widthPercent: number) => void;
+  toggleStereoWidth: () => void;
+  resetStereoWidth: () => void;
   setChannelMode: (mode: ChannelMode) => void;
   toggleMonoMix: () => void;
   toggleDSPEnabled: () => void;
@@ -64,6 +67,8 @@ const DEFAULT_SETTINGS: DSPSettings = {
   channelMode: 'stereo',
   limiterEnabled: true,
   activePresetId: 'flat',
+  stereoWidth: 100,
+  stereoWidthEnabled: false,
 };
 
 const num = (v: unknown, min: number, max: number, fallback: number): number =>
@@ -118,6 +123,8 @@ function sanitizeSettings(raw: any): DSPSettings {
       : 'stereo',
     limiterEnabled: typeof raw.limiterEnabled === 'boolean' ? raw.limiterEnabled : d.limiterEnabled,
     activePresetId: typeof raw.activePresetId === 'string' ? raw.activePresetId : null,
+    stereoWidth: num(raw.stereoWidth, 0, 150, 100),
+    stereoWidthEnabled: typeof raw.stereoWidthEnabled === 'boolean' ? raw.stereoWidthEnabled : false,
   };
 }
 
@@ -229,6 +236,9 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const setTreble = (gainDb: number) => patch({ treble: num(gainDb, -6, 12, 0), activePresetId: null });
   const setBalance = (balance: number) => patch({ balance: num(balance, -1, 1, 0) });
   const resetBalance = () => patch({ balance: 0 });
+  const setStereoWidth = (widthPercent: number) => patch({ stereoWidth: num(widthPercent, 0, 150, 100) });
+  const toggleStereoWidth = () => patch({ stereoWidthEnabled: !settingsRef.current.stereoWidthEnabled });
+  const resetStereoWidth = () => patch({ stereoWidth: 100 });
   const setChannelMode = (mode: ChannelMode) => {
     patch({
       channelMode: mode,
@@ -317,6 +327,7 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       preamp: preset.preamp,
       bassBoost: preset.bassBoost || 0,
       treble: preset.treble || 0,
+      stereoWidth: preset.stereoWidth !== undefined ? num(preset.stereoWidth, 0, 150, 100) : settingsRef.current.stereoWidth ?? 100,
       activePresetId: preset.id,
     });
   };
@@ -463,6 +474,9 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setTreble,
         setBalance,
         resetBalance,
+        setStereoWidth,
+        toggleStereoWidth,
+        resetStereoWidth,
         setChannelMode,
         toggleMonoMix,
         toggleDSPEnabled,

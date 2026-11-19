@@ -9,6 +9,8 @@ import {
 } from '../types/dsp';
 import { TrackMetadata, ReplayGainMode } from '../types/audio';
 import { AudioDeviceInfo } from '../types/devices';
+import { AudioParameterAutomation, AUTOMATION_TIME_CONSTANTS } from './audio/audioParameterAutomation';
+import { StereoWidthProcessor } from './audio/stereoWidthProcessor';
 
 export type PlaybackStatusCallback = (status: {
   currentTime: number;
@@ -101,6 +103,9 @@ class AudioEngine {
   private dspBypassGain: GainNode | null = null;
   private dspActiveGain: GainNode | null = null;
 
+  // Mid-Side Stereo Width Processor
+  private stereoWidthProcessor: StereoWidthProcessor | null = null;
+
   // State
   private isInitialized = false;
   private statusListeners: Set<PlaybackStatusCallback> = new Set();
@@ -125,6 +130,8 @@ class AudioEngine {
     channelMode: 'stereo',
     limiterEnabled: true,
     activePresetId: 'flat',
+    stereoWidth: 100,
+    stereoWidthEnabled: false,
   };
   private replayGainMode: ReplayGainMode = 'off';
   private crossfadeDuration = 0; // 0 = disabled (gapless playback); 1 - 12 seconds
@@ -152,7 +159,9 @@ class AudioEngine {
   }
 
   public initialize(): Promise<void> {
-    if (this.isInitialized) return Promise.resolve();
+    if (this.isInitialized && this.audioCtx && this.audioCtx.state !== 'closed') {
+      return Promise.resolve();
+    }
     if (!this.initPromise) {
       this.initPromise = this.doInitialize();
     }
@@ -161,13 +170,20 @@ class AudioEngine {
 
   private async doInitialize(): Promise<void> {
     try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      this.audioCtx = new AudioContextClass({
+      const AudioContextClass =
+        (typeof window !== 'undefined' ? (window.AudioContext || (window as any).webkitAudioContext) : null) ||
+        (globalThis as any).AudioContext;
+      if (!AudioContextClass) {
+        console.warn('AudioContext not available in current environment');
+        return;
+      }
+      const ctx: AudioContext = new AudioContextClass({
         latencyHint: 'interactive',
       });
+      this.audioCtx = ctx;
 
       // 1. Create Master Summing Mixer
-      this.masterMixGain = this.audioCtx.createGain();
+      this.masterMixGain = ctx.createGain();
       this.masterMixGain.gain.value = 1.0;
 
       // 2. Initialize Dual Decks (A & B)
@@ -181,12 +197,12 @@ class AudioEngine {
       if (this.deckB.faderGain) this.deckB.faderGain.gain.value = 0.0;
 
       // 3. Preamp Gain
-      this.preampGainNode = this.audioCtx.createGain();
+      this.preampGainNode = ctx.createGain();
       this.preampGainNode.gain.value = 1.0;
 
       // 4. 10-Band Graphic EQ (Peaking filters)
       this.eqFilters = EQ_FREQUENCIES.map((freq) => {
-        const filter = this.audioCtx!.createBiquadFilter();
+        const filter = ctx.createBiquadFilter();
         filter.type = 'peaking';
         filter.frequency.value = freq;
         filter.Q.value = 1.414; // Standard 1-octave bandwidth
@@ -202,7 +218,7 @@ class AudioEngine {
       // 4b. Dynamic Parametric Filter Nodes Chain (up to 12 cascaded biquads)
       this.parametricFilterNodes = [];
       for (let i = 0; i < this.maxParametricNodes; i++) {
-        const pFilter = this.audioCtx!.createBiquadFilter();
+        const pFilter = ctx.createBiquadFilter();
         pFilter.type = 'peaking';
         pFilter.frequency.value = 1000;
         pFilter.Q.value = 1.0;
@@ -214,24 +230,24 @@ class AudioEngine {
       }
 
       // 5. Bass Boost (Low-shelf filter @ 100Hz)
-      this.bassBoostFilter = this.audioCtx.createBiquadFilter();
+      this.bassBoostFilter = ctx.createBiquadFilter();
       this.bassBoostFilter.type = 'lowshelf';
       this.bassBoostFilter.frequency.value = 100;
       this.bassBoostFilter.gain.value = 0;
 
       // 6. Treble Control (High-shelf filter @ 10kHz)
-      this.trebleFilter = this.audioCtx.createBiquadFilter();
+      this.trebleFilter = ctx.createBiquadFilter();
       this.trebleFilter.type = 'highshelf';
       this.trebleFilter.frequency.value = 10000;
       this.trebleFilter.gain.value = 0;
 
       // 7. 2x2 Channel Matrix (Stereo, Mono Downmix, Left-Only, Right-Only, Stereo Balance)
-      this.channelSplitter = this.audioCtx.createChannelSplitter(2);
-      this.gainLL = this.audioCtx.createGain();
-      this.gainLR = this.audioCtx.createGain();
-      this.gainRL = this.audioCtx.createGain();
-      this.gainRR = this.audioCtx.createGain();
-      this.channelMerger = this.audioCtx.createChannelMerger(2);
+      this.channelSplitter = ctx.createChannelSplitter(2);
+      this.gainLL = ctx.createGain();
+      this.gainLR = ctx.createGain();
+      this.gainRL = ctx.createGain();
+      this.gainRR = ctx.createGain();
+      this.channelMerger = ctx.createChannelMerger(2);
 
       // Connect 2x2 matrix:
       // Left in (0) -> LL (to Left out) and LR (to Right out)
@@ -248,13 +264,13 @@ class AudioEngine {
       this.gainRR.connect(this.channelMerger, 0, 1);
 
       // Legacy fallback nodes
-      this.monoNode = this.audioCtx.createGain();
-      if (this.audioCtx.createStereoPanner) {
-        this.pannerNode = this.audioCtx.createStereoPanner();
+      this.monoNode = ctx.createGain();
+      if (ctx.createStereoPanner) {
+        this.pannerNode = ctx.createStereoPanner();
       }
 
       // 8. Anti-Clipping Brickwall Limiter (DynamicsCompressorNode)
-      this.limiterNode = this.audioCtx.createDynamicsCompressor();
+      this.limiterNode = ctx.createDynamicsCompressor();
       this.limiterNode.threshold.value = -0.5; // Trigger just below 0 dBFS
       this.limiterNode.knee.value = 3.0;
       this.limiterNode.ratio.value = 20.0; // Brickwall ratio
@@ -262,22 +278,26 @@ class AudioEngine {
       this.limiterNode.release.value = 0.1; // 100ms release
 
       // 9. High-Resolution FFT Analyser
-      this.analyserNode = this.audioCtx.createAnalyser();
+      this.analyserNode = ctx.createAnalyser();
       this.analyserNode.fftSize = 2048;
       this.analyserNode.smoothingTimeConstant = 0.8;
 
-      // 10. Bypass routing nodes
-      this.dspActiveGain = this.audioCtx.createGain();
-      this.dspBypassGain = this.audioCtx.createGain();
+      // 10. Mid-Side Stereo Width Processor
+      this.stereoWidthProcessor = new StereoWidthProcessor(ctx);
+
+      // 11. Bypass routing nodes
+      this.dspActiveGain = ctx.createGain();
+      this.dspBypassGain = ctx.createGain();
 
       // Connect DSP chain:
-      // masterMixGain -> Preamp -> EQ[0..9] -> Parametric[0..11] -> BassBoost -> Treble -> ChannelMatrix -> Limiter -> dspActiveGain -> Analyser -> Destination
+      // masterMixGain -> Preamp -> EQ[0..9] -> Parametric[0..11] -> BassBoost -> Treble -> StereoWidth -> ChannelMatrix -> Limiter -> dspActiveGain -> Analyser -> Destination
       this.masterMixGain.connect(this.preampGainNode);
       this.preampGainNode.connect(this.eqFilters[0]);
       this.eqFilters[this.eqFilters.length - 1].connect(this.parametricFilterNodes[0]);
       this.parametricFilterNodes[this.parametricFilterNodes.length - 1].connect(this.bassBoostFilter);
       this.bassBoostFilter.connect(this.trebleFilter);
-      this.trebleFilter.connect(this.channelSplitter);
+      this.trebleFilter.connect(this.stereoWidthProcessor.getInputNode());
+      this.stereoWidthProcessor.getOutputNode().connect(this.channelSplitter);
       this.channelMerger.connect(this.limiterNode);
 
       this.limiterNode.connect(this.dspActiveGain);
@@ -288,7 +308,7 @@ class AudioEngine {
       this.masterMixGain.connect(this.dspBypassGain);
       this.dspBypassGain.connect(this.analyserNode);
 
-      this.analyserNode.connect(this.audioCtx.destination);
+      this.analyserNode.connect(ctx.destination);
 
       // Setup dynamic device change listener
       if (typeof navigator !== 'undefined' && navigator.mediaDevices?.addEventListener) {
@@ -324,7 +344,11 @@ class AudioEngine {
   private createDeck(id: 'A' | 'B'): AudioDeck {
     if (!this.audioCtx) throw new Error('AudioContext missing');
 
-    const element = new Audio();
+    const AudioConstructor =
+      (typeof Audio !== 'undefined' ? Audio : null) ||
+      (typeof window !== 'undefined' ? (window as any).Audio : null) ||
+      (globalThis as any).Audio;
+    const element = AudioConstructor ? new AudioConstructor() : ({} as any);
     element.crossOrigin = 'anonymous';
     element.preload = 'auto';
 
@@ -478,8 +502,7 @@ class AudioEngine {
 
     // 1. Ensure incoming deck fader is at unity gain
     if (incoming.faderGain) {
-      incoming.faderGain.gain.cancelScheduledValues(now);
-      incoming.faderGain.gain.setValueAtTime(1.0, now);
+      AudioParameterAutomation.safeSetValue(incoming.faderGain.gain, 1.0, this.audioCtx);
     }
 
     // 2. Start preloaded incoming deck with zero delay
@@ -491,8 +514,7 @@ class AudioEngine {
     // 3. Silence and stop outgoing deck
     outgoing.element.pause();
     if (outgoing.faderGain) {
-      outgoing.faderGain.gain.cancelScheduledValues(now);
-      outgoing.faderGain.gain.setValueAtTime(0.0, now);
+      AudioParameterAutomation.safeSetValue(outgoing.faderGain.gain, 0.0, this.audioCtx);
     }
 
     // 4. Swap active and standby decks
@@ -521,10 +543,8 @@ class AudioEngine {
 
     // 1. Start incoming deck at zero gain
     if (incoming.faderGain) {
-      incoming.faderGain.gain.cancelScheduledValues(now);
-      incoming.faderGain.gain.setValueAtTime(0.0, now);
-      // Linear ramp in
-      incoming.faderGain.gain.linearRampToValueAtTime(1.0, now + duration);
+      AudioParameterAutomation.safeSetValue(incoming.faderGain.gain, 0.0, this.audioCtx);
+      AudioParameterAutomation.linearRamp(incoming.faderGain.gain, 1.0, duration, this.audioCtx);
     }
 
     incoming.element.currentTime = 0;
@@ -534,9 +554,7 @@ class AudioEngine {
 
     // 2. Ramp outgoing deck fader down to 0
     if (outgoing.faderGain) {
-      outgoing.faderGain.gain.cancelScheduledValues(now);
-      outgoing.faderGain.gain.setValueAtTime(outgoing.faderGain.gain.value, now);
-      outgoing.faderGain.gain.linearRampToValueAtTime(0.0, now + duration);
+      AudioParameterAutomation.linearRamp(outgoing.faderGain.gain, 0.0, duration, this.audioCtx);
     }
 
     // 3. Notify listeners that crossfade has begun so current track title & lyrics update in sync
@@ -547,7 +565,9 @@ class AudioEngine {
     this.transitionTimeout = setTimeout(() => {
       if (this.isTransitioning && this.activeDeck?.id === outgoing.id) {
         outgoing.element.pause();
-        if (outgoing.faderGain) outgoing.faderGain.gain.setValueAtTime(0.0, this.audioCtx?.currentTime || 0);
+        if (outgoing.faderGain) {
+          AudioParameterAutomation.safeSetValue(outgoing.faderGain.gain, 0.0, this.audioCtx);
+        }
 
         // Swap active and standby decks
         this.activeDeck = incoming;
@@ -569,18 +589,15 @@ class AudioEngine {
     }
 
     if (!this.audioCtx) return;
-    const now = this.audioCtx.currentTime;
 
     if (this.activeDeck?.faderGain) {
-      this.activeDeck.faderGain.gain.cancelScheduledValues(now);
-      this.activeDeck.faderGain.gain.setValueAtTime(1.0, now);
+      AudioParameterAutomation.safeSetValue(this.activeDeck.faderGain.gain, 1.0, this.audioCtx);
     }
 
     if (this.standbyDeck) {
       this.standbyDeck.element.pause();
       if (this.standbyDeck.faderGain) {
-        this.standbyDeck.faderGain.gain.cancelScheduledValues(now);
-        this.standbyDeck.faderGain.gain.setValueAtTime(0.0, now);
+        AudioParameterAutomation.safeSetValue(this.standbyDeck.faderGain.gain, 0.0, this.audioCtx);
       }
     }
 
@@ -718,14 +735,11 @@ class AudioEngine {
     this.applyReplayGainToDeck(this.activeDeck, track);
 
     // Reset faders
-    const now = this.audioCtx.currentTime;
     if (this.activeDeck.faderGain) {
-      this.activeDeck.faderGain.gain.cancelScheduledValues(now);
-      this.activeDeck.faderGain.gain.setValueAtTime(1.0, now);
+      AudioParameterAutomation.safeSetValue(this.activeDeck.faderGain.gain, 1.0, this.audioCtx);
     }
     if (this.standbyDeck.faderGain) {
-      this.standbyDeck.faderGain.gain.cancelScheduledValues(now);
-      this.standbyDeck.faderGain.gain.setValueAtTime(0.0, now);
+      AudioParameterAutomation.safeSetValue(this.standbyDeck.faderGain.gain, 0.0, this.audioCtx);
     }
     this.standbyDeck.element.pause();
 
@@ -899,7 +913,12 @@ class AudioEngine {
   private applyReplayGainToDeck(deck: AudioDeck, track: TrackMetadata | null): void {
     if (!deck.replayGain || !this.audioCtx) return;
     const { linearGain } = this.calculateReplayGain(track);
-    deck.replayGain.gain.setTargetAtTime(linearGain, this.audioCtx.currentTime, 0.05);
+    AudioParameterAutomation.smoothTransition(
+      deck.replayGain.gain,
+      linearGain,
+      this.audioCtx,
+      { timeConstant: AUTOMATION_TIME_CONSTANTS.REPLAY_GAIN, min: 0.01, max: 4.0 }
+    );
   }
 
   public getActiveReplayGainInfo(): { mode: ReplayGainMode; gainDb: number; linearGain: number; isClippingPrevented: boolean } {
@@ -913,16 +932,19 @@ class AudioEngine {
 
   private applyPreamp(): void {
     if (!this.preampGainNode || !this.audioCtx) return;
-    const linear = Math.pow(10, this.dspSettings.preamp / 20);
-    this.preampGainNode.gain.setTargetAtTime(linear, this.audioCtx.currentTime, 0.05);
+    const linear = Math.pow(10, (this.dspSettings.preamp ?? 0) / 20);
+    AudioParameterAutomation.smoothTransition(
+      this.preampGainNode.gain,
+      linear,
+      this.audioCtx,
+      { timeConstant: AUTOMATION_TIME_CONSTANTS.PREAMP, min: 0.0, max: 4.0 }
+    );
   }
 
   // Real-time DSP Controls
   public applyDSPSettings(settings: DSPSettings): void {
     this.dspSettings = { ...settings };
     if (!this.audioCtx) return;
-
-    const now = this.audioCtx.currentTime;
 
     // 1. Preamp gain
     this.applyPreamp();
@@ -931,18 +953,33 @@ class AudioEngine {
       // 2a. 10-Band Graphic EQ Active
       this.eqFilters.forEach((filter, index) => {
         const gainValue = settings.bands[index] ?? 0;
-        filter.gain.setTargetAtTime(gainValue, now, 0.05);
+        AudioParameterAutomation.smoothTransition(
+          filter.gain,
+          gainValue,
+          this.audioCtx,
+          { timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND, min: -12, max: 12 }
+        );
       });
 
       // Parametric nodes set to transparent unity (0 dB gain)
       this.parametricFilterNodes.forEach((node) => {
         node.type = 'peaking';
-        node.gain.setTargetAtTime(0, now, 0.05);
+        AudioParameterAutomation.smoothTransition(
+          node.gain,
+          0,
+          this.audioCtx,
+          { timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND, min: -18, max: 18 }
+        );
       });
     } else {
       // 2b. Parametric Mode Active: 10-band graphic filters set to 0 dB unity
       this.eqFilters.forEach((filter) => {
-        filter.gain.setTargetAtTime(0, now, 0.05);
+        AudioParameterAutomation.smoothTransition(
+          filter.gain,
+          0,
+          this.audioCtx,
+          { timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND, min: -12, max: 12 }
+        );
       });
 
       // Parametric filters configured
@@ -953,28 +990,64 @@ class AudioEngine {
         const cfg = configs[i];
         if (cfg && cfg.enabled) {
           node.type = cfg.type;
-          node.frequency.setTargetAtTime(Math.max(20, Math.min(20000, cfg.frequency)), now, 0.05);
-          node.Q.setTargetAtTime(Math.max(0.1, Math.min(18, cfg.q)), now, 0.05);
-          node.gain.setTargetAtTime(Math.max(-18, Math.min(18, cfg.gain)), now, 0.05);
+          AudioParameterAutomation.smoothTransition(
+            node.frequency,
+            cfg.frequency,
+            this.audioCtx,
+            { timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND, min: 20, max: 20000 }
+          );
+          AudioParameterAutomation.smoothTransition(
+            node.Q,
+            cfg.q,
+            this.audioCtx,
+            { timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND, min: 0.1, max: 18 }
+          );
+          AudioParameterAutomation.smoothTransition(
+            node.gain,
+            cfg.gain,
+            this.audioCtx,
+            { timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND, min: -18, max: 18 }
+          );
         } else {
           // Bypassed/idle node
           node.type = 'peaking';
-          node.gain.setTargetAtTime(0, now, 0.05);
+          AudioParameterAutomation.smoothTransition(
+            node.gain,
+            0,
+            this.audioCtx,
+            { timeConstant: AUTOMATION_TIME_CONSTANTS.EQ_BAND, min: -18, max: 18 }
+          );
         }
       }
     }
 
     // 3. Bass Boost
     if (this.bassBoostFilter) {
-      this.bassBoostFilter.gain.setTargetAtTime(settings.bassBoost, now, 0.05);
+      AudioParameterAutomation.smoothTransition(
+        this.bassBoostFilter.gain,
+        settings.bassBoost ?? 0,
+        this.audioCtx,
+        { timeConstant: AUTOMATION_TIME_CONSTANTS.TONE_SHELF, min: 0, max: 12 }
+      );
     }
 
     // 4. Treble Boost
     if (this.trebleFilter) {
-      this.trebleFilter.gain.setTargetAtTime(settings.treble, now, 0.05);
+      AudioParameterAutomation.smoothTransition(
+        this.trebleFilter.gain,
+        settings.treble ?? 0,
+        this.audioCtx,
+        { timeConstant: AUTOMATION_TIME_CONSTANTS.TONE_SHELF, min: -6, max: 12 }
+      );
     }
 
-    // 5. Channel Routing Matrix & Stereo Balance (Stereo, Mono, Left-Only, Right-Only, Balance)
+    // 5. Mid-Side Stereo Width Processing
+    if (this.stereoWidthProcessor) {
+      this.stereoWidthProcessor.setWidth(settings.stereoWidth ?? 100);
+      this.stereoWidthProcessor.setEnabled(settings.stereoWidthEnabled ?? false);
+    }
+
+    // 6. Channel Routing Matrix & Stereo Balance (Stereo, Mono, Left-Only, Right-Only, Balance)
     if (this.gainLL && this.gainLR && this.gainRL && this.gainRR) {
       let baseLL = 1.0, baseLR = 0.0, baseRL = 0.0, baseRR = 1.0;
       const mode = settings.channelMode || (settings.monoMix ? 'mono' : 'stereo');
@@ -992,15 +1065,21 @@ class AudioEngine {
       const multL = bal <= 0 ? 1.0 : Math.max(0, 1.0 - bal);
       const multR = bal >= 0 ? 1.0 : Math.max(0, 1.0 + bal);
 
-      this.gainLL.gain.setTargetAtTime(baseLL * multL, now, 0.02);
-      this.gainRL.gain.setTargetAtTime(baseRL * multL, now, 0.02);
-      this.gainLR.gain.setTargetAtTime(baseLR * multR, now, 0.02);
-      this.gainRR.gain.setTargetAtTime(baseRR * multR, now, 0.02);
+      const tc = AUTOMATION_TIME_CONSTANTS.FAST;
+      AudioParameterAutomation.smoothTransition(this.gainLL.gain, baseLL * multL, this.audioCtx, { timeConstant: tc, min: 0, max: 1.0 });
+      AudioParameterAutomation.smoothTransition(this.gainRL.gain, baseRL * multL, this.audioCtx, { timeConstant: tc, min: 0, max: 1.0 });
+      AudioParameterAutomation.smoothTransition(this.gainLR.gain, baseLR * multR, this.audioCtx, { timeConstant: tc, min: 0, max: 1.0 });
+      AudioParameterAutomation.smoothTransition(this.gainRR.gain, baseRR * multR, this.audioCtx, { timeConstant: tc, min: 0, max: 1.0 });
     }
 
     // Legacy fallback nodes
     if (this.pannerNode) {
-      this.pannerNode.pan.setTargetAtTime(settings.balance, now, 0.05);
+      AudioParameterAutomation.smoothTransition(
+        this.pannerNode.pan,
+        settings.balance ?? 0,
+        this.audioCtx,
+        { timeConstant: AUTOMATION_TIME_CONSTANTS.FAST, min: -1, max: 1 }
+      );
     }
     if (this.monoNode) {
       this.monoNode.channelCount = settings.monoMix ? 1 : 2;
@@ -1008,14 +1087,15 @@ class AudioEngine {
 
     // 7. Limiter (transparent when disabled)
     if (this.limiterNode) {
+      const tc = AUTOMATION_TIME_CONSTANTS.FAST;
       if (settings.limiterEnabled) {
-        this.limiterNode.threshold.value = -0.5;
-        this.limiterNode.knee.value = 3.0;
-        this.limiterNode.ratio.value = 20.0;
+        AudioParameterAutomation.smoothTransition(this.limiterNode.threshold, -0.5, this.audioCtx, { timeConstant: tc });
+        AudioParameterAutomation.smoothTransition(this.limiterNode.knee, 3.0, this.audioCtx, { timeConstant: tc });
+        AudioParameterAutomation.smoothTransition(this.limiterNode.ratio, 20.0, this.audioCtx, { timeConstant: tc });
       } else {
-        this.limiterNode.threshold.value = 0;
-        this.limiterNode.knee.value = 0;
-        this.limiterNode.ratio.value = 1.0;
+        AudioParameterAutomation.smoothTransition(this.limiterNode.threshold, 0, this.audioCtx, { timeConstant: tc });
+        AudioParameterAutomation.smoothTransition(this.limiterNode.knee, 0, this.audioCtx, { timeConstant: tc });
+        AudioParameterAutomation.smoothTransition(this.limiterNode.ratio, 1.0, this.audioCtx, { timeConstant: tc });
       }
     }
 
@@ -1025,15 +1105,13 @@ class AudioEngine {
 
   private updateBypassState(): void {
     if (!this.dspActiveGain || !this.dspBypassGain || !this.audioCtx) return;
-    const now = this.audioCtx.currentTime;
 
-    if (this.dspSettings.enabled) {
-      this.dspActiveGain.gain.setTargetAtTime(1.0, now, 0.03);
-      this.dspBypassGain.gain.setTargetAtTime(0.0, now, 0.03);
-    } else {
-      this.dspActiveGain.gain.setTargetAtTime(0.0, now, 0.03);
-      this.dspBypassGain.gain.setTargetAtTime(1.0, now, 0.03);
-    }
+    const activeTarget = this.dspSettings.enabled ? 1.0 : 0.0;
+    const bypassTarget = this.dspSettings.enabled ? 0.0 : 1.0;
+    const tc = AUTOMATION_TIME_CONSTANTS.BYPASS_SWITCH;
+
+    AudioParameterAutomation.smoothTransition(this.dspActiveGain.gain, activeTarget, this.audioCtx, { timeConstant: tc });
+    AudioParameterAutomation.smoothTransition(this.dspBypassGain.gain, bypassTarget, this.audioCtx, { timeConstant: tc });
   }
 
   // Limiter Metrics & Anti-Clipping Reporting
@@ -1392,7 +1470,8 @@ class AudioEngine {
         Math.abs(this.dspSettings.bassBoost) < 0.05 &&
         Math.abs(this.dspSettings.treble) < 0.05 &&
         Math.abs(this.dspSettings.balance) < 0.01 &&
-        this.dspSettings.channelMode === 'stereo');
+        this.dspSettings.channelMode === 'stereo' &&
+        (!this.dspSettings.stereoWidthEnabled || Math.abs((this.dspSettings.stereoWidth ?? 100) - 100) < 0.1));
     const replayGainOff = this.replayGainMode === 'off';
     const crossfadeOff = this.crossfadeDuration === 0;
 
@@ -1484,6 +1563,99 @@ class AudioEngine {
 
   public getDSPSettings(): DSPSettings {
     return { ...this.dspSettings };
+  }
+
+  public getStereoWidthProcessor(): StereoWidthProcessor | null {
+    return this.stereoWidthProcessor;
+  }
+
+  public setStereoWidth(widthPercent: number): void {
+    this.dspSettings.stereoWidth = Math.max(0, Math.min(150, widthPercent));
+    if (this.stereoWidthProcessor) {
+      this.stereoWidthProcessor.setWidth(this.dspSettings.stereoWidth);
+    }
+  }
+
+  public setStereoWidthEnabled(enabled: boolean): void {
+    this.dspSettings.stereoWidthEnabled = !!enabled;
+    if (this.stereoWidthProcessor) {
+      this.stereoWidthProcessor.setEnabled(this.dspSettings.stereoWidthEnabled);
+    }
+  }
+
+  /**
+   * Complete playback engine shutdown & resource disposal
+   */
+  public async shutdown(): Promise<void> {
+    if (this.transitionTimeout) {
+      clearTimeout(this.transitionTimeout);
+      this.transitionTimeout = null;
+    }
+    this.isTransitioning = false;
+
+    // Stop and pause audio elements
+    if (this.deckA) {
+      try {
+        this.deckA.element.pause();
+        this.deckA.element.src = '';
+      } catch {}
+    }
+    if (this.deckB) {
+      try {
+        this.deckB.element.pause();
+        this.deckB.element.src = '';
+      } catch {}
+    }
+
+    // Clean up stereo width processor
+    if (this.stereoWidthProcessor) {
+      this.stereoWidthProcessor.dispose();
+      this.stereoWidthProcessor = null;
+    }
+
+    // Disconnect DSP nodes
+    try {
+      this.masterMixGain?.disconnect();
+      this.preampGainNode?.disconnect();
+      this.eqFilters.forEach((f) => f.disconnect());
+      this.parametricFilterNodes.forEach((p) => p.disconnect());
+      this.bassBoostFilter?.disconnect();
+      this.trebleFilter?.disconnect();
+      this.channelSplitter?.disconnect();
+      this.gainLL?.disconnect();
+      this.gainRL?.disconnect();
+      this.gainLR?.disconnect();
+      this.gainRR?.disconnect();
+      this.channelMerger?.disconnect();
+      this.limiterNode?.disconnect();
+      this.dspActiveGain?.disconnect();
+      this.dspBypassGain?.disconnect();
+      this.analyserNode?.disconnect();
+      if (this.deckA) {
+        this.deckA.sourceNode?.disconnect();
+        this.deckA.faderGain?.disconnect();
+        this.deckA.replayGain?.disconnect();
+      }
+      if (this.deckB) {
+        this.deckB.sourceNode?.disconnect();
+        this.deckB.faderGain?.disconnect();
+        this.deckB.replayGain?.disconnect();
+      }
+    } catch {}
+
+    if (this.audioCtx && this.audioCtx.state !== 'closed') {
+      try {
+        await this.audioCtx.close();
+      } catch {}
+    }
+
+    this.audioCtx = null;
+    this.isInitialized = false;
+    this.initPromise = null;
+  }
+
+  public dispose(): Promise<void> {
+    return this.shutdown();
   }
 }
 
