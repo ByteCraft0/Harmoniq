@@ -167,6 +167,8 @@ Harmoniq 2.0 introduces an advanced suite of audiophile tools, Windows desktop p
 - **Phase 5 – Immersive Visual Experience**: Full-Bleed Immersive Album Mode with dynamic color extraction, Virtual Vinyl Collection Record Crate with 33⅓ RPM turntable rotation, Harmoniq Monogram Logo, Sinusoidal Waveform Loader, and Vector Empty States.
 - **Phase 6 – Final Visual Polish & Quality Assurance**: Signature 5-Bar Dynamic Waveform Volume Control, Collapsible Sidebar Rail (`Ctrl+B`), TitleBar branding, Unified loading/empty states, and regression test pass.
 - **Phase 7 – Harmoniq Assistant: AI-Powered Chatbot, Voice Interaction & Signature Pulse Orb**: Floating holographic Pulse Orb with 7 visual states, grounded multi-provider AI backend (Google Gemini, OpenAI, Groq, and 100% offline Local Grounded Engine), grounded RAG catalog across all 23 application features, interactive `[Open <Feature>]` navigation buttons, microphone Speech-to-Text (STT) with live interim transcripts, and independent Text-to-Speech (TTS) spoken responses that never interrupt music playback.
+- **Smart Podcast URL Importer**: Universal podcast URL detection and feed resolution supporting Apple Podcasts, Spotify show links, Podcast Index, and custom websites via secure SSRF-guarded Electron IPC with real-time metadata preview and subscription.
+- **Mini Player Visual Redesign (Premium Floating Music Console)**: Deep obsidian glassmorphism console with dynamic album art ambient lighting, 4-bar live audio-reactive FFT visualizer (`MiniLiveVisualizer`), interactive 36-bar acoustic waveform seek bar (`MiniWaveformProgressBar`), centerpiece 40px circular Play/Pause button, and compact 380x100px pill mode.
 
 Full technical phase reports are available in [`docs/phases/`](file:///C:/Users/a2301/Desktop/harmoniq/docs/phases/).
 
@@ -183,6 +185,8 @@ Full technical phase reports are available in [`docs/phases/`](file:///C:/Users/
 | **Voice Input (STT)** | Fully Implemented | User-initiated microphone speech recognition with live interim preview, editability, and silence safety timeout |
 | **Voice Responses (TTS)** | Fully Implemented | Independent Web Speech synthesis with markdown cleaning, volume control, voice selection & zero music disruption |
 | **Interactive App Navigation**| Fully Implemented | Grounded assistant responses with direct action buttons dispatching verified application routes via `setActiveView` |
+| **Smart Podcast Importer** | Fully Implemented | Universal URL detection engine with Apple/Spotify resolution, SSRF protection, iTunes lookup & HTML RSS extraction |
+| **Floating Music Console** | Fully Implemented | Always-on-top draggable mini-player with dynamic ambient art lighting, live FFT visualizer, and waveform seekbar |
 | **FLAC, MP3, WAV, ALAC, AAC, OGG, OPUS** | Fully Implemented | Native Electron media protocol + `music-metadata` stream extraction |
 | **10, 15 & 31-Band Graphic & Parametric EQ** | Fully Implemented | Web Audio `BiquadFilterNode` peaking filters @ ISO center frequencies |
 | **Limiter & Anti-Clipping** | Fully Implemented | Web Audio `DynamicsCompressorNode` with brickwall ratio & real gain reduction |

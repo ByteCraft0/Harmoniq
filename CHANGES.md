@@ -82,6 +82,21 @@
 - **Assistant Settings Card**: Integrated into `SettingsView.tsx` with provider selector, API key input, connection tester, voice controls, and conversation history management.
 - **Full Test Verification**: 28 test suites, 262 passing tests, zero regressions. All phase reports updated in `docs/phases/`.
 
+### Smart Podcast URL Importer
+- **Universal URL Resolver**: Resolves raw podcast URLs, Apple Podcasts show links, Spotify show links, Podcast Index, and custom podcast websites directly to their underlying RSS/Atom feed.
+- **Electron IPC Backend**: Added `podcast:resolveUrl` with strict SSRF defense (`isSafePublicUrl`), HTTPS redirection following, HTML `<link rel="alternate">` feed detection, and Apple iTunes Search API integration.
+- **Add Podcast Modal**: Glassmorphism modal with animated detection states, real-time discovery card (artwork, show title, author, description, episode count), and one-click subscription.
+- **Zero Duplicate Feeds**: Automatically checks existing podcast subscriptions and updates feed metadata safely.
+
+### Mini Player Visual Redesign: Premium Floating Music Console
+- **Deep Obsidian & Glassmorphism Aesthetic**: Redesigned `MiniPlayer.tsx` with obsidian `#0B0813` background, layered backdrop blur (`backdrop-blur-2xl`), subtle violet border (`border-violet-500/20`), and smooth transitions.
+- **Dynamic Ambient Artwork Lighting**: Multi-layer radial ambient lighting driven by dominant colors extracted from the active album cover via `colorExtractionService`, with smooth 1000ms CSS transitions and low-opacity diffusion for maximum readability.
+- **Audio-Reactive Live Visualizer**: Created `MiniLiveVisualizer.tsx` with 4-5 dynamic frequency bars driven by real-time Web Audio FFT spectrum data via `audioEngine.getFrequencyData`. Gracefully freezes when paused and dims when muted.
+- **Interactive Waveform Progress Scrubber**: Created `MiniWaveformProgressBar.tsx` with 36-38 sculpted vertical waveform bars matching track acoustics, highlighted played section, hover timestamp preview tooltip, and smooth click/drag scrub seeking.
+- **Centerpiece Transport Console**: Signature 40px circular Play/Pause button with violet-to-indigo gradient (`from-[#7C3AED] via-[#8B5CF6] to-[#6366F1]`), outer glow, and tactile active press response.
+- **Streamlined Compact Pill Mode**: Compact 380x100px layout with mini artwork, 30-bar compact waveform progress bar, audio-reactive live visualizer, and compact transport buttons.
+- **Complete Test Coverage**: 30 test files, 281 passing tests, zero regressions.
+
 ---
 
 ## Known limitations (not changed)
