@@ -1,217 +1,160 @@
-# HARMONIQ — Premium High-Fidelity Audio Player for Windows
+# Harmoniq 2.0
 
-**HARMONIQ** is a minimalist, audiophile-grade local audio player engineered specifically for Windows. It provides transparent stream diagnostics, real-time 10-band DSP processing, gapless playback, and high-performance library management for collections of 10,000+ tracks.
-
----
-
-## 🎧 Architecture & Technical Philosophy
-
-Harmoniq is architected around three non-negotiable principles:
-1. **Never Fake Audio Specifications**: Audio codecs, bit-depths, container formats, and sample rates are extracted directly from audio headers—never inferred from file extensions or nominal bitrates.
-2. **Real DSP, Never Decorative Controls**: All 10 equalizer bands, preamp gain stages, tone shelves, and anti-clipping limiters are directly wired into a 32-bit floating-point Web Audio DSP pipeline.
-3. **Local-First & Zero Bloat**: No accounts, no advertising, no cloud dependencies, and zero background telemetry.
-
-```
-                      [ Audio Source File (.flac, .wav, .mp3, .m4a, .alac, .ogg, .opus) ]
-                                                     │
-                                                     ▼
-                                    [ Preamp Gain Stage (-12 dB to +12 dB) ]
-                                                     │
-                                                     ▼
-                              [ 10-Band Graphic EQ (32 Hz to 16 kHz ISO Bands) ]
-                                                     │
-                                                     ▼
-                                  [ Bass (100 Hz) & Treble (10 kHz) Shelves ]
-                                                     │
-                                                     ▼
-                                  [ Stereo Balance / Mono Downmix Matrix ]
-                                                     │
-                                                     ▼
-                               [ Anti-Clipping Brickwall Dynamics Limiter ]
-                                                     │
-                                                     ▼
-                                   [ High-Resolution FFT Analyser ]
-                                                     │
-                                                     ▼
-                                  [ Windows WASAPI Audio Endpoint ]
-```
+![Harmoniq Home](docs/assets/harmoniq-home.png)
 
 ---
 
-## 🌟 Core Signature Features
+## 📖 Overview
 
-### 1. Technical Audio Quality Inspector
-Accessible directly from Now Playing, the Bottom Player, and the sidebar:
-- **Source Stream Specifications**: Codec detail, container format, sample rate, true bit depth (e.g., 24-bit PCM), bitrate (kbps), channels, and lossless classification.
-- **Hardware & Endpoint Inspection**: Active output device name, processing bit depth (24-bit floating point), buffer size, and estimated hardware latency.
-- **Resampling Diagnosis**: Deterministic analysis of source rate vs. output rate. Truthfully reports when Windows Audio Engine sample rate conversion (SRC) is engaged.
-- **Bit-Perfect Verification Matrix**:
-  - Sample Rate 1:1 Matched
-  - Digital Volume at 100% (0 dB Unity Gain)
-  - DSP / EQ Bypassed or Flat
-  - ReplayGain Normalization Disabled
-  - WASAPI Direct Hardware Ownership
-
-### 2. Professional Equalizer & DSP Studio
-- **10-Band Graphic EQ**: ISO standard frequencies: `32 Hz`, `64 Hz`, `125 Hz`, `250 Hz`, `500 Hz`, `1 kHz`, `2 kHz`, `4 kHz`, `8 kHz`, `16 kHz`.
-- **Preamp Stage**: -12 dB to +12 dB headroom compensation.
-- **Tone Controls**: Independent Bass Boost (100 Hz shelf) and Treble Boost (10 kHz shelf).
-- **Anti-Clipping Limiter**: Real-time gain reduction monitoring in dBFS to protect speakers and prevent digital clipping distortion.
-- **Built-in & Custom Presets**: Flat (Reference), Bass Boost, Rock, Pop, Jazz, Classical, Acoustic, Vocal, Electronic, Podcast. Supports custom preset creation, renaming, and persistence.
-- **Stereo Balance & Mono Downmix**: Continuous balance slider and single-click mono summation.
-
-### 3. High-Speed Music Library Management
-- **Large Collections**: Built to index and search 10,000+ tracks with sub-15ms full-text query response times.
-- **Multi-Dimensional Browsing**: Browse by Songs, Albums, Artists, Genres, Folders, and Playlists.
-- **Smart Playlists**: Dynamic auto-generated playlists for Favorites, Recently Played, Recently Added, and Most Played.
-- **M3U / M3U8 Interoperability**: Full import and export of industry-standard `.m3u` / `.m3u8` playlists.
-
-### 4. Synchronized Lyrics Engine
-- Reads embedded ID3 (`USLT`) and Vorbis comment (`LYRICS`) tags.
-- Automatically searches for and loads companion `.lrc` files in the audio track folder.
-- Millisecond-accurate synchronized line highlighting with interactive line-seeking.
-- Manual offset adjuster (+/- 200ms, 500ms) with reset.
-
-### 5. Podcast & Audiobook Features
-- Variable playback speeds from `0.5x` to `3.0x`.
-- Pitch preservation toggle.
-- Per-file resume position memory for recordings over 10 minutes.
-- Configurable sleep timer (5 to 60 minutes or stop at end of current track).
+**Harmoniq** is a Windows‑only desktop audio player combining local playback, a modular Web Audio DSP pipeline, and an AI‑powered voice assistant (Pulse Orb). Built with **Electron**, **React**, **TypeScript**, and **Vite**.
 
 ---
 
-## 🛠️ Installation & Build Instructions
+## 🚀 Quick Links
 
-### Prerequisites
-- Windows 10 / Windows 11 (64-bit)
-- Node.js v18+ (tested on Node.js v24.20)
-- npm v10+
-
-### Development Mode
-```bash
-# Navigate to the Harmoniq directory
-cd harmoniq
-
-# Install dependencies
-npm install
-
-# Run frontend dev server
-npm run dev
-```
-
-### Running Unit Tests
-```bash
-# Execute unit tests with Vitest
-npm test
-```
-
-### Building the Windows Desktop App
-```bash
-# Compile TypeScript frontend and Electron backend
-npm run build
-npm run build:electron
-
-# Package unpacked Windows executable (release/win-unpacked/Harmoniq.exe)
-npx electron-builder --win --dir
-
-# Package standalone Windows NSIS Setup Installer (.exe)
-npm run dist
-```
+[Features](#features) • [Architecture](#architecture) • [Installation & Development](#installation--development) • [Security & Limitations](#security--limitations) • [License & Contribution](#license--contribution)
 
 ---
 
-## 📂 Project Structure
+## 📸 Screenshots
 
+| | |
+|---|---|
+| ![Now Playing](docs/assets/harmoniq-now-playing.png) | *Now‑playing UI with visualizer* |
+| ![Pulse Orb](docs/assets/harmoniq-pulse-orb.png) | *AI voice assistant panel* |
+| ![Universal Music](docs/assets/harmoniq-universal-music.png) | *Universal Music provider search* |
+| ![Equalizer Main](docs/assets/harmoniq-equalizer-main.png) | *10‑band graphic EQ* |
+| ![Equalizer Advanced](docs/assets/harmoniq-equalizer-advanced.png) | *Parametric filters* |
+
+---
+
+## ✨ Features
+
+### Music Library & Playback
+- **Local Playback:** Full-track playback for local audio files in supported containers.
+- **Universal Music Providers:**
+  - **Jamendo:** Full-track streaming for eligible catalog tracks via authorized stream URLs.
+  - **Audius:** Full-track streaming for available tracks.
+  - **Internet Archive:** Full-track playback for supported, available archive audio items.
+  - **Apple Music:** 30-second previews only (no full-track playback implementation).
+  - **Spotify:** 30-second previews when available; otherwise external web links (no full-track playback implementation).
+  - **YouTube:** Search, metadata discovery, and external video links only (no direct audio extraction or stream playback).
+- **Library Organization:** Tokenized search, playlist creation, multi-queue management, and playback history tracking.
+
+### Audio Engineering & DSP
+- **Graphic & Parametric Equalizers:** Standard 10-band graphic equalizer alongside up to 12 configurable parametric peaking and shelving filters implemented using Web Audio `BiquadFilterNode`.
+- **Dynamics Processing:** Web Audio `DynamicsCompressorNode` providing soft-knee compression with real-time gain-reduction monitoring (designed for level management; not a guaranteed brick-wall or true-peak limiter, and does not guarantee prevention of all digital clipping).
+- **Audio Quality Inspector:** Evaluates source metadata, container specs, active DSP processing, and stream parameters. Audio processing operates via Chromium/Web Audio in Windows Shared Audio Mode. The application does not currently implement WASAPI Exclusive output, and does not claim or verify bit-perfect hardware playback.
+- **Visualizer & Spectrum:** Real-time FFT spectrum visualizer via Web Audio `AnalyserNode` and reactive Pulse Orb animations.
+
+### AI & Voice (Pulse Orb)
+- **Multi-Backend Architecture:**
+  - **Local Grounded Engine:** Offline knowledge base indexing 23 Harmoniq features, generating navigation shortcuts and in-app instructions without external network calls.
+  - **Cloud LLM Backends:** Integrations for Google Gemini (`gemini-1.5-flash`), OpenAI (`gpt-4o-mini`), and Groq (`llama-3.1-8b-instant`). These require user-provided API keys and communicate over external network APIs.
+- **Voice Input (Speech-to-Text):** Utilizes the browser Web Speech API. Audio transcription may be transmitted to remote recognition services by the underlying browser engine; it is not an offline speech recognizer.
+- **Voice Output (Text-to-Speech):** Utilizes available local system voices via the Web Speech Synthesis API, functioning offline regardless of the selected AI backend.
+
+### Windows Integration
+- **Audio Output:** Routes audio through Chromium/Web Audio into the standard Windows Shared Audio Mode endpoint.
+- **Media Controls:** Integrates with Windows System Media Transport Controls (SMTC) for taskbar playback controls, thumbnail toolbars, and media key handling.
+- **Desktop Behaviors:** Single-instance application locking, draggable window controls, and file-association handling for common audio formats.
+
+---
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart LR
+    subgraph Main["Electron Main Process"]
+        M1["Application Lifecycle"]
+        M2["IPC Bridge & Window State"]
+        M3["File System & Native Dialogs"]
+    end
+
+    subgraph Renderer["React Renderer"]
+        R1["UI State & Router"]
+        R2["Audio Engine Controller"]
+        R3["Pulse Orb UI & Speech Handlers"]
+    end
+
+    subgraph Services["Service Layer"]
+        S1["UniversalMusicService"]
+        S2["InspectorService"]
+        S3["AIService Router"]
+    end
+
+    subgraph Providers["Provider Adapters"]
+        P1["Local Library"]
+        P2["Jamendo API"]
+        P3["Audius API"]
+        P4["Internet Archive API"]
+        P5["Apple Music (Previews)"]
+        P6["Spotify (Previews/Links)"]
+        P7["YouTube (Metadata/Links)"]
+    end
+
+    subgraph Backends["AI Backends"]
+        A1["Local Grounded Engine (Offline)"]
+        A2["Google Gemini API"]
+        A3["OpenAI API"]
+        A4["Groq API"]
+    end
+
+    M2 <--> R1
+    R2 --> Services
+    S1 --> Providers
+    S3 --> Backends
 ```
-harmoniq/
-├── electron/
-│   ├── main.ts               # Electron lifecycle, media protocol, IPC handlers
-│   └── preload.ts            # Secure contextBridge API definition
-├── src/
-│   ├── types/                # Core TypeScript types (audio, dsp, inspector, library, lyrics)
-│   ├── services/
-│   │   ├── audioEngine.ts    # Web Audio DSP pipeline, EQ filters, limiter, analyser
-│   │   ├── inspectorService.ts# Audio quality diagnostics, resampling, bit-perfect matrix
-│   │   ├── libraryService.ts # High-scale track indexing, search, album/artist aggregation
-│   │   └── lyricsService.ts  # Synchronized LRC parsing and active line finder
-│   ├── context/
-│   │   ├── PlayerContext.tsx # Playback state, transport, queue, sleep timer
-│   │   ├── DSPContext.tsx    # Equalizer bands, presets, tone controls, limiter metrics
-│   │   └── LibraryContext.tsx# Library data, view navigation, playlists, scanning
-│   ├── components/
-│   │   ├── layout/           # TitleBar, Sidebar, BottomPlayer, QueueDrawer
-│   │   ├── inspector/        # AudioQualityInspector, QualityBadge
-│   │   ├── dsp/              # EqualizerStudio
-│   │   ├── visualizer/       # AudioVisualizer (FFT spectrum & oscillogram)
-│   │   └── views/            # Home, Library, AlbumDetails, ArtistDetails, NowPlaying, etc.
-│   ├── test/                 # Vitest unit test suites
-│   ├── App.tsx               # Root component & global shortcuts
-│   ├── main.tsx              # React DOM entry
-│   └── index.css             # Dark charcoal & electric violet design system
-├── package.json              # App configuration, build scripts, electron-builder config
-├── tsconfig.json             # TypeScript configuration for renderer
-├── tsconfig.electron.json    # TypeScript configuration for Electron main
-└── vite.config.ts            # Vite bundler configuration
+
+```mermaid
+flowchart LR
+    Source["Audio Source (Local File / Stream URL)"] --> Decode["Web Audio Decoding (HTML5 Audio / DecodeAudioData)"]
+    Decode --> Preamp["GainNode (Preamp & ReplayGain)"]
+    Preamp --> GEQ["10-Band Graphic EQ (BiquadFilterNode)"]
+    GEQ --> PEQ["Parametric EQ (Up to 12 Biquad Filters)"]
+    PEQ --> Comp["DynamicsCompressorNode (Soft-Knee Compression)"]
+    Comp --> FFT["AnalyserNode (FFT Spectrum)"]
+    FFT --> Destination["AudioDestinationNode"]
+    Destination -->|"Windows Shared Audio Mode"| Endpoint["System Audio Output Device"]
 ```
 
 ---
 
-## 🚀 Harmoniq 2.0 (Phases 1 – 7 Architecture & Upgrades)
+## 🛠️ Installation & Development
 
-Harmoniq 2.0 introduces an advanced suite of audiophile tools, Windows desktop productivity, immersive visual experiences, and intelligent AI assistance:
+### Verified Build Commands
 
-- **Phase 1 – Personalization & Experience**: Dynamic Theme Engine, 6 High-Contrast Audiophile Presets, Listening Rooms, and Session Crash Recovery.
-- **Phase 2 – Music Collection & Organization**: Genuine Listening Calendar & Daily Activity Heatmap, Multiple Independent Saved Queues, Playlist Folders (nested hierarchies), and Playlist Revision History Snapshots.
-- **Phase 3 – Professional Audio Features**: ABX Double-Blind Audio Comparison Tool with binomial statistical p-value evaluation, Asynchronous PCM Waveform Navigation & Seeking, Scenario-Based Audio Routing Profiles, and Time-of-Day Volume Profiles.
-- **Phase 4 – Windows Desktop Productivity**: 5 Built-in Hotkey Scenario Profiles with conflict detection, Floating Always-on-Top Desktop Mini-Player Widget, Extended Auto-Shutdown Sleep Timer with volume fade-out, Full Library Backup/Restore with SHA-256 checksums, and Portable Storage Mode.
-- **Phase 5 – Immersive Visual Experience**: Full-Bleed Immersive Album Mode with dynamic color extraction, Virtual Vinyl Collection Record Crate with 33⅓ RPM turntable rotation, Harmoniq Monogram Logo, Sinusoidal Waveform Loader, and Vector Empty States.
-- **Phase 6 – Final Visual Polish & Quality Assurance**: Signature 5-Bar Dynamic Waveform Volume Control, Collapsible Sidebar Rail (`Ctrl+B`), TitleBar branding, Unified loading/empty states, and regression test pass.
-- **Phase 7 – Harmoniq Assistant: AI-Powered Chatbot, Voice Interaction & Signature Pulse Orb**: Floating holographic Pulse Orb with 7 visual states, grounded multi-provider AI backend (Google Gemini, OpenAI, Groq, and 100% offline Local Grounded Engine), grounded RAG catalog across all 23 application features, interactive `[Open <Feature>]` navigation buttons, microphone Speech-to-Text (STT) with live interim transcripts, and independent Text-to-Speech (TTS) spoken responses that never interrupt music playback.
-- **Smart Podcast URL Importer**: Universal podcast URL detection and feed resolution supporting Apple Podcasts, Spotify show links, Podcast Index, and custom websites via secure SSRF-guarded Electron IPC with real-time metadata preview and subscription.
-- **Mini Player Visual Redesign (Premium Floating Music Console)**: Deep obsidian glassmorphism console with dynamic album art ambient lighting, 4-bar live audio-reactive FFT visualizer (`MiniLiveVisualizer`), interactive 36-bar acoustic waveform seek bar (`MiniWaveformProgressBar`), centerpiece 40px circular Play/Pause button, and compact 380x100px pill mode.
-- **Universal Music Engine (Phases 1, 2 & 3)**: Extensible multi-provider audio discovery and streaming engine supporting Jamendo (full CC MP3), Audius (320kbps streams), Internet Archive (historical/classical archives), Apple Music Catalog (universal Bollywood, Punjabi, and International discovery + 30s previews), Spotify Web API (commercial track discovery, high-res artwork, ISRC, popularity metrics & official destination links), YouTube Data API v3 (official music video discovery & authorized links), and Local Library. Enforces strict ToS compliance (zero audio ripping), capability badging (`Full Track`, `30s Preview`, `Authorized Video`, `Official Link`, `Metadata Only`, `Local File`), capability-ranked deduplication, and an expanded Multi-Provider Configuration Hub in Settings with comprehensive audit status disclosure for all services including Indian streaming platforms (JioSaavn, Gaana, Wynk audited as `NOT AVAILABLE` due to lack of official public developer APIs).
+The following scripts are defined in `package.json`:
 
-Full technical phase reports are available in [`docs/phases/`](file:///C:/Users/a2301/Desktop/harmoniq/docs/phases/).
+| Command | Action | Implementation Reference |
+|---|---|---|
+| `npm install` | Install project dependencies | Root `package.json` |
+| `npm run dev` | Launch Vite development server for renderer | `vite` |
+| `npm run build` | Typecheck and build renderer bundle | `tsc && vite build` |
+| `npm run build:electron` | Compile Electron TypeScript files | `tsc -p tsconfig.electron.json` |
+| `npm test` | Run test suite with Vitest | `vitest run` |
+| `npm run dist` | Compile and package Windows NSIS installer and portable executable | `electron-builder --win` |
+
+> **Environment Note:** `package.json` does not specify `engines.node` or `engines.npm` constraints. The project was verified in a tested environment of Node.js v24.20.0 with npm v10 (Node.js v18+ is referenced in developer documentation).
 
 ---
 
-## 📜 Technical Verification & Feature Disclosure
+## 🔒 Security & Limitations
 
-| Feature | Implementation Status | Technical Mechanism |
-| :--- | :--- | :--- |
-| **Universal Music Engine** | Fully Implemented (Phases 1, 2 & 3) | Multi-provider architecture (`Apple`, `Audius`, `Archive`, `Jamendo`, `Spotify`, `YouTube`, `Local`) with on-demand stream resolution, capability badging & compliance matrix |
-| **Harmoniq Pulse Orb** | Fully Implemented | Floating holographic SVG/CSS orb with luminous core, triple frequency rings, orbital particles & 7 visual states |
-| **Harmoniq Assistant Panel**| Fully Implemented | Obsidian-glass chat window with message thread, suggestion chips, live STT transcript & action buttons |
-| **Multi-Provider AI Backend**| Fully Implemented | Modular provider routing (Google Gemini 1.5, OpenAI GPT-4o, Groq Llama-3.1) with protected Electron IPC |
-| **Local Grounded AI Engine** | Fully Implemented | 100% offline knowledge base RAG indexing 23 Harmoniq features, generating structured instructions & action chips |
-| **Voice Input (STT)** | Fully Implemented | User-initiated microphone speech recognition with live interim preview, editability, and silence safety timeout |
-| **Voice Responses (TTS)** | Fully Implemented | Independent Web Speech synthesis with markdown cleaning, volume control, voice selection & zero music disruption |
-| **Interactive App Navigation**| Fully Implemented | Grounded assistant responses with direct action buttons dispatching verified application routes via `setActiveView` |
-| **Smart Podcast Importer** | Fully Implemented | Universal URL detection engine with Apple/Spotify resolution, SSRF protection, iTunes lookup & HTML RSS extraction |
-| **Floating Music Console** | Fully Implemented | Always-on-top draggable mini-player with dynamic ambient art lighting, live FFT visualizer, and waveform seekbar |
-| **FLAC, MP3, WAV, ALAC, AAC, OGG, OPUS** | Fully Implemented | Native Electron media protocol + `music-metadata` stream extraction |
-| **10, 15 & 31-Band Graphic & Parametric EQ** | Fully Implemented | Web Audio `BiquadFilterNode` peaking filters @ ISO center frequencies |
-| **Limiter & Anti-Clipping** | Fully Implemented | Web Audio `DynamicsCompressorNode` with brickwall ratio & real gain reduction |
-| **Signature Waveform Volume** | Fully Implemented | 5-bar dynamic waveform with playback animation, volume fill & mute strike |
-| **Audio Quality Inspector** | Fully Implemented | Real-time diagnostic inspector evaluating bit-depth, codec, resampling & bit-perfect criteria |
-| **Bit-Perfect Detection** | Fully Implemented | Deterministic 5-factor matrix (rate match, volume unity, DSP bypass, replaygain off, exclusive mode) |
-| **ABX Audio Comparison** | Fully Implemented | Double-blind trials, level-matching, binomial p-value significance scoring |
-| **Waveform Navigation** | Fully Implemented | Real asynchronous PCM audio decoding, seekbar scrubbing, peak/RMS cache |
-| **Audio Routing Profiles** | Fully Implemented | Scenario routing (Headphones, Hi-Fi DAC, Studio Monitors) with auto-switch |
-| **Volume Profiles** | Fully Implemented | Time-of-day automation, device-specific volume capping, curve adjustments |
-| **Listening Calendar** | Fully Implemented | Monthly calendar heatmap, genuine playback duration, track count timeline |
-| **Multi-Queue Management** | Fully Implemented | Multiple saved queues, reordering, duplication, crash recovery restoration |
-| **Playlist Folders & History** | Fully Implemented | Hierarchical nesting, drag-and-drop, revision snapshot timeline & restore |
-| **Immersive Album Mode** | Fully Implemented | Full-bleed cover art canvas, dynamic ambient lighting, lyrics overlay, visualizer |
-| **Vinyl Collection Mode** | Fully Implemented | Virtual crate, sliding LP cardboard sleeves, optional 33⅓ RPM rotation, decade chips |
-| **Floating Desktop Player** | Fully Implemented | Always-on-top draggable mini-player, mesh glow, compact/expanded modes, opacity slider |
-| **Hotkey Profiles** | Fully Implemented | 5 usage scenario profiles, conflict detection, profile import/export |
-| **Auto-Shutdown & Sleep Timer**| Fully Implemented | Track/queue boundaries, countdown timer, gentle volume fade-out, app shutdown |
-| **Backup & Portable Mode** | Fully Implemented | Complete library zip archive with SHA-256 integrity, relative portable path rewrites |
-| **Musical Navigation** | Fully Implemented | Custom Violin (Back) and Trumpet (Forward) vector icons with hover glow & shortcuts |
-| **Synchronized Lyrics (.lrc)** | Fully Implemented | Custom millisecond LRC parser with auto-companion loading & manual offset |
-| **High-Scale Library (10,000+ tracks)** | Fully Implemented | Hash-map indexing, tokenized full-text search, and indexed discography grouping |
-| **Gapless Playback & Crossfade** | Fully Implemented | Preloaded audio buffers with adjustable crossfade curve (0–10s) |
-| **WASAPI Shared Mode** | Fully Implemented | Standard Windows CoreAudio endpoint output via Chromium audio pipeline |
-| **WASAPI Exclusive Mode** | Architected & Verified | Real Windows diagnostic query; verified status indicator and hardware locking |
-| **SMTC & Taskbar Controls** | Fully Implemented | Windows Media Transport integration & thumbnail toolbar controls |
+- **Binary Signing:** Windows distribution builds produced by `npm run dist` are currently unsigned; Windows SmartScreen or antivirus tools may flag the executable as coming from an unknown publisher.
+- **Audio Output Mode:** All audio output is handled via Chromium/Web Audio in Windows Shared Audio Mode. The application does not implement WASAPI Exclusive output or direct hardware control, and does not claim or verify bit-perfect playback at the hardware level.
+- **Dynamics Compressor:** The dynamics processor uses Web Audio's standard `DynamicsCompressorNode` for soft-knee gain reduction and monitoring. It is not a brick-wall or true-peak limiter, and does not guarantee complete elimination of digital clipping.
+- **Universal Music Providers:** Streaming is subject to provider availability and terms. Full-track streaming is implemented only for eligible Jamendo, Audius, and Internet Archive items; Apple Music is restricted to 30-second previews, Spotify to previews/links, and YouTube to metadata/links. The application does not offer unrestricted access to commercial streaming catalogs or unauthorized stream extraction.
+- **Network & Privacy:** Local library playback operates entirely offline. External network requests occur when using Universal Music providers, cloud AI backends (Gemini, OpenAI, Groq), and Web Speech API speech-to-text recognition. Cloud LLMs require user-provided API keys.
+- **Benchmark Qualifications:** Library benchmark metrics (such as ~13 ms average query times across 10,001 items) were measured against in-memory synthetic track objects after pre-indexing, and do not represent initial cold-scan filesystem traversal times.
+
+---
+
+## 📄 License & Contribution
+
+- **License:** Not yet specified. No `LICENSE` file currently exists in the repository.
+- **Contributing:** No formal `CONTRIBUTING.md` guidelines are currently established.
+
+---
+
+*Technical reconciliation reference: [Provider & AI Capabilities](docs/README_PROVIDER_AI_RECONCILIATION.md).*
