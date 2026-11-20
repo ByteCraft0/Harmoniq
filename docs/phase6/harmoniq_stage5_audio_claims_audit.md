@@ -1,10 +1,10 @@
 # HARMONIQ 2.0 — STAGE 5: FINAL RELEASE CERTIFICATION
-## STAGE 5.3: AUDIO CLAIMS & PRODUCT ACCURACY CERTIFICATION
+## STAGE 5.3: AUDIO CLAIMS & PRODUCT ACCURACY CERTIFICATION (RECONCILED)
 
 - **Application:** Harmoniq Desktop
 - **Version:** 2.0.0
 - **Validation Stage:** Stage 5 — Final Release Certification & Delivery Readiness Gate
-- **Evaluation Date:** November 20, 2026
+- **Reconciliation Date:** November 20, 2026
 - **Auditor Role:** Audio Systems Specialist & Technical Claims Auditor
 
 ---
@@ -17,7 +17,7 @@ To ensure strict scientific integrity, all user-facing documentation, UI labels,
 - **Windows Audio Routing**: Harmoniq utilizes the Chromium Web Audio API pipeline routing through the **Windows Audio Session API (WASAPI) in Shared Mode**.
 - **No False Exclusive Mode Claims**: The application **does not claim WASAPI Exclusive Mode**. Documentation accurately discloses that audio passes through the Windows audio engine mixer at the configured Windows device sample rate.
 - **Truthful Bit-Matched Transparency**: The Audio Quality Inspector presents a **5-factor bit-matched conditions matrix** (Sample rate match, unity volume, DSP bypassed, ReplayGain disabled, lossless source). It clearly explains that when all 5 conditions are satisfied, the stream undergoes zero digital alteration within Harmoniq, while operating within the boundaries of Windows Shared Mode.
-- **Brickwall Limiter Phrasing**: The limiter node is accurately documented as an **anti-clipping dynamics compressor** (`DynamicsCompressorNode` with 3ms attack and 20:1 ratio) rather than an analog or hardware brickwall limiter.
+- **Dynamics Compressor Phrasing**: The limiter node is accurately documented as an **anti-clipping software dynamics compressor** (`DynamicsCompressorNode` with 3ms attack, 20:1 ratio, and -0.5 dBFS threshold) rather than an analog or hardware brickwall limiter.
 - **Peak Level Measurement**: ReplayGain values are clearly presented as **embedded tag metadata** or digital sample peak values, avoiding unverified claims of 4x oversampled ITU-R BS.1770 true-peak analysis.
 
 ---
@@ -25,7 +25,7 @@ To ensure strict scientific integrity, all user-facing documentation, UI labels,
 ## 2. SOUND PROFILES & DSP TRANSPARENCY
 
 - **Neutral / Flat Profile**: The "Flat" sound profile is accurately described as a **neutral DSP curve with unity gain**, not as proof of bit-perfect end-to-end output.
-- **Stereo Width & Crossfeed**: The stereo width processor is documented as a **Mid-Side energy-preserving spatial processor**. It does not advertise Bauer crossfeed as a medical or audiological guarantee.
+- **Stereo Width & Spatial Processing**: The stereo width processor is documented as a **Mid-Side energy-preserving spatial processor**. It does not advertise Bauer crossfeed as a medical or audiological guarantee.
 - **Dynamic EQ Suggestion**: Contextual sound recommendations are labeled as **algorithmic suggestions based on metadata heuristics**, giving the user full autonomy to preview or reject them.
 
 ---

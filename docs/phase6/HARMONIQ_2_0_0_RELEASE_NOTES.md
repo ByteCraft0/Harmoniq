@@ -16,9 +16,9 @@ Harmoniq 2.0.0 represents a monumental milestone in desktop music playback, unit
   - AutoEQ / Equalizer APO profile import for over 2,500+ headphone models.
   - Mid-Side stereo width expansion with mono compatibility and energy preservation.
   - 2x2 channel routing matrix (Stereo, Mono downmix, Left-only, Right-only, Balance).
-  - Anti-clipping dynamics limiter protection.
+  - Anti-clipping software dynamics compressor protection (3ms attack, 20:1 ratio).
 - **Per-Track EQ & Profile Memory**: Automatically memorizes custom EQ curves on a per-song and per-output-device basis, restoring your preferences automatically upon track transition.
-- **Deterministic Audio Quality Transparency**: Real-time 5-factor bit-matched matrix diagnosis, disclosing exact sample rate conversion, bit depth, channel configuration, and ReplayGain metadata.
+- **Deterministic Audio Quality Transparency**: Real-time 5-factor bit-matched matrix diagnosis, disclosing exact sample rate conversion, bit depth, channel configuration, and ReplayGain metadata within the Windows Shared Mode pipeline.
 
 ### 1.2 Listening Intelligence & Personalization
 - **Harmoniq Pulse Orb**: Interactive, 60 FPS audio-reactive visualizer blending dynamic frequency transients with extracted album artwork palettes.
@@ -37,13 +37,14 @@ Harmoniq 2.0.0 represents a monumental milestone in desktop music playback, unit
 
 ---
 
-## 2. PERFORMANCE & RESOURCE EFFICIENCY
+## 2. MEASURED PERFORMANCE BENCHMARKS (TEST WORKLOAD DISCLOSURE)
 
-- **Blazing Fast Startup**: Cold application startup in **< 800 ms**; warm launch in **< 450 ms**.
-- **Ultralight Memory Footprint**: Steady-state working set (RSS) remains under **35 MB** during active DSP playback and drops to **31.8 MB** in background tray mode.
-- **Massive Library Scalability**: Instantaneous search across 10,000 tracks in **1.49 ms** and 20,000 tracks in **2.35 ms**.
-- **Progressive DOM Rendering**: Bounded 150-chunk windowing ensures silky smooth 60 FPS scrolling through tens of thousands of songs.
-- **Zero Memory Leaks**: Invariant Web Audio node allocation with zero object accumulation across 1,000+ continuous playback transitions.
+*Benchmarks were measured on an Intel Core i5-13420H reference system (16 GB RAM, Windows 11 Home 64-bit) over 10 consecutive executions on the production bundle:*
+- **Application Startup**: Cold application startup averaged **780 ms**; warm application startup averaged **440 ms**; main window visible in **480 ms**. Timings on different hardware or mechanical HDDs will vary.
+- **Observed Memory Footprint**: Process working set (RSS) remained at ~34.2 MB idle, ~34.5 MB during active DSP playback, and ~31.8 MB when minimized to the tray. V8 heap used was ~4.8 MB.
+- **In-Memory Library Search**: Linear full-text querying across already-indexed memory objects averaged **1.49 ms** for 10,000 tracks and **2.35 ms** for 20,000 tracks. *(Note: Initial disk scanning of physical folders is bound by filesystem I/O speeds).*
+- **Progressive DOM Rendering**: Bounded 150-chunk windowing slices visible track lists in **< 0.02 ms**, maintaining 60 FPS scrolling responsiveness.
+- **Tested Workload Stability**: Under an automated 1,000-transition stress workload, active Web Audio node counts remained invariant at 32 nodes, and heap returned to baseline (4.2 MB) post-garbage-collection. No memory growth was observed under this tested workload.
 
 ---
 
@@ -69,7 +70,8 @@ Harmoniq 2.0.0 represents a monumental milestone in desktop music playback, unit
 | **OGG Vorbis** | `.ogg` | Yes | Yes | Ogg Vorbis audio |
 | **Opus** | `.opus`, `.webm`| Yes | Yes | Interactive audio codec |
 | **AIFF** | `.aiff`, `.aif` | Yes | Yes | Uncompressed PCM |
-| **WMA** | `.wma` | No | Yes | *Playback unsupported in Chromium* |
+| **WMA** | `.wma` | **No** | Yes | *Playback unsupported in Chromium; metadata parsed only* |
+| **DSD / DSF** | `.dsf`, `.dff` | **No** | No | *DSD is unsupported* |
 
 ---
 
@@ -79,7 +81,7 @@ Harmoniq 2.0.0 represents a monumental milestone in desktop music playback, unit
 1. Download `Harmoniq Setup 2.0.0.exe`.
 2. Run the executable. It installs cleanly into `%LOCALAPPDATA%\Programs\Harmoniq` without requiring administrative privileges.
 3. Windows file associations and Desktop / Start Menu shortcuts will be automatically configured.
-4. *(Note: Because the release is currently self-signed, Windows SmartScreen may show an "Unknown Publisher" prompt. Click "More info" and "Run anyway" to proceed).*
+4. *(Note: Because release candidate binaries are currently unsigned, Windows SmartScreen will display an "Unknown Publisher" protection banner. Click "More info" and "Run anyway" to proceed).*
 
 ### Option B: Fully Portable Executable (`Harmoniq 2.0.0.exe`)
 1. Download `Harmoniq 2.0.0.exe` and place it in any folder or USB drive.
@@ -96,12 +98,14 @@ Harmoniq 2.0.0 represents a monumental milestone in desktop music playback, unit
   - Streaming audio from Internet Radio stations or podcast RSS feeds.
   - Fetching synchronized lyrics via the LRCLIB API.
   - Communicating with external AI providers (Google Gemini, OpenAI) if configured with your personal API key.
+- **Catalog Policy**: Harmoniq does not bypass DRM or facilitate unauthorized downloading of commercial music. Spotify integration provides metadata and 30-second previews; YouTube queries resolve public web streams.
 
 ---
 
-## 7. KNOWN TECHNICAL LIMITATIONS
+## 7. KNOWN TECHNICAL LIMITATIONS & DISCLOSURES
 
 1. **Windows Shared Mode**: Harmoniq operates through the Chromium Web Audio pipeline via WASAPI in Windows Shared Mode. Audio streams are rendered through the Windows audio mixer at your configured endpoint sample rate.
 2. **WMA Audio**: Windows Media Audio (.wma) files are not decoded by Chromium; their metadata can be parsed in the library, but playback is unsupported.
-3. **DRM Protected Media**: Harmoniq does not bypass DRM restrictions on protected streams (Apple FairPlay, Widevine).
-4. **Code Signing**: Binaries are distributed without an EV certificate, prompting Windows SmartScreen on first launch.
+3. **DRM Protected Media**: Harmoniq does not bypass DRM restrictions on protected streams.
+4. **Code Signing**: Staging binaries are currently unsigned, prompting Windows SmartScreen on first launch until a public CA certificate is applied.
+5. **Physical Testing Disclosures**: Testing was conducted on a Windows 11 host using automated test suites; continuous 120-minute physical ear listening, dedicated OEM multimedia hardware keys, and native Windows 10 hardware were not physically evaluated.
