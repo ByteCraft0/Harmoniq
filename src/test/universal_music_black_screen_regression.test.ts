@@ -211,6 +211,27 @@ describe('HARMONIQ 2.0 — Universal Music Black Screen Bug & Resilience Regress
         universalSearch: vi.fn().mockRejectedValue(new Error('IPC pipe broken or process crashed')),
       };
 
+      // Mock provider search to verify renderer fallback logic without live external network latency
+      for (const provider of universalMusicService.getAllProviders()) {
+        vi.spyOn(provider, 'search').mockResolvedValue({
+          providerId: provider.id,
+          success: true,
+          tracks: provider.id === 'apple' ? [
+            {
+              id: 'apple:ambient_dream_1',
+              providerId: 'apple',
+              providerTrackId: 'ambient_dream_1',
+              title: 'Ambient Dream',
+              artist: 'Harmoniq Ambient',
+              duration: 210,
+              playbackCapability: 'preview_stream',
+              isOnline: true,
+            },
+          ] : [],
+          durationMs: 5,
+        });
+      }
+
       // The service should catch the IPC failure and fall back to renderer providers without throwing
       const response = await universalMusicService.searchUniversal('ambient dream');
 
