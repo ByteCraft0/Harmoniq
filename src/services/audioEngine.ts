@@ -991,6 +991,10 @@ class AudioEngine {
     }
   }
 
+  public getPlaybackRate(): number {
+    return this.playbackRate;
+  }
+
   public setCrossfadeDuration(seconds: number): void {
     // 0 = disabled (gapless playback); 1 - 12 seconds
     this.crossfadeDuration = Math.max(0, Math.min(12, Math.round(seconds)));
