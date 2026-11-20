@@ -15,9 +15,18 @@ import {
 import { Readable } from 'stream';
 import * as path from 'path';
 import * as fs from 'fs';
-import { parseFile } from 'music-metadata';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+
+// Module-scoped memoized loader for pure ESM music-metadata
+let musicMetadataPromise: Promise<typeof import('music-metadata', { with: { 'resolution-mode': 'import' } })> | null = null;
+
+function getMusicMetadata(): Promise<typeof import('music-metadata', { with: { 'resolution-mode': 'import' } })> {
+  if (!musicMetadataPromise) {
+    musicMetadataPromise = import('music-metadata');
+  }
+  return musicMetadataPromise;
+}
 import {
   ShortcutAction,
   SHORTCUT_ACTIONS,
@@ -3451,6 +3460,7 @@ function extractReplayGain(metadata: any): { trackGain?: number; trackPeak?: num
 async function parseSingleAudioFile(filePath: string) {
   try {
     const stat = fs.statSync(filePath);
+    const { parseFile } = await getMusicMetadata();
     const metadata = await parseFile(filePath, { duration: true, skipCovers: false });
     const ext = path.extname(filePath).toLowerCase();
 
