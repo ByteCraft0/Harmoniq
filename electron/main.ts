@@ -34,6 +34,9 @@ const isDev = process.env.NODE_ENV === 'development' || (!app.isPackaged && proc
 let portableConfig: { isPortable: boolean; dataDir: string } = { isPortable: false, dataDir: '' };
 
 function getAppRoot(): string {
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    return process.env.PORTABLE_EXECUTABLE_DIR;
+  }
   return app.isPackaged ? path.dirname(process.execPath) : process.cwd();
 }
 
@@ -57,6 +60,25 @@ function testDirectoryWritableMain(dirPath: string): { writable: boolean; path: 
 
 function initPortableMode(): void {
   try {
+    if (process.env.PORTABLE_EXECUTABLE_DIR) {
+      const defaultDir = path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'harmoniq-data');
+      const marker = getPortableMarkerPath();
+      let targetDir = defaultDir;
+      if (fs.existsSync(marker)) {
+        try {
+          const parsed = JSON.parse(fs.readFileSync(marker, 'utf-8'));
+          if (parsed.customDataDir && fs.existsSync(parsed.customDataDir)) {
+            targetDir = parsed.customDataDir;
+          }
+        } catch {}
+      }
+      if (!fs.existsSync(targetDir)) {
+        fs.mkdirSync(targetDir, { recursive: true });
+      }
+      portableConfig = { isPortable: true, dataDir: targetDir };
+      app.setPath('userData', targetDir);
+      return;
+    }
     const marker = getPortableMarkerPath();
     if (fs.existsSync(marker)) {
       const parsed = JSON.parse(fs.readFileSync(marker, 'utf-8'));
