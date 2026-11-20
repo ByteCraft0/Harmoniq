@@ -4,26 +4,27 @@
 - **Application:** Harmoniq Desktop
 - **Target Version:** 2.0.0
 - **Branch:** `feature/phase5c-5d-advanced-audio-intelligence`
-- **Reconciliation Date:** November 20, 2026
+- **Reconciliation Date:** November 20, 2026 (Updated in Stage 5.3)
 - **Auditor Role:** Principal Software Release Engineer & QA Auditor
 
 ---
 
 ## 1. ISSUES CORRECTED
 
-During this Stage 5.1 reconciliation pass, the following documentation and evidentiary discrepancies were formally investigated, corrected, and reconciled across all Stage 5 certification reports:
+During this Stage 5.1 reconciliation pass and subsequent integrity passes, the following documentation and evidentiary discrepancies were formally investigated, corrected, and reconciled across all Stage 5 certification reports:
 
 1. **Git Commit Lineage Clarification**:
-   - Reconciled the relationship between Stage 5 starting baseline commit `ab57d62`, Stage 5 documentation commit `18f258d`, and Stage 5.1 correction commit `ec99f12`.
-   - All documents now consistently distinguish the pre-Stage 5 technical test baseline (`ab57d62`), the Stage 5 documentation delivery commit (`18f258d`), and the Stage 5.1 correction commit (`ec99f12`).
+   - Reconciled the relationship between Stage 5 starting baseline commit `ab57d62`, Stage 5 documentation commit `18f258d`, Stage 5.1 correction commit `ec99f12`, and Stage 5.2 resolution commit `eb806cc`.
+   - All documents now consistently distinguish the pre-Stage 5 technical test baseline (`ab57d62`), the Stage 5 documentation delivery commit (`18f258d`), the Stage 5.1 correction commit (`ec99f12`), and the current HEAD (`eb806cc`).
 2. **Authenticode Code-Signing Status**:
    - Removed ambiguous phrasing such as "unsigned / test signed" and "self-signed".
    - Formally documented that both staging executables (`Harmoniq Setup 2.0.0.exe` and `Harmoniq 2.0.0.exe`) are **completely unsigned** (`Status: NotSigned`, `SignatureType: None`).
    - Corrected the claim that EV signing is mandatory; clarified that standard OV (Organization Validation) certificates also establish code authenticity and build SmartScreen reputation.
-3. **Exhaustive 26-Advisory Dependency Audit**:
+3. **Exhaustive Dependency Audit & Count Reconciliation**:
    - Expanded the dependency review into a full 26-package matrix categorizing severity, direct vs transitive status, build-time vs runtime execution, and production bundling.
-   - Identified that only 2 packages (`music-metadata` and `file-type`) execute at runtime in the packaged ASAR, while 1 native host shell (`electron`) runs on the client, and 23 reside in developer tooling.
-   - Verified that `file-type` advisory `GHSA-5v7r-6r5c-r473` is a format sniffing loop during file identification, unreachable for known audio file extensions.
+   - Reconciled that the 26 vulnerable package entries correspond to **86 individual advisory instances (85 unique GHSAs)**.
+   - Verified that `file-type` advisory `GHSA-5v7r-6r5c-r473` is reached for `.alac` files and unmapped/misleading extensions.
+   - Audited `music-metadata` execution on the main process thread and identified that `chokidar` automatically passes files from watched folders to the parser without user interaction.
 4. **Performance Claims Qualification**:
    - Qualified startup timings by disclosing sample size (10 runs), reference hardware specs, and bundling.
    - Qualified memory consumption by distinguishing working set (RSS) from V8 heap and noting dependency on library size and DWM composition.
@@ -40,14 +41,12 @@ During this Stage 5.1 reconciliation pass, the following documentation and evide
 
 ## 2. ISSUES THAT REMAIN UNRESOLVED (RESIDUAL LIMITATIONS)
 
-The following items represent operational constraints that cannot be resolved without external infrastructure or user intervention:
-
 1. **Unsigned Binaries & Windows Defender SmartScreen**:
    - Because no commercial Authenticode certificate has been purchased or applied, the binaries remain unsigned (`Status: NotSigned`) and will trigger Windows Defender SmartScreen warnings on download/first launch.
 2. **Stale Staging Binaries**:
-   - Staging binaries do not contain `getPlaybackRate()` from commit `129d647`. A rebuild is required before distribution.
-3. **ESM Migration for `music-metadata`**:
-   - Upgrading `music-metadata` from `7.14.0` to `12.7.0` to resolve ASF/EBML infinite loop CVEs requires migrating Electron's main process audio parser to asynchronous ESM dynamic imports. This architectural refactoring is deferred to a future maintenance update.
+   - Staging binaries do not contain `getPlaybackRate()` from commit `129d647`. A rebuild from HEAD is required before distribution.
+3. **Audio Parser Thread Isolation & ESM Migration**:
+   - Audio metadata extraction runs on the main process thread without watchdog timeouts. Moving parsing to an Electron `utilityProcess` and upgrading to `music-metadata@12.x` (Pure ESM) is required before broad public release.
 4. **Native Windows 10 Hardware Testing**:
    - Testing was conducted exclusively on the Windows 11 host. Windows 10 execution relies on Win32 API backward compatibility.
 
@@ -55,19 +54,19 @@ The following items represent operational constraints that cannot be resolved wi
 
 ## 3. DEPENDENCY VULNERABILITY SUMMARY
 
-A scan using `npm audit` identified 26 vulnerability advisories (8 moderate, 15 high, 3 critical):
+A scan using `npm audit` identified **26 vulnerable package entries** encompassing **86 individual advisory instances (85 unique GHSAs)**:
 
-- **Build / Packaging Tooling (23 Packages)**:
+- **Build / Packaging Tooling (23 Packages, 38 Advisories)**:
   - Packages: `@electron/rebuild`, `@electron/universal`, `@vitest/mocker`, `app-builder-lib`, `builder-util`, `builder-util-runtime`, `cacache`, `config-file-ts`, `dmg-builder`, `electron-builder`, `electron-builder-squirrel-windows`, `electron-publish`, `esbuild`, `extract-zip`, `glob`, `make-fetch-happen`, `minimatch`, `node-gyp`, `tar`, `tinypool`, `vite`, `vite-node`, `vitest`.
   - Execution Context: Run only on developer machines during compilation, packaging, and testing. They are **not bundled** into the production application ASAR.
-  - Critical Tooling Review: The 3 Critical advisories (`tar`, `tinypool`, `vitest`) are strictly confined to developer build and test tooling and have zero presence in the runtime ASAR.
-- **Native Host Binary Shell (1 Package)**:
+  - Critical Tooling Review: The 3 Critical packages (`tar`, `tinypool`, `vitest`) are strictly confined to developer build and test tooling and have zero presence in the runtime ASAR.
+- **Native Host Binary Shell (1 Package, 46 Advisories)**:
   - Package: `electron@34.5.8` (Chromium 132 + Node.js 20).
   - Shipped to users as `Harmoniq.exe`. Protected by renderer sandbox, `contextIsolation: true`, `nodeIntegration: false`, and IPC argument validation.
-- **Runtime ASAR Dependencies (2 Packages)**:
-  - Packages: `music-metadata` (v7.14.0) and `file-type` (v16.5.4).
+- **Runtime ASAR Dependencies (2 Packages, 7 Advisories)**:
+  - Packages: `music-metadata` (v7.14.0, 6 advisories) and `file-type` (v16.5.4, 1 advisory).
   - Execution Context: Bundled into `app.asar` and executed in the main process when parsing audio tags.
-  - Risk Assessment: Low-to-medium. Requires a user to load a specially crafted corrupt audio file locally. `file-type` sniffer is bypassed for known audio file extensions.
+  - Risk Assessment: Chokidar watcher passes newly added files in watched folders directly to the parser. A malformed file can hang the main process event loop.
 
 ---
 
@@ -77,19 +76,14 @@ PowerShell `Get-AuthenticodeSignature` evaluation produced the following results
 
 ```powershell
 Get-AuthenticodeSignature -FilePath "release/staging/v2.0.0/Harmoniq Setup 2.0.0.exe"
-# Status: NotSigned
-# SignatureType: None
-# SignerCertificate: None
+# Status: NotSigned, SignatureType: None, SignerCertificate: None
 
 Get-AuthenticodeSignature -FilePath "release/staging/v2.0.0/Harmoniq 2.0.0.exe"
-# Status: NotSigned
-# SignatureType: None
-# SignerCertificate: None
+# Status: NotSigned, SignatureType: None, SignerCertificate: None
 ```
 
-- **Actual Status**: **UNSIGNED**. Neither test-signed, self-signed, nor signed with a public CA certificate.
+- **Actual Status**: **UNSIGNED**.
 - **Windows SmartScreen Impact**: Will prompt an "Unknown Publisher" dialog upon execution.
-- **Certificate Options**: Standard OV certificates (which build reputation over time) or EV certificates (which grant immediate reputation) can be applied prior to public distribution.
 
 ---
 
@@ -98,9 +92,10 @@ Get-AuthenticodeSignature -FilePath "release/staging/v2.0.0/Harmoniq 2.0.0.exe"
 - **Stage 5 Technical Baseline**: [`ab57d62`](file:///c:/Users/a2301/Desktop/harmoniq) (`test(phase6.7): complete stage 4 performance and resource validation`)
 - **Stage 5 Documentation Commit**: [`18f258d`](file:///c:/Users/a2301/Desktop/harmoniq) (`docs(phase6.7): complete stage 5 final release certification audit`)
 - **Stage 5.1 Correction Commit**: [`ec99f12`](file:///c:/Users/a2301/Desktop/harmoniq) (`docs(phase6.7): complete stage 5.1 certification correction and reconciliation`)
-- **Current HEAD**: [`ec99f12`](file:///c:/Users/a2301/Desktop/harmoniq) (Clean working tree)
+- **Stage 5.2 Resolution Commit**: [`eb806cc`](file:///c:/Users/a2301/Desktop/harmoniq) (`docs(phase6.7): complete stage 5.2 final release integrity and security resolution`)
+- **Current Authoritative HEAD**: [`eb806cc`](file:///c:/Users/a2301/Desktop/harmoniq) (Clean working tree)
 - **Branch**: `feature/phase5c-5d-advanced-audio-intelligence`
-- **Master Branch**: Clean, untouched, and unmerged.
+- **Master Branch**: Clean, untouched, and unmerged at `0299d66`.
 - **RC1 Tag**: `harmoniq-v2.0.0-rc1` pointing immutably to `37c26e08cc7930025b0b38bcd93fa07153c56f4a`.
 
 ---
@@ -112,8 +107,6 @@ Get-AuthenticodeSignature -FilePath "release/staging/v2.0.0/Harmoniq 2.0.0.exe"
 | **`Harmoniq Setup 2.0.0.exe`** | 85,831,955 | `394B216E2B5DCE0F613F0F997AFFF5BCE30B349D0B766B79CEF2CA96A3912704` | 2026-11-20 10:38:34 AM | Commit `059290e` | **STALE** (Missing `getPlaybackRate`) |
 | **`Harmoniq 2.0.0.exe`** | 85,502,772 | `705B8FD3FC6E2153A7BC01CBCD73F63AFEC2BEF87D43FDD9774EC0DA2FBCFE36` | 2026-11-20 10:38:36 AM | Commit `059290e` | **STALE** (Missing `getPlaybackRate`) |
 
-Both release packages share identical source revision ancestry and compile timestamps. RC1 baseline binaries in `release/rc1/` remain untouched.
-
 ---
 
 ## 7. PHYSICAL VALIDATION LIMITATIONS
@@ -124,13 +117,8 @@ Both release packages share identical source revision ancestry and compile times
 
 ---
 
-## 8. UPDATED RELEASE READINESS VERDICT
+## 8. UPDATED TIERED RELEASE READINESS VERDICT
 
-### **VERDICT: PASS WITH LIMITATIONS**
-**(Conditional Release Ready)**
-
-**Determination:**
-Harmoniq 2.0.0 is thoroughly verified, functionally robust, and completely documented. It is conditionally ready for release upon:
-1. Authorization and execution of a binary rebuild from HEAD to incorporate `getPlaybackRate()`.
-2. Acknowledgment and/or remediation of unsigned Authenticode status prior to public distribution.
-3. Acceptance of documented residual risks for local-file parsing in `music-metadata`.
+- **Tier 1 — Internal Developer Testing:** **RELEASE READY**
+- **Tier 2 — Limited Preview Distribution:** **CONDITIONAL RELEASE READY** (Subject to rebuild from HEAD and user acknowledgment of SmartScreen prompts).
+- **Tier 3 — Broad Public Distribution:** **NOT READY FOR PUBLIC RELEASE** (Blocked by code signing, stale binary rebuild, and audio parser process isolation).

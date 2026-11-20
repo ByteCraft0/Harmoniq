@@ -3,7 +3,8 @@
 
 - **Application:** Harmoniq Desktop
 - **Version:** 2.0.0
-- **Validation Stage:** Stage 5.2 — Final Release Integrity & Security Resolution
+- **Validation Stage:** Stage 5.3 — Final Certification Consistency & Security Decision Audit
+- **Authoritative Current HEAD:** `eb806cc82279773202ee2dc3eb35e9e1ac8cb505` (`eb806cc`)
 - **Reconciliation Date:** November 20, 2026
 - **Auditor Role:** Production Release Engineer & QA Auditor
 
@@ -32,7 +33,7 @@ The release candidate artifacts residing in `release/staging/v2.0.0/` and the pr
 - In commit `129d647b9b7a2571d49d060429528e9f2fc4995c`, runtime method `public getPlaybackRate(): number` was added to `src/services/audioEngine.ts`.
 - Because this commit postdates `059290e`, the staging binaries in `release/staging/v2.0.0/` do not contain this runtime getter.
 - **Formal Classification**: The staging binaries are **STALE**.
-- **Action Policy**: In strict adherence to release safety rules ("Do not rebuild or replace binaries without authorization"), the staging binaries have NOT been overwritten or rebuilt. A fresh production compilation (`npm run build:release`) must be authorized prior to public distribution.
+- **Action Policy**: In strict adherence to release safety rules ("Do not rebuild or replace binaries without authorization"), the staging binaries have NOT been overwritten or rebuilt. A fresh production compilation (`npm run build && npm run build:electron && npx electron-builder --win --x64`) from the authoritative HEAD (`eb806cc`) must be authorized prior to release distribution.
 
 ---
 
@@ -64,16 +65,18 @@ Get-AuthenticodeSignature -FilePath "release/staging/v2.0.0/Harmoniq 2.0.0.exe"
 # Result: Status: NotSigned, SignatureType: None, SignerCertificate: $null
 ```
 
-### Clarification of Certificate Types:
-- The binaries are **completely unsigned** (`NotSigned`). They are NOT self-signed, NOT test-signed, and NOT signed with an Authenticode certificate.
-- When downloaded via a web browser, Windows SmartScreen will display an "Unknown Publisher" protection banner.
-- **Remediation Path**: To establish SmartScreen trust, the binaries must be signed with a digital code-signing certificate issued by a publicly trusted Certificate Authority (CA):
-  - **Standard Code Signing (OV)**: Authenticates organizational identity; builds SmartScreen reputation over time based on download volume and telemetry.
-  - **Extended Validation (EV)**: Involves rigorous hardware-token vetting; provides immediate SmartScreen reputation without building trust over time.
-  - *Correction*: EV signing is NOT mandatory for code authenticity; standard OV signing is fully recognized by Windows Authenticode.
+- **Actual Status**: **UNSIGNED** (`Status: NotSigned`).
+- **Windows SmartScreen Impact**: Will prompt an "Unknown Publisher" protection banner upon download/execution.
 
 ---
 
-## 4. AUDIT CONCLUSION
+## 4. AUDIT CONCLUSION & TIERED DECISION
 
-Both release candidate packages have verified checksums, validated data directory isolation, and verified source traceability. However, because source commit `129d647` modified runtime audio engine code after binary packaging at `059290e`, the staging binaries are classified as **STALE**. Rebuilding production distribution binaries from current HEAD is an explicit deployment requirement prior to public distribution.
+Both release candidate packages have verified checksums, validated data directory isolation, and verified source traceability.
+
+However:
+- The existing staging binaries are **STALE** and omit `getPlaybackRate()` from commit `129d647`.
+- The binaries are **UNSIGNED** and trigger Windows SmartScreen warnings.
+- **Tier 1 (Internal Testing):** Pass.
+- **Tier 2 (Limited Preview):** Conditional Pass (Requires recompilation from HEAD).
+- **Tier 3 (Broad Public Distribution):** Blocked until recompilation from HEAD, Authenticode code signing, and audio parser process isolation are completed.

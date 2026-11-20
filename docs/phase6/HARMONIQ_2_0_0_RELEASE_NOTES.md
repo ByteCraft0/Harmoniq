@@ -104,10 +104,11 @@ Harmoniq 2.0.0 represents a monumental milestone in desktop music playback, unit
 
 ## 7. KNOWN TECHNICAL LIMITATIONS & DISCLOSURES
 
-1. **Stale Staging Binaries**: Candidate executables in `release/staging/v2.0.0/` were compiled from commit `059290e` and do not include the runtime `getPlaybackRate()` method introduced in commit `129d647`. An authorized production rebuild will be executed prior to final public distribution.
-2. **Windows Shared Mode**: Harmoniq operates through the Chromium Web Audio pipeline via WASAPI in Windows Shared Mode. Audio streams are rendered through the Windows audio mixer at your configured endpoint sample rate.
-3. **WMA Audio**: Windows Media Audio (.wma) files are not decoded by Chromium; their metadata can be parsed in the library, but playback is unsupported.
-4. **DRM Protected Media**: Harmoniq does not bypass DRM restrictions on protected streams.
-5. **Code Signing Status**: Staging binaries are currently completely unsigned (`NotSigned`), prompting Windows SmartScreen on first launch until a public CA certificate (OV or EV) is applied.
-6. **Physical Testing Disclosures**: Testing was conducted on a Windows 11 host using automated test suites; continuous 120-minute physical ear listening, dedicated OEM multimedia hardware keys, and native Windows 10 hardware were not physically evaluated.
-7. **Dependency Security Advisories**: 26 advisories exist in `npm audit` (3 Critical in dev/test tools; 2 runtime libraries `music-metadata` and `file-type` with malformed-file DoS risks; 1 native shell `electron`). Pure ESM migration for `music-metadata` is scheduled for a future update.
+1. **Stale Staging Binaries**: Candidate executables in `release/staging/v2.0.0/` were compiled from commit `059290e` and do not include the runtime `getPlaybackRate()` method introduced in commit `129d647`. An authorized production rebuild from HEAD (`eb806cc`) must be executed prior to release distribution.
+2. **Audio Tag Parsing Main Process Execution**: `music-metadata` and `file-type` format sniffing execute on the Electron main process thread without watchdog timeouts. The folder watcher (`chokidar`) automatically triggers parsing when files are added to watched folders. Malformed files can cause the main process to freeze. Process isolation into an Electron `utilityProcess` is scheduled for broad public release.
+3. **Windows Shared Mode**: Harmoniq operates through the Chromium Web Audio pipeline via WASAPI in Windows Shared Mode. Audio streams are rendered through the Windows audio mixer at your configured endpoint sample rate.
+4. **WMA Audio**: Windows Media Audio (.wma) files are not decoded by Chromium; their metadata can be parsed in the library, but playback is unsupported.
+5. **DRM Protected Media**: Harmoniq does not bypass DRM restrictions on protected streams.
+6. **Code Signing Status**: Staging binaries are currently completely unsigned (`Status: NotSigned`), prompting Windows SmartScreen on first launch until a public CA certificate (OV or EV) is applied.
+7. **Physical Testing Disclosures**: Testing was conducted on a Windows 11 host using automated test suites; continuous 120-minute physical ear listening, dedicated OEM multimedia hardware keys, and native Windows 10 hardware were not physically evaluated.
+8. **Dependency Security Advisories**: 26 vulnerable package entries (86 individual advisory instances) exist in `npm audit` (3 Critical in dev tools; 2 runtime libraries with malformed-file DoS risks; 1 native shell with upstream Chromium patches).
