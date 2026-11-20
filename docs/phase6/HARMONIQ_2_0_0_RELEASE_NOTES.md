@@ -44,7 +44,7 @@ Harmoniq 2.0.0 represents a monumental milestone in desktop music playback, unit
 - **Observed Memory Footprint**: Process working set (RSS) remained at ~34.2 MB idle, ~34.5 MB during active DSP playback, and ~31.8 MB when minimized to the tray. V8 heap used was ~4.8 MB.
 - **In-Memory Library Search**: Linear full-text querying across already-indexed memory objects averaged **1.49 ms** for 10,000 tracks and **2.35 ms** for 20,000 tracks. *(Note: Initial disk scanning of physical folders is bound by filesystem I/O speeds).*
 - **Progressive DOM Rendering**: Bounded 150-chunk windowing slices visible track lists in **< 0.02 ms**, maintaining 60 FPS scrolling responsiveness.
-- **Tested Workload Stability**: Under an automated 1,000-transition stress workload, active Web Audio node counts remained invariant at 32 nodes, and heap returned to baseline (4.2 MB) post-garbage-collection. No memory growth was observed under this tested workload.
+- **Tested Workload Stability**: Under an automated 1,000-transition stress workload, active Web Audio node counts remained invariant at 32 nodes, and heap returned to baseline post-garbage-collection. No memory growth was observed under this tested workload.
 
 ---
 
@@ -104,8 +104,10 @@ Harmoniq 2.0.0 represents a monumental milestone in desktop music playback, unit
 
 ## 7. KNOWN TECHNICAL LIMITATIONS & DISCLOSURES
 
-1. **Windows Shared Mode**: Harmoniq operates through the Chromium Web Audio pipeline via WASAPI in Windows Shared Mode. Audio streams are rendered through the Windows audio mixer at your configured endpoint sample rate.
-2. **WMA Audio**: Windows Media Audio (.wma) files are not decoded by Chromium; their metadata can be parsed in the library, but playback is unsupported.
-3. **DRM Protected Media**: Harmoniq does not bypass DRM restrictions on protected streams.
-4. **Code Signing**: Staging binaries are currently unsigned, prompting Windows SmartScreen on first launch until a public CA certificate is applied.
-5. **Physical Testing Disclosures**: Testing was conducted on a Windows 11 host using automated test suites; continuous 120-minute physical ear listening, dedicated OEM multimedia hardware keys, and native Windows 10 hardware were not physically evaluated.
+1. **Stale Staging Binaries**: Candidate executables in `release/staging/v2.0.0/` were compiled from commit `059290e` and do not include the runtime `getPlaybackRate()` method introduced in commit `129d647`. An authorized production rebuild will be executed prior to final public distribution.
+2. **Windows Shared Mode**: Harmoniq operates through the Chromium Web Audio pipeline via WASAPI in Windows Shared Mode. Audio streams are rendered through the Windows audio mixer at your configured endpoint sample rate.
+3. **WMA Audio**: Windows Media Audio (.wma) files are not decoded by Chromium; their metadata can be parsed in the library, but playback is unsupported.
+4. **DRM Protected Media**: Harmoniq does not bypass DRM restrictions on protected streams.
+5. **Code Signing Status**: Staging binaries are currently completely unsigned (`NotSigned`), prompting Windows SmartScreen on first launch until a public CA certificate (OV or EV) is applied.
+6. **Physical Testing Disclosures**: Testing was conducted on a Windows 11 host using automated test suites; continuous 120-minute physical ear listening, dedicated OEM multimedia hardware keys, and native Windows 10 hardware were not physically evaluated.
+7. **Dependency Security Advisories**: 26 advisories exist in `npm audit` (3 Critical in dev/test tools; 2 runtime libraries `music-metadata` and `file-type` with malformed-file DoS risks; 1 native shell `electron`). Pure ESM migration for `music-metadata` is scheduled for a future update.

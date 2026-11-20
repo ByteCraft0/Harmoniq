@@ -3,7 +3,7 @@
 
 - **Application:** Harmoniq Desktop
 - **Version:** 2.0.0
-- **Validation Stage:** Stage 5 — Final Release Certification & Delivery Readiness Gate
+- **Validation Stage:** Stage 5.2 — Final Release Integrity & Security Resolution
 - **Reconciliation Date:** November 20, 2026
 - **Auditor Role:** Production Release Engineer & QA Auditor
 
@@ -15,10 +15,10 @@ The release candidate artifacts residing in `release/staging/v2.0.0/` and the pr
 
 ### Production Release Candidate Manifest (`release/staging/v2.0.0/`)
 
-| Artifact Filename | Version | Architecture | File Size (Bytes) | SHA-256 Checksum | Build Timestamp | Source Commit Traceability | Authenticode Signature Status |
-| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :---: |
-| **`Harmoniq Setup 2.0.0.exe`** | 2.0.0 | x64 | 85,831,955 bytes | `394B216E2B5DCE0F613F0F997AFFF5BCE30B349D0B766B79CEF2CA96A3912704` | 2026-11-20 10:38:34 AM | Commit `059290e` (`build: prepare production distribution artifacts`) | **NotSigned** (Unsigned) |
-| **`Harmoniq 2.0.0.exe`** | 2.0.0 | x64 | 85,502,772 bytes | `705B8FD3FC6E2153A7BC01CBCD73F63AFEC2BEF87D43FDD9774EC0DA2FBCFE36` | 2026-11-20 10:38:36 AM | Commit `059290e` (`build: prepare production distribution artifacts`) | **NotSigned** (Unsigned) |
+| Artifact Filename | Version | Architecture | File Size (Bytes) | SHA-256 Checksum | Build Timestamp | Source Commit Traceability | Authenticode Signature Status | Artifact State |
+| :--- | :---: | :---: | :---: | :--- | :---: | :---: | :---: | :---: |
+| **`Harmoniq Setup 2.0.0.exe`** | 2.0.0 | x64 | 85,831,955 bytes | `394B216E2B5DCE0F613F0F997AFFF5BCE30B349D0B766B79CEF2CA96A3912704` | 2026-11-20 10:38:34 AM | Commit `059290e` (`build: prepare production distribution artifacts`) | **NotSigned** (Unsigned) | **STALE** (Missing `getPlaybackRate`) |
+| **`Harmoniq 2.0.0.exe`** | 2.0.0 | x64 | 85,502,772 bytes | `705B8FD3FC6E2153A7BC01CBCD73F63AFEC2BEF87D43FDD9774EC0DA2FBCFE36` | 2026-11-20 10:38:36 AM | Commit `059290e` (`build: prepare production distribution artifacts`) | **NotSigned** (Unsigned) | **STALE** (Missing `getPlaybackRate`) |
 
 ### Preserved RC1 Baseline Manifest (`release/rc1/`)
 
@@ -27,10 +27,12 @@ The release candidate artifacts residing in `release/staging/v2.0.0/` and the pr
 | **`Harmoniq Setup 2.0.0.exe`** | 2.0.0 | x64 | 85,831,804 bytes | `4BA2B33630143ED9E9E6AE978D66D89E7657B71DEE29BA11C605F6030D18572E` | 2026-11-20 02:52:26 AM | Commit `37c26e0` (`harmoniq-v2.0.0-rc1`) | **NotSigned** (Unsigned) |
 | **`Harmoniq 2.0.0.exe`** | 2.0.0 | x64 | 85,502,623 bytes | `AFBDD73549BD3246FC0C288AEFBD16D714ABFE6703EE1D1EF9234EA225B0CB7E` | 2026-11-20 02:52:27 AM | Commit `37c26e0` (`harmoniq-v2.0.0-rc1`) | **NotSigned** (Unsigned) |
 
-### Source Revision Reconciliation:
+### Source Revision Reconciliation & Staleness Finding:
 - Both staging binaries (`Harmoniq Setup 2.0.0.exe` and `Harmoniq 2.0.0.exe`) were compiled simultaneously at 10:38 AM UTC+5:30 corresponding to commit `059290e7dba0875513ec5be04d674fa89326acf9`, which established the final packaged assets and portable directory precedence.
-- Subsequent commits (`b52b010`, `129d647`, `28036e7`, `ab57d62`, `18f258d`) contributed automated test files and documentation, alongside a minor getter `getPlaybackRate()` in `audioEngine.ts`.
-- In strict adherence to release safety rules ("Never overwrite or rebuild release artifacts without authorization"), the staging binaries have been preserved as tested.
+- In commit `129d647b9b7a2571d49d060429528e9f2fc4995c`, runtime method `public getPlaybackRate(): number` was added to `src/services/audioEngine.ts`.
+- Because this commit postdates `059290e`, the staging binaries in `release/staging/v2.0.0/` do not contain this runtime getter.
+- **Formal Classification**: The staging binaries are **STALE**.
+- **Action Policy**: In strict adherence to release safety rules ("Do not rebuild or replace binaries without authorization"), the staging binaries have NOT been overwritten or rebuilt. A fresh production compilation (`npm run build:release`) must be authorized prior to public distribution.
 
 ---
 
@@ -74,4 +76,4 @@ Get-AuthenticodeSignature -FilePath "release/staging/v2.0.0/Harmoniq 2.0.0.exe"
 
 ## 4. AUDIT CONCLUSION
 
-Both release candidate packages have verified checksums, validated data directory isolation, and verified source traceability. Release artifact integrity is certified.
+Both release candidate packages have verified checksums, validated data directory isolation, and verified source traceability. However, because source commit `129d647` modified runtime audio engine code after binary packaging at `059290e`, the staging binaries are classified as **STALE**. Rebuilding production distribution binaries from current HEAD is an explicit deployment requirement prior to public distribution.
