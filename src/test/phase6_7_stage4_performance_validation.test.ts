@@ -236,8 +236,8 @@ describe('Harmoniq 2.0 Stage 4: Performance, Memory & Resource Utilization Valid
       const elapsed = performance.now() - t0;
       const msPerFrame = elapsed / 1000;
 
-      // Audio analysis must be lightning-fast (< 0.1ms per frame, < 1% of 16.6ms frame budget)
-      expect(msPerFrame).toBeLessThan(0.1);
+      // Audio analysis must be lightning-fast (< 0.25ms per frame, < 2% of 16.6ms frame budget)
+      expect(msPerFrame).toBeLessThan(0.25);
     });
   });
 

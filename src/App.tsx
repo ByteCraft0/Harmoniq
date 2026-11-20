@@ -39,6 +39,7 @@ import { useAssistant } from './hooks/useAssistant';
 import { useDSP } from './context/DSPContext';
 import { audioEngine } from './services/audioEngine';
 import { buildAssistantContext } from './services/assistantContextService';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 
 const MainLayout: React.FC = () => {
   const {
@@ -311,7 +312,14 @@ const MainLayout: React.FC = () => {
           {/* Dynamic Main Page Content with Fluid Page Transition */}
           <main className="flex-1 overflow-hidden bg-[#09090B] relative">
             <div key={activeView} className="h-full w-full animate-page-enter">
-              {renderActiveView()}
+              <ErrorBoundary
+                key={activeView}
+                fallbackTitle="View Unavailable"
+                fallbackDescription="An unexpected error occurred while loading this view. Audio playback and queue remain active."
+                onReset={() => setActiveView('home')}
+              >
+                {renderActiveView()}
+              </ErrorBoundary>
             </div>
           </main>
 

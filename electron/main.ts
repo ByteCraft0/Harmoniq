@@ -2215,8 +2215,10 @@ function setupIpc() {
         query: '',
         filter: 'all',
         results: [],
+        localResults: [],
         providerResponses: {},
         totalResults: 0,
+        cached: false,
         searchedAt: Date.now(),
       };
     }
@@ -2701,8 +2703,10 @@ function setupIpc() {
       query: cleanQ,
       filter,
       results: deduplicated,
+      localResults: [],
       providerResponses,
       totalResults: deduplicated.length,
+      cached: false,
       searchedAt: Date.now(),
     };
   });

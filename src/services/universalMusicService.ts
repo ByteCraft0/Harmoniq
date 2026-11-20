@@ -561,21 +561,61 @@ export class UniversalMusicService {
     // 1. Electron Main Process IPC Fast-Path (if running in desktop host)
     if (typeof window !== 'undefined' && (window as any).harmoniqApi?.universalSearch) {
       try {
-        const ipcResponse = await (window as any).harmoniqApi.universalSearch({
-          query: cleanQ,
-          filter,
-          limit: options?.limit || 25,
-          jamendoClientId: this.getJamendoClientId(),
-          spotifyClientId: this.spotifyClientId,
-          youtubeApiKey: this.youtubeApiKey,
-        });
+        const localPromise = (async (): Promise<UnifiedTrack[]> => {
+          const localProvider = this.providers.get('local');
+          if (localProvider && this.enabledProviders.has('local')) {
+            try {
+              const res = await localProvider.search(cleanQ, options);
+              return res?.success && Array.isArray(res.tracks) ? res.tracks : [];
+            } catch {
+              return [];
+            }
+          }
+          return [];
+        })();
 
-        if (ipcResponse && Array.isArray(ipcResponse.results)) {
+        const [ipcResponse, localTracks] = await Promise.all([
+          (window as any).harmoniqApi.universalSearch({
+            query: cleanQ,
+            filter,
+            limit: options?.limit || 25,
+            jamendoClientId: this.getJamendoClientId(),
+            spotifyClientId: this.spotifyClientId,
+            youtubeApiKey: this.youtubeApiKey,
+          }),
+          localPromise,
+        ]);
+
+        if (ipcResponse && typeof ipcResponse === 'object') {
+          const onlineResults: UnifiedTrack[] = Array.isArray(ipcResponse.results) ? ipcResponse.results : [];
+          const finalLocalResults: UnifiedTrack[] =
+            Array.isArray(ipcResponse.localResults) && ipcResponse.localResults.length > 0
+              ? ipcResponse.localResults
+              : localTracks;
+          const providerResponses =
+            ipcResponse.providerResponses && typeof ipcResponse.providerResponses === 'object'
+              ? ipcResponse.providerResponses
+              : {};
+
+          const normalizedResponse: UniversalSearchResponse = {
+            query: typeof ipcResponse.query === 'string' ? ipcResponse.query : cleanQ,
+            filter: ipcResponse.filter || filter,
+            results: onlineResults,
+            localResults: finalLocalResults,
+            providerResponses,
+            totalResults:
+              typeof ipcResponse.totalResults === 'number'
+                ? ipcResponse.totalResults + (finalLocalResults.length > 0 && (!ipcResponse.localResults || ipcResponse.localResults.length === 0) ? finalLocalResults.length : 0)
+                : onlineResults.length + finalLocalResults.length,
+            cached: Boolean(ipcResponse.cached),
+            searchedAt: typeof ipcResponse.searchedAt === 'number' ? ipcResponse.searchedAt : Date.now(),
+          };
+
           this.searchCache.set(cacheKey, {
             timestamp: Date.now(),
-            response: ipcResponse,
+            response: normalizedResponse,
           });
-          return ipcResponse;
+          return normalizedResponse;
         }
       } catch (err: any) {
         if (err?.name === 'AbortError') throw err;

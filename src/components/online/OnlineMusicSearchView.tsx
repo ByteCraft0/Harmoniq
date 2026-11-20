@@ -12,6 +12,7 @@ import { favoritesService } from '../../services/favoritesService';
 import { useToast } from '../../context/ToastContext';
 import { HarmoniqWaveformLoader } from '../brand/HarmoniqWaveformLoader';
 import { HarmoniqEmptyState } from '../brand/HarmoniqEmptyState';
+import { ErrorBoundary } from '../common/ErrorBoundary';
 import {
   Search,
   Globe,
@@ -33,6 +34,7 @@ import {
   CheckCircle2,
   Disc,
   Heart,
+  RefreshCw,
 } from 'lucide-react';
 
 type FilterType = 'all' | 'song' | 'artist' | 'album';
@@ -55,7 +57,7 @@ const POPULAR_SUGGESTIONS = [
   'Chopin',
 ];
 
-export const OnlineMusicSearchView: React.FC = () => {
+const OnlineMusicSearchContent: React.FC = () => {
   const { playTrack, currentTrack, isPlaying, togglePlayPause, addToQueue, playNext } = usePlayer();
   const { toggleFavorite } = useLibrary();
   const { showToast } = useToast();
@@ -73,11 +75,15 @@ export const OnlineMusicSearchView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [resolvingTrackId, setResolvingTrackId] = useState<string | null>(null);
 
+  const searchSeqRef = useRef<number>(0);
   const abortControllerRef = useRef<AbortController | null>(null);
   const debounceTimerRef = useRef<any>(null);
+  const isMountedRef = useRef<boolean>(true);
 
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
@@ -102,6 +108,7 @@ export const OnlineMusicSearchView: React.FC = () => {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    const currentSeq = ++searchSeqRef.current;
     setIsSearching(true);
     setError(null);
 
@@ -112,15 +119,18 @@ export const OnlineMusicSearchView: React.FC = () => {
         limit: 30,
       });
 
-      if (!controller.signal.aborted) {
-        setSearchResponse(resp);
+      // Guard against stale response from earlier search or component unmount
+      if (!isMountedRef.current || currentSeq !== searchSeqRef.current || controller.signal.aborted) {
+        return;
       }
+      setSearchResponse(resp);
     } catch (err: any) {
-      if (err.name !== 'AbortError') {
-        setError(err.message || 'Failed to search universal music catalogs');
+      if (!isMountedRef.current || currentSeq !== searchSeqRef.current) return;
+      if (err?.name !== 'AbortError') {
+        setError(err?.message || 'Failed to search universal music catalogs');
       }
     } finally {
-      if (!controller.signal.aborted) {
+      if (isMountedRef.current && currentSeq === searchSeqRef.current) {
         setIsSearching(false);
       }
     }
@@ -149,22 +159,25 @@ export const OnlineMusicSearchView: React.FC = () => {
     }
   };
 
-  // Combine online and local results into a unified list
+  // Combine online and local results into a unified list safely
   const allTracks = useMemo<UnifiedTrack[]>(() => {
     if (!searchResponse) return [];
-    return [...searchResponse.localResults, ...searchResponse.results];
+    const local = Array.isArray(searchResponse.localResults) ? searchResponse.localResults : [];
+    const online = Array.isArray(searchResponse.results) ? searchResponse.results : [];
+    return [...local, ...online].filter((t): t is UnifiedTrack => Boolean(t && typeof t === 'object' && t.id));
   }, [searchResponse]);
 
-  // Filter by provider
+  // Filter by provider safely
   const filteredTracks = useMemo<UnifiedTrack[]>(() => {
+    if (!Array.isArray(allTracks)) return [];
     if (providerFilter === 'all') return allTracks;
-    return allTracks.filter((t) => t.providerId === providerFilter);
+    return allTracks.filter((t) => t && t.providerId === providerFilter);
   }, [allTracks, providerFilter]);
 
-  // Provider track counts
+  // Provider track counts safely
   const providerCounts = useMemo(() => {
     const counts: Record<string, number> = {
-      all: allTracks.length,
+      all: Array.isArray(allTracks) ? allTracks.length : 0,
       apple: 0,
       audius: 0,
       archive: 0,
@@ -173,20 +186,22 @@ export const OnlineMusicSearchView: React.FC = () => {
       youtube: 0,
       local: 0,
     };
-    for (const t of allTracks) {
-      if (counts[t.providerId] !== undefined) {
-        counts[t.providerId] += 1;
+    if (Array.isArray(allTracks)) {
+      for (const t of allTracks) {
+        if (t && t.providerId && counts[t.providerId] !== undefined) {
+          counts[t.providerId] += 1;
+        }
       }
     }
     return counts;
   }, [allTracks]);
 
-  // Provider response health states
+  // Provider response health states safely
   const providerFailures = useMemo(() => {
-    if (!searchResponse?.providerResponses) return [];
+    if (!searchResponse?.providerResponses || typeof searchResponse.providerResponses !== 'object') return [];
     const fails: { id: string; name: string; error: string }[] = [];
     for (const [id, resp] of Object.entries(searchResponse.providerResponses)) {
-      if (!resp.success && resp.errorMessage) {
+      if (resp && !resp.success && resp.errorMessage) {
         const nameMap: Record<string, string> = {
           apple: 'Apple Music',
           audius: 'Audius',
@@ -199,7 +214,7 @@ export const OnlineMusicSearchView: React.FC = () => {
         fails.push({
           id,
           name: nameMap[id] || id,
-          error: resp.errorMessage,
+          error: String(resp.errorMessage),
         });
       }
     }
@@ -647,10 +662,10 @@ export const OnlineMusicSearchView: React.FC = () => {
                     {/* Metadata */}
                     <div className="min-w-0">
                       <p className="text-xs font-semibold text-[#F5F3FF] truncate group-hover:text-violet-300 transition">
-                        {item.title}
+                        {item.title || 'Untitled Track'}
                       </p>
                       <p className="text-[11px] text-[#A1A1AA] truncate mt-0.5">
-                        {item.artist} {item.album ? `• ${item.album}` : ''}
+                        {item.artist || 'Unknown Artist'} {item.album ? `• ${item.album}` : ''}
                       </p>
 
                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
@@ -851,7 +866,40 @@ export const OnlineMusicSearchView: React.FC = () => {
             })}
           </div>
         </div>
+      ) : error ? (
+        /* State 6: Network / API Error */
+        <div className="py-16">
+          <div className="max-w-md mx-auto p-8 rounded-3xl bg-[#14141B] border border-red-900/40 text-center space-y-5 shadow-2xl">
+            <div className="w-14 h-14 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 mx-auto">
+              <AlertCircle size={28} />
+            </div>
+            <div className="space-y-1.5">
+              <h3 className="text-base font-bold text-[#F5F3FF]">Universal Music Search Failed</h3>
+              <p className="text-xs text-[#A1A1AA] leading-relaxed">{error}</p>
+            </div>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                onClick={() => executeSearch(query, filter)}
+                className="px-4 py-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-semibold text-xs rounded-xl transition shadow-md flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw size={14} />
+                <span>Retry Search</span>
+              </button>
+              <button
+                onClick={() => {
+                  setQuery('');
+                  setSearchResponse(null);
+                  setError(null);
+                }}
+                className="px-4 py-2 bg-[#1B1B24] hover:bg-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] border border-[#272733] text-xs font-semibold rounded-xl transition cursor-pointer"
+              >
+                Clear Search
+              </button>
+            </div>
+          </div>
+        </div>
       ) : query.trim() ? (
+        /* State 4: No Results Found */
         <div className="py-16">
           <HarmoniqEmptyState
             type="empty_search"
@@ -977,5 +1025,20 @@ export const OnlineMusicSearchView: React.FC = () => {
         </div>
       )}
     </div>
+  );
+};
+
+export const OnlineMusicSearchView: React.FC = () => {
+  const [resetKey, setResetKey] = useState(0);
+
+  return (
+    <ErrorBoundary
+      key={resetKey}
+      fallbackTitle="Universal Music Temporarily Unavailable"
+      fallbackDescription="An unexpected error occurred in Universal Music search. Your audio playback and queue continue uninterrupted."
+      onReset={() => setResetKey((k) => k + 1)}
+    >
+      <OnlineMusicSearchContent />
+    </ErrorBoundary>
   );
 };
