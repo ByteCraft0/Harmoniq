@@ -97,7 +97,7 @@
     "windows"
   ],
   "author": "Harmoniq Audio Systems",
-  "license": "MIT",
+  "license": "UNLICENSED",
   "dependencies": {
     "chokidar": "^6.0.0",
     "colorthief": "^3.5.0",
