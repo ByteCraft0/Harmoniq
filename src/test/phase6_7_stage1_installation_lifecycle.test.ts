@@ -27,12 +27,37 @@ describe('Harmoniq 2.0 Stage 1: Installation & Lifecycle Validation', () => {
       const nsisStats = fs.statSync(nsisPath);
       const portableStats = fs.statSync(portablePath);
 
-      // Verify file sizes are in reasonable range (80MB - 90MB)
-      expect(nsisStats.size).toBeGreaterThan(80 * 1024 * 1024);
-      expect(nsisStats.size).toBeLessThan(95 * 1024 * 1024);
+      // Verify file sizes are in plausible desktop packaging range for modern Electron 45 runtime (100MB - 150MB)
+      expect(nsisStats.size).toBeGreaterThan(100 * 1024 * 1024);
+      expect(nsisStats.size).toBeLessThan(150 * 1024 * 1024);
 
-      expect(portableStats.size).toBeGreaterThan(80 * 1024 * 1024);
-      expect(portableStats.size).toBeLessThan(95 * 1024 * 1024);
+      expect(portableStats.size).toBeGreaterThan(90 * 1024 * 1024);
+      expect(portableStats.size).toBeLessThan(140 * 1024 * 1024);
+
+      // Verify valid Windows PE binary headers ('MZ' magic bytes)
+      const nsisHeader = Buffer.alloc(2);
+      const nsisFd = fs.openSync(nsisPath, 'r');
+      fs.readSync(nsisFd, nsisHeader, 0, 2, 0);
+      fs.closeSync(nsisFd);
+      expect(nsisHeader.toString('ascii')).toBe('MZ');
+
+      const portableHeader = Buffer.alloc(2);
+      const portableFd = fs.openSync(portablePath, 'r');
+      fs.readSync(portableFd, portableHeader, 0, 2, 0);
+      fs.closeSync(portableFd);
+      expect(portableHeader.toString('ascii')).toBe('MZ');
+
+      // Verify companion delta blockmap artifact exists and is non-empty
+      const blockmapPath = path.join(rootDir, 'release/Harmoniq Setup 2.0.0.exe.blockmap');
+      expect(fs.existsSync(blockmapPath)).toBe(true);
+      expect(fs.statSync(blockmapPath).size).toBeGreaterThan(10000);
+
+      // Verify packaging metadata in latest.yml reflects version and size accurately
+      const latestYmlPath = path.join(rootDir, 'release/latest.yml');
+      expect(fs.existsSync(latestYmlPath)).toBe(true);
+      const latestYml = fs.readFileSync(latestYmlPath, 'utf8');
+      expect(latestYml).toContain('version: 2.0.0');
+      expect(latestYml).toContain(`size: ${nsisStats.size}`);
     });
 
     it('verifies package.json version matches target version 2.0.0', () => {

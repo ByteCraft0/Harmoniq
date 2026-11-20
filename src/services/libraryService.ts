@@ -13,6 +13,7 @@ export class LibraryService {
   private artworkByAlbum: Map<string, string> = new Map();
 
   private tracks: Map<string, TrackMetadata> = new Map();
+  private searchFields: Map<string, string[]> = new Map();
   private folders: Set<string> = new Set();
   private playlists: Map<string, Playlist> = new Map();
   private isScanning = false;
@@ -125,31 +126,59 @@ export class LibraryService {
   }
 
   // Add tracks in batch (efficient for 10,000+ tracks)
+  private computeSearchFields(t: TrackMetadata): string[] {
+    const raw = [
+      t.title,
+      t.artist,
+      t.album,
+      t.albumArtist,
+      t.genre,
+      t.codec,
+      t.container,
+      t.fileName,
+    ];
+    const fields: string[] = [];
+    for (let i = 0; i < raw.length; i++) {
+      const v = raw[i];
+      if (typeof v === 'string') {
+        const trimmed = v.trim();
+        if (trimmed.length > 0) {
+          fields.push(trimmed.toLowerCase());
+        }
+      }
+    }
+    return fields;
+  }
+
   public addTracks(newTracks: TrackMetadata[]): void {
     const now = Date.now();
     for (const track of newTracks) {
       if (!track || !track.id) continue;
       const existing = this.tracks.get(track.id);
-      if (existing) {
-        // Preserve user data across rescans
-        track.playCount = existing.playCount;
-        track.isFavorite = existing.isFavorite;
-        track.lastPlayed = existing.lastPlayed;
-        track.resumePosition = existing.resumePosition;
-        track.customPlaybackSpeed = existing.customPlaybackSpeed;
-        track.dateAdded = existing.dateAdded ?? now;
-      } else {
-        track.dateAdded = track.dateAdded ?? now;
-      }
+      const toStore: TrackMetadata = existing
+        ? {
+            ...track,
+            playCount: existing.playCount,
+            isFavorite: existing.isFavorite,
+            lastPlayed: existing.lastPlayed,
+            resumePosition: existing.resumePosition,
+            customPlaybackSpeed: existing.customPlaybackSpeed,
+            dateAdded: existing.dateAdded ?? now,
+          }
+        : {
+            ...track,
+            dateAdded: track.dateAdded ?? now,
+          };
 
       // Share identical artwork strings between tracks of one album (big memory/disk saving)
-      if (track.artworkDataUrl) {
-        const key = albumKeyOf(track);
+      if (toStore.artworkDataUrl) {
+        const key = albumKeyOf(toStore);
         const known = this.artworkByAlbum.get(key);
-        if (known === track.artworkDataUrl) track.artworkDataUrl = known;
-        else if (!known) this.artworkByAlbum.set(key, track.artworkDataUrl);
+        if (known === toStore.artworkDataUrl) toStore.artworkDataUrl = known;
+        else if (!known) this.artworkByAlbum.set(key, toStore.artworkDataUrl);
       }
-      this.tracks.set(track.id, track);
+      this.tracks.set(toStore.id, toStore);
+      this.searchFields.set(toStore.id, this.computeSearchFields(toStore));
     }
     this.invalidate();
   }
@@ -161,6 +190,7 @@ export class LibraryService {
     for (const [id, t] of this.tracks) {
       if (!keepIds.has(id) && normPath(t.filePath).startsWith(prefix)) {
         this.tracks.delete(id);
+        this.searchFields.delete(id);
         removed++;
       }
     }
@@ -179,19 +209,52 @@ export class LibraryService {
   public updateTrack(track: TrackMetadata): void {
     if (!track || !track.id) return;
     const existing = this.tracks.get(track.id);
-    if (existing) {
-      track.playCount = existing.playCount;
-      track.isFavorite = existing.isFavorite;
-      track.lastPlayed = existing.lastPlayed;
-      track.resumePosition = existing.resumePosition;
-      track.customPlaybackSpeed = existing.customPlaybackSpeed;
-      track.dateAdded = existing.dateAdded;
+    const toStore: TrackMetadata = existing
+      ? {
+          ...track,
+          playCount: existing.playCount,
+          isFavorite: existing.isFavorite,
+          lastPlayed: existing.lastPlayed,
+          resumePosition: existing.resumePosition,
+          customPlaybackSpeed: existing.customPlaybackSpeed,
+          dateAdded: existing.dateAdded,
+        }
+      : { ...track };
+
+    if (toStore.artworkDataUrl) {
+      const key = albumKeyOf(toStore);
+      this.artworkByAlbum.set(key, toStore.artworkDataUrl);
     }
-    if (track.artworkDataUrl) {
-      const key = albumKeyOf(track);
-      this.artworkByAlbum.set(key, track.artworkDataUrl);
+    this.tracks.set(toStore.id, toStore);
+    this.searchFields.set(toStore.id, this.computeSearchFields(toStore));
+    this.invalidate();
+    this.emit('data');
+  }
+
+  public updateTracks(tracksToUpdate: TrackMetadata[]): void {
+    if (!tracksToUpdate || tracksToUpdate.length === 0) return;
+    for (const track of tracksToUpdate) {
+      if (!track || !track.id) continue;
+      const existing = this.tracks.get(track.id);
+      const toStore: TrackMetadata = existing
+        ? {
+            ...track,
+            playCount: existing.playCount,
+            isFavorite: existing.isFavorite,
+            lastPlayed: existing.lastPlayed,
+            resumePosition: existing.resumePosition,
+            customPlaybackSpeed: existing.customPlaybackSpeed,
+            dateAdded: existing.dateAdded,
+          }
+        : { ...track };
+
+      if (toStore.artworkDataUrl) {
+        const key = albumKeyOf(toStore);
+        this.artworkByAlbum.set(key, toStore.artworkDataUrl);
+      }
+      this.tracks.set(toStore.id, toStore);
+      this.searchFields.set(toStore.id, this.computeSearchFields(toStore));
     }
-    this.tracks.set(track.id, track);
     this.invalidate();
     this.emit('data');
   }
@@ -201,6 +264,7 @@ export class LibraryService {
     for (const [id, t] of this.tracks) {
       if (normPath(t.filePath) === norm) {
         this.tracks.delete(id);
+        this.searchFields.delete(id);
         this.invalidate();
         this.emit('data');
         return true;
@@ -213,6 +277,7 @@ export class LibraryService {
     let count = 0;
     for (const id of trackIds) {
       if (this.tracks.delete(id)) {
+        this.searchFields.delete(id);
         count++;
       }
     }
@@ -399,20 +464,51 @@ export class LibraryService {
     return Array.from(rootNodes.values()).sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  /**
+   * Clears in-memory tracks, search index, and artwork cache.
+   * Intentionally retains user configured music folders and custom playlists
+   * so user setup and folder monitoring configurations are preserved.
+   */
+  public clear(): void {
+    this.tracks.clear();
+    this.searchFields.clear();
+    this.artworkByAlbum.clear();
+    this.invalidate();
+    this.emit('data');
+  }
+
+  public rebuildSearchIndex(): void {
+    this.searchFields.clear();
+    for (const [id, track] of this.tracks) {
+      this.searchFields.set(id, this.computeSearchFields(track));
+    }
+  }
+
+  public getSearchIndexSize(): number {
+    return this.searchFields.size;
+  }
+
+  public hasSearchIndexEntry(id: string): boolean {
+    return this.searchFields.has(id);
+  }
+
+  public getSearchIndexEntry(id: string): string[] | undefined {
+    return this.searchFields.get(id);
+  }
+
   // Fast Full-Text & Field Search (Search 10k tracks in < 15ms)
   public searchTracks(query: string): TrackMetadata[] {
     const q = query.trim().toLowerCase();
     if (!q) return this.getAllTracks();
 
     const results: TrackMetadata[] = [];
-    for (const track of this.tracks.values()) {
-      if (
-        (track.title || '').toLowerCase().includes(q) ||
-        (track.artist || '').toLowerCase().includes(q) ||
-        (track.album || '').toLowerCase().includes(q) ||
-        (track.genre && track.genre.toLowerCase().includes(q)) ||
-        (track.codec || '').toLowerCase().includes(q)
-      ) {
+    for (const [id, track] of this.tracks) {
+      let fields = this.searchFields.get(id);
+      if (fields === undefined) {
+        fields = this.computeSearchFields(track);
+        this.searchFields.set(id, fields);
+      }
+      if (fields.some((field) => field.includes(q))) {
         results.push(track);
       }
     }
@@ -651,6 +747,7 @@ export class LibraryService {
     const artworks: Record<string, string> = data.artworks && typeof data.artworks === 'object' ? data.artworks : {};
     if (Array.isArray(data.tracks)) {
       this.tracks.clear();
+      this.searchFields.clear();
       this.artworkByAlbum.clear();
       for (const t of data.tracks) {
         if (!t || !t.id) continue;
@@ -662,6 +759,7 @@ export class LibraryService {
           this.artworkByAlbum.set(albumKeyOf(t), t.artworkDataUrl);
         }
         this.tracks.set(t.id, t);
+        this.searchFields.set(t.id, this.computeSearchFields(t));
       }
       this.invalidate();
     }

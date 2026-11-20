@@ -124,7 +124,7 @@ You can start by clicking: [Open Equalizer Studio] or check your output in [Open
 
     it('cleans markdown symbols and bracketed actions before speech synthesis', () => {
       let spokenText = '';
-      const mockUtterance = vi.fn().mockImplementation((text: string) => {
+      const mockUtterance = vi.fn().mockImplementation(function(text: string) {
         spokenText = text;
         return {
           text,

@@ -96,20 +96,24 @@ function createMockAudioContext() {
   } as any;
 }
 
-(globalThis as any).AudioContext = vi.fn(() => createMockAudioContext());
-(globalThis as any).Audio = vi.fn().mockImplementation(() => ({
-  addEventListener: vi.fn(),
-  removeEventListener: vi.fn(),
-  play: vi.fn().mockResolvedValue(undefined),
-  pause: vi.fn(),
-  load: vi.fn(),
-  src: '',
-  currentTime: 0,
-  duration: 200,
-  volume: 1,
-  muted: false,
-  playbackRate: 1,
-}));
+(globalThis as any).AudioContext = vi.fn(function() {
+  return createMockAudioContext();
+});
+(globalThis as any).Audio = vi.fn().mockImplementation(function() {
+  return {
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    play: vi.fn().mockResolvedValue(undefined),
+    pause: vi.fn(),
+    load: vi.fn(),
+    src: '',
+    currentTime: 0,
+    duration: 200,
+    volume: 1,
+    muted: false,
+    playbackRate: 1,
+  };
+});
 
 describe('Phase 5B.7: Final Audio Architecture Audit & Validation', () => {
   beforeEach(async () => {
