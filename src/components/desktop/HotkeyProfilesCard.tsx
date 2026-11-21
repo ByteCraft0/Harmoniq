@@ -30,8 +30,8 @@ import {
 } from '../../services/shortcutService';
 
 export const HotkeyProfilesCard: React.FC = () => {
-  const [profiles, setProfiles] = useState<HotkeyProfile[]>([]);
-  const [activeProfile, setActiveProfile] = useState<HotkeyProfile | null>(null);
+  const [profiles, setProfiles] = useState<HotkeyProfile[]>(() => hotkeyProfileService.getProfiles());
+  const [activeProfile, setActiveProfile] = useState<HotkeyProfile | null>(() => hotkeyProfileService.getActiveProfile());
   const [recordingAction, setRecordingAction] = useState<ShortcutAction | null>(null);
   const [recordingKey, setRecordingKey] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -160,15 +160,15 @@ export const HotkeyProfilesCard: React.FC = () => {
   const getScenarioIcon = (scenario: HotkeyScenario) => {
     switch (scenario) {
       case 'audiophile':
-        return <Headphones size={13} className="text-violet-400" />;
+        return <Headphones size={13} className="text-[#A78BFA]" />;
       case 'gaming':
-        return <Gamepad2 size={13} className="text-emerald-400" />;
+        return <Gamepad2 size={13} className="text-[#C4B5FD]" />;
       case 'laptop':
-        return <Laptop size={13} className="text-amber-400" />;
+        return <Laptop size={13} className="text-[#8B5CF6]" />;
       case 'mediakey':
-        return <Shield size={13} className="text-cyan-400" />;
+        return <Shield size={13} className="text-[#A78BFA]" />;
       default:
-        return <Layers size={13} className="text-[var(--accent-dynamic)]" />;
+        return <Layers size={13} className="text-[#8B5CF6]" />;
     }
   };
 
@@ -229,41 +229,73 @@ export const HotkeyProfilesCard: React.FC = () => {
         <label className="text-[10px] uppercase font-bold text-[#A1A1AA] tracking-wider font-mono-numbers">
           Active Profile:
         </label>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
           {profiles.map((p) => {
             const isSelected = activeProfile?.id === p.id;
             return (
               <button
                 key={p.id}
                 onClick={() => handleSelectProfile(p.id)}
-                className={`p-2.5 rounded-xl border text-left flex flex-col justify-between transition-all ${
+                className={`p-3 rounded-xl border text-left flex flex-col justify-between min-w-0 w-full min-h-[94px] transition-all relative group overflow-hidden ${
                   isSelected
-                    ? 'bg-[#181824] border-[var(--accent-dynamic)] shadow-glow-sm'
+                    ? 'bg-[#181824] border-[#8B5CF6] shadow-[0_0_15px_rgba(139,92,246,0.18)]'
                     : 'bg-[#0D0D12] border-[#272733] hover:border-[#38384A]'
                 }`}
               >
-                <div className="flex items-center justify-between w-full mb-1">
-                  <div className="flex items-center gap-1.5">
-                    {getScenarioIcon(p.scenario)}
-                    <span className="text-xs font-bold text-[#F5F3FF] truncate">{p.name}</span>
-                  </div>
-                  {isSelected && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-[var(--accent-dynamic)] shrink-0" />
-                  )}
-                </div>
-                <div className="flex items-center justify-between w-full text-[9px] text-[#71717A] font-mono-numbers">
-                  <span className="capitalize">{p.scenario}</span>
-                  {!p.isBuiltIn && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteProfile(p.id);
-                      }}
-                      title="Delete profile"
-                      className="hover:text-rose-400 p-0.5"
+                {/* Top Row: Scenario Icon & Tag + Active Indicator / Delete */}
+                <div className="flex items-center justify-between w-full min-w-0 mb-1.5 gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <div
+                      className={`p-1 rounded-md shrink-0 ${
+                        isSelected ? 'text-[#A78BFA] bg-violet-950/60' : 'text-[#71717A] bg-white/5'
+                      }`}
                     >
-                      <Trash2 size={11} />
-                    </button>
+                      {getScenarioIcon(p.scenario)}
+                    </div>
+                    <span className="text-[10px] font-mono-numbers text-[#71717A] uppercase tracking-wider truncate">
+                      {p.scenario}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {isSelected ? (
+                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[8.5px] font-bold uppercase tracking-wider bg-violet-500/15 border border-violet-500/40 text-[#A78BFA]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] shadow-[0_0_6px_rgba(139,92,246,0.8)]" />
+                        Active
+                      </span>
+                    ) : !p.isBuiltIn ? (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteProfile(p.id);
+                        }}
+                        title="Delete profile"
+                        className="hover:text-rose-400 p-0.5 text-[#71717A] rounded hover:bg-white/5 transition-colors"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Middle: Profile Name (constrained, wraps gracefully up to 2 lines, no bleed) */}
+                <div className="my-auto min-w-0 w-full py-0.5">
+                  <span
+                    className={`text-xs font-bold leading-snug block break-words line-clamp-2 ${
+                      isSelected ? 'text-[#F5F3FF]' : 'text-[#D4D4D8] group-hover:text-[#F5F3FF]'
+                    }`}
+                    title={p.name}
+                  >
+                    {p.name}
+                  </span>
+                </div>
+
+                {/* Bottom Row: Preset classification */}
+                <div className="flex items-center justify-between w-full min-w-0 mt-2 pt-1 border-t border-white/[0.04] text-[9.5px] text-[#71717A] font-mono-numbers">
+                  <span className="truncate">
+                    {p.isBuiltIn ? 'Built-in Preset' : 'Custom Profile'}
+                  </span>
+                  {isSelected && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] shrink-0" />
                   )}
                 </div>
               </button>

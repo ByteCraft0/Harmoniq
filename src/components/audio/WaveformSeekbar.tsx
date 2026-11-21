@@ -105,7 +105,7 @@ export const WaveformSeekbar: React.FC<WaveformSeekbarProps> = ({
       title="Click or drag to seek with precision"
     >
       {/* Waveform Bars Container */}
-      <div className="w-full h-full flex items-center justify-between gap-[1.5px] px-1">
+      <div className="w-full h-full flex items-center justify-between gap-[1.5px] px-1 overflow-hidden min-w-0">
         {peaks.map((peak, index) => {
           const barRatio = index / barCount;
           const isPlayed = barRatio <= progressRatio;
@@ -117,7 +117,7 @@ export const WaveformSeekbar: React.FC<WaveformSeekbarProps> = ({
           return (
             <div
               key={index}
-              className="flex-1 rounded-full transition-all duration-75"
+              className="flex-1 min-w-0 rounded-full transition-all duration-75"
               style={{
                 height: `${barHeightPercent}%`,
                 backgroundColor: isPlayed
@@ -137,7 +137,7 @@ export const WaveformSeekbar: React.FC<WaveformSeekbarProps> = ({
       <div
         className="absolute top-0 bottom-0 w-[2px] bg-white pointer-events-none shadow-md transition-all duration-75"
         style={{
-          left: `${progressRatio * 100}%`,
+          left: `${Math.max(0, Math.min(100, progressRatio * 100))}%`,
           boxShadow: '0 0 8px #FFF, 0 0 14px var(--accent-dynamic)',
         }}
       >
@@ -153,7 +153,7 @@ export const WaveformSeekbar: React.FC<WaveformSeekbarProps> = ({
           />
           <div
             className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#181822] border border-[#272733] text-[10px] font-mono-numbers font-bold text-[#F5F3FF] shadow-xl pointer-events-none z-30"
-            style={{ left: `${hoverPosition * 100}%` }}
+            style={{ left: `clamp(24px, ${hoverPosition * 100}%, calc(100% - 24px))` }}
           >
             {formatTime(hoverTime)}
           </div>

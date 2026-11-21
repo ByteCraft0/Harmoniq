@@ -125,6 +125,7 @@ class AudioEngine {
   private analyserNode: AnalyserNode | null = null;
   private dspBypassGain: GainNode | null = null;
   private dspActiveGain: GainNode | null = null;
+  private subBandFreqBuffer: Uint8Array | null = null;
 
   // Mid-Side Stereo Width Processor
   private stereoWidthProcessor: StereoWidthProcessor | null = null;
@@ -917,23 +918,33 @@ class AudioEngine {
   }
 
   public pause(): void {
-    if (!this.activeDeck) return;
-    this.activeDeck.element.pause();
-    if (this.isTransitioning) {
-      this.cancelCrossfade();
+    if (this.activeDeck) {
+      this.activeDeck.element.pause();
+      if (this.isTransitioning) {
+        this.cancelCrossfade();
+      }
+    }
+    // Suspend AudioContext to release hardware audio thread and reduce idle CPU to zero
+    if (this.audioCtx && this.audioCtx.state === 'running' && typeof this.audioCtx.suspend === 'function') {
+      this.audioCtx.suspend().catch(() => {});
     }
     this.emitStatus();
   }
 
   public stop(): void {
-    if (!this.activeDeck) return;
-    this.activeDeck.element.pause();
-    this.activeDeck.element.currentTime = 0;
-    if (this.isTransitioning) {
-      this.cancelCrossfade();
-    } else if (this.standbyDeck) {
-      this.standbyDeck.element.pause();
-      this.standbyDeck.element.currentTime = 0;
+    if (this.activeDeck) {
+      this.activeDeck.element.pause();
+      this.activeDeck.element.currentTime = 0;
+      if (this.isTransitioning) {
+        this.cancelCrossfade();
+      } else if (this.standbyDeck) {
+        this.standbyDeck.element.pause();
+        this.standbyDeck.element.currentTime = 0;
+      }
+    }
+    // Suspend AudioContext to release hardware audio thread and reduce idle CPU to zero
+    if (this.audioCtx && this.audioCtx.state === 'running' && typeof this.audioCtx.suspend === 'function') {
+      this.audioCtx.suspend().catch(() => {});
     }
     this.emitStatus();
   }
@@ -949,6 +960,11 @@ class AudioEngine {
     const dur = this.activeDeck.element.duration;
     const max = Number.isFinite(dur) && dur > 0 ? dur : Infinity;
     this.activeDeck.element.currentTime = Math.max(0, Math.min(seconds, max));
+
+    if (this.isPlaying() && this.audioCtx && this.audioCtx.state === 'suspended' && typeof this.audioCtx.resume === 'function') {
+      this.audioCtx.resume().catch(() => {});
+    }
+
     this.emitStatus();
   }
 
@@ -1385,6 +1401,12 @@ class AudioEngine {
 
   // Real-time FFT Frequency Data for Visualizer
   public getFrequencyData(array: any): void {
+    if (!this.isPlaying()) {
+      if (array && typeof array.fill === 'function') {
+        array.fill(0);
+      }
+      return;
+    }
     if (this.analyserNode) {
       this.analyserNode.getByteFrequencyData(array);
     }
@@ -1392,6 +1414,12 @@ class AudioEngine {
 
   // Real-time Oscillogram Time-Domain Data for Waveform Visualizer
   public getTimeDomainData(array: any): void {
+    if (!this.isPlaying()) {
+      if (array && typeof array.fill === 'function') {
+        array.fill(128);
+      }
+      return;
+    }
     if (this.analyserNode) {
       this.analyserNode.getByteTimeDomainData(array);
     }
@@ -1493,13 +1521,16 @@ class AudioEngine {
     presence: number;
     brilliance: number;
   } {
-    if (!this.analyserNode) {
+    if (!this.analyserNode || !this.isPlaying()) {
       return { subBass: 0, bass: 0, lowMid: 0, mid: 0, upperMid: 0, presence: 0, brilliance: 0 };
     }
 
     const binCount = this.analyserNode.frequencyBinCount;
-    const freqData = new Uint8Array(binCount);
-    this.analyserNode.getByteFrequencyData(freqData);
+    if (!this.subBandFreqBuffer || this.subBandFreqBuffer.length !== binCount) {
+      this.subBandFreqBuffer = new Uint8Array(binCount);
+    }
+    const freqData = this.subBandFreqBuffer;
+    this.analyserNode.getByteFrequencyData(freqData as any);
 
     const sampleRate = this.audioCtx?.sampleRate || 44100;
     const nyquist = sampleRate / 2;

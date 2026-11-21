@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { audioEngine } from '../../services/audioEngine';
+import { windowLifecycleService } from '../../services/windowLifecycleService';
 import { visualizerSettingsService } from '../../services/visualizerSettingsService';
 import { VisualizerThemeId, VISUALIZER_THEMES } from '../../types/visualizer';
 import { usePlayer } from '../../context/PlayerContext';
@@ -140,7 +141,7 @@ export const FullScreenVisualizer: React.FC<FullScreenVisualizerProps> = ({ onCl
 
     const render = () => {
       if (!isRunning) return;
-      animationFrameRef.current = requestAnimationFrame(render);
+      if (windowLifecycleService.isRenderingSuspended()) return;
 
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
@@ -457,12 +458,35 @@ export const FullScreenVisualizer: React.FC<FullScreenVisualizerProps> = ({ onCl
         ctx.fill();
         ctx.shadowBlur = 0;
       }
+
+      if (isPlaying && !windowLifecycleService.isRenderingSuspended()) {
+        animationFrameRef.current = requestAnimationFrame(render);
+      }
     };
 
-    render();
+    const startRender = () => {
+      if (!isRunning) return;
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      render();
+    };
+
+    startRender();
+
+    const unsubLifecycle = windowLifecycleService.subscribeSuspension((suspended) => {
+      if (!suspended && isPlaying) {
+        startRender();
+      } else if (suspended && animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+    });
 
     return () => {
       isRunning = false;
+      unsubLifecycle();
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }

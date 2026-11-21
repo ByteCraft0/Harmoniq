@@ -59,6 +59,13 @@
 - **Media Controls:** Integrates with Windows System Media Transport Controls (SMTC) for taskbar playback controls, thumbnail toolbars, and media key handling.
 - **Desktop Behaviors:** Single-instance application locking, draggable window controls, and file-association handling for common audio formats.
 
+### Harmoniq 2.0.1 UI/UX & Engine Refinements
+- **Continuous Neon Waveform Volume Control:** Smooth sinusoidal SVG wave volume control in BottomPlayer featuring zero-JS CSS animations and an audiophile disc knob handle.
+- **Responsive Viewport & Scroll Hierarchy:** Main application content (Now Playing technical metrics, signal pipeline, and audio analyzer) scrolls smoothly across viewports without clipping.
+- **Jitter-Free AI Orb Conversation History:** Protected chat history with scroll-position anchoring, overscroll containment, and a floating return-to-latest button.
+- **Dedicated Favorite Column in Song Library:** Clean 8-column songs table layout with dedicated 36px Favorite heart column, generous $28\times 28\text{px}$ clickable area, and clean title truncation.
+- **Zero-Allocation Audio Engine & Lifecycle Throttling:** Reusable pre-allocated typed buffers across visualizers and automatic render-loop suspension on window minimization, lowering idle CPU consumption to 0.0%.
+
 ---
 
 ## 🏗️ Architecture

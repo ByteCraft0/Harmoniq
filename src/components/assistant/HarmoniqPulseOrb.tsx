@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { PulseOrbState } from '../../types/assistant';
 import { orbAudioReactiveService } from '../../services/assistant/orbAudioReactiveService';
 import { colorExtractionService, ExtractedColors } from '../../services/colorExtractionService';
+import { audioEngine } from '../../services/audioEngine';
+import { windowLifecycleService } from '../../services/windowLifecycleService';
 
 interface HarmoniqPulseOrbProps {
   state: PulseOrbState;
@@ -43,14 +45,17 @@ export const HarmoniqPulseOrb: React.FC<HarmoniqPulseOrbProps> = ({
   const stateRef = useRef<PulseOrbState>(state);
   const isHoveredRef = useRef<boolean>(isHovered);
   const reducedMotionRef = useRef<boolean>(reducedMotion);
+  const wakeLoopRef = useRef<() => void>(() => {});
 
   // Sync state refs to avoid restarting the animation loop
   useEffect(() => {
     stateRef.current = state;
+    wakeLoopRef.current();
   }, [state]);
 
   useEffect(() => {
     isHoveredRef.current = isHovered;
+    wakeLoopRef.current();
   }, [isHovered]);
 
   useEffect(() => {
@@ -219,13 +224,69 @@ export const HarmoniqPulseOrb: React.FC<HarmoniqPulseOrbProps> = ({
         }
       }
 
+      // If rendering is suspended (e.g. window minimized or hidden), pause loop immediately
+      if (windowLifecycleService.isRenderingSuspended()) {
+        rafIdRef.current = 0;
+        return;
+      }
+
+      // If audio is paused, not hovered, and not in an interaction state,
+      // once smoothed values decay to resting floor, cleanly pause the loop to achieve 0% idle CPU
+      if (
+        !isMusicActive &&
+        !hovered &&
+        !isInteraction &&
+        metrics.bass <= 0.005 &&
+        metrics.intensity <= 0.005
+      ) {
+        if (glowRef.current) {
+          glowRef.current.style.transform = '';
+          glowRef.current.style.opacity = '0.35';
+        }
+        if (coreCircleRef.current) coreCircleRef.current.setAttribute('r', '15');
+        if (ring1Ref.current) ring1Ref.current.setAttribute('r', '45');
+        if (ring2Ref.current) ring2Ref.current.style.transform = '';
+        if (waveLinesRef.current) waveLinesRef.current.style.transform = '';
+        rafIdRef.current = 0;
+        return;
+      }
+
       rafIdRef.current = requestAnimationFrame(renderLoop);
     };
 
-    // Start single animation loop
-    rafIdRef.current = requestAnimationFrame(renderLoop);
+    const wakeLoop = () => {
+      if (!isMounted) return;
+      if (windowLifecycleService.isRenderingSuspended()) return;
+      if (!rafIdRef.current) {
+        lastTime = performance.now();
+        rafIdRef.current = requestAnimationFrame(renderLoop);
+      }
+    };
+    wakeLoopRef.current = wakeLoop;
 
-    // Window visibility listener: Pause animation frame loop when tab or window is hidden to save battery/CPU
+    // Start initial animation loop if appropriate
+    wakeLoop();
+
+    // Subscribe to audio engine status (wakes loop immediately when playback starts)
+    const unsubAudio = audioEngine.subscribeStatus((status) => {
+      if (status.isPlaying) {
+        wakeLoop();
+      }
+    });
+
+    // Subscribe to window lifecycle suspension (pauses when minimized, wakes when restored)
+    const unsubLifecycle = windowLifecycleService.subscribeSuspension((suspended) => {
+      if (suspended) {
+        if (rafIdRef.current) {
+          cancelAnimationFrame(rafIdRef.current);
+          rafIdRef.current = 0;
+        }
+      } else {
+        wakeLoop();
+      }
+    });
+
+    // Window visibility listener fallback
     const handleVisibilityChange = () => {
       if (document.hidden) {
         if (rafIdRef.current) {
@@ -233,10 +294,7 @@ export const HarmoniqPulseOrb: React.FC<HarmoniqPulseOrbProps> = ({
           rafIdRef.current = 0;
         }
       } else {
-        if (!rafIdRef.current && isMounted) {
-          lastTime = performance.now();
-          rafIdRef.current = requestAnimationFrame(renderLoop);
-        }
+        wakeLoop();
       }
     };
 
@@ -245,6 +303,9 @@ export const HarmoniqPulseOrb: React.FC<HarmoniqPulseOrbProps> = ({
     return () => {
       isMounted = false;
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+      unsubAudio();
+      unsubLifecycle();
+      wakeLoopRef.current = () => {};
       if (rafIdRef.current) {
         cancelAnimationFrame(rafIdRef.current);
         rafIdRef.current = 0;

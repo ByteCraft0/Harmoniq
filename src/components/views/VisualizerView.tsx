@@ -33,9 +33,9 @@ export const VisualizerView: React.FC = () => {
   }
 
   return (
-    <div className="h-full w-full overflow-hidden flex flex-col justify-between select-none relative p-8 max-w-6xl mx-auto">
+    <div className="h-full w-full overflow-y-auto overflow-x-hidden flex flex-col gap-5 select-none relative p-6 sm:p-8 pb-10 max-w-6xl mx-auto scrollbar-thin">
       {/* Top Header / Mode Bar */}
-      <div className="flex items-center justify-between z-20 pb-4 border-b border-[#272733] shrink-0">
+      <div className="flex flex-wrap items-center justify-between z-20 pb-4 border-b border-[#272733] shrink-0 gap-3">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setActiveView('now_playing')}
@@ -58,11 +58,11 @@ export const VisualizerView: React.FC = () => {
         </div>
 
         {/* View Switcher Tabs */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center bg-[#14141B] border border-[#272733] rounded-xl p-0.5 text-xs">
+        <div className="flex items-center gap-3 overflow-x-auto scrollbar-none max-w-full">
+          <div className="flex items-center bg-[#14141B] border border-[#272733] rounded-xl p-0.5 text-xs shrink-0">
             <button
               onClick={() => setActiveTab('advanced')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all whitespace-nowrap ${
                 activeTab === 'advanced'
                   ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
                   : 'text-[#71717A] hover:text-[#A1A1AA]'
@@ -73,7 +73,7 @@ export const VisualizerView: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('circular')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all whitespace-nowrap ${
                 activeTab === 'circular'
                   ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
                   : 'text-[#71717A] hover:text-[#A1A1AA]'
@@ -84,7 +84,7 @@ export const VisualizerView: React.FC = () => {
             </button>
             <button
               onClick={() => setActiveTab('spectrum')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all ${
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-semibold transition-all whitespace-nowrap ${
                 activeTab === 'spectrum'
                   ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
                   : 'text-[#71717A] hover:text-[#A1A1AA]'
@@ -98,7 +98,7 @@ export const VisualizerView: React.FC = () => {
           <button
             onClick={toggleFullscreen}
             title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-            className="p-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
+            className="p-2 rounded-xl bg-[#14141B] hover:bg-[#1B1B24] border border-[#272733] text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors shrink-0"
           >
             {isFullscreen ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
@@ -106,11 +106,11 @@ export const VisualizerView: React.FC = () => {
       </div>
 
       {/* Main Visualizer Stage */}
-      <div className="flex-1 w-full my-auto flex items-center justify-center min-h-0 py-4 relative z-10">
+      <div className="flex-1 w-full my-auto flex items-center justify-center min-h-[280px] max-h-[620px] py-4 relative z-10">
         {activeTab === 'advanced' && (
-          <div className="w-full h-full max-h-[620px]">
+          <div className="w-full h-full min-h-[280px] max-h-[540px]">
             <AdvancedVisualizer
-              height={560}
+              height={480}
               fullscreen={isFullscreen}
               onToggleFullscreen={toggleFullscreen}
               showControlsBar={true}
@@ -119,9 +119,9 @@ export const VisualizerView: React.FC = () => {
         )}
 
         {activeTab === 'circular' && (
-          <div className="w-full h-full max-h-[620px] flex items-center justify-center">
+          <div className="w-full h-full max-h-[540px] flex items-center justify-center">
             <CircularAudioVisualizer
-              size={520}
+              size={460}
               fullscreen={isFullscreen}
               onToggleFullscreen={toggleFullscreen}
             />
@@ -129,8 +129,8 @@ export const VisualizerView: React.FC = () => {
         )}
 
         {activeTab === 'spectrum' && (
-          <div className="w-full h-full max-h-[500px]">
-            <RealTimeFrequencySpectrum height={420} compact={false} />
+          <div className="w-full h-full min-h-[280px] max-h-[480px]">
+            <RealTimeFrequencySpectrum height={400} compact={false} />
           </div>
         )}
       </div>

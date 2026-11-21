@@ -66,7 +66,7 @@ export const QualityBadge: React.FC<QualityBadgeProps> = ({
   const showSpec = !isSmall && Boolean(formatQuickSpec());
 
   const paddingClass = isSmall
-    ? 'px-1.5 h-[18px] text-[8.5px] tracking-wider gap-1'
+    ? 'px-2 h-[18px] text-[8.5px] tracking-wide gap-1.5'
     : size === 'lg'
     ? 'px-3 h-7 text-xs gap-1.5'
     : 'px-2 h-6 text-[10px] gap-1.5';

@@ -1,3 +1,18 @@
+# Harmoniq 2.0.1 — Creative Musical Playback Controls Redesign
+
+## BottomPlayer Creative Instrument Controls
+- **Drum-Based Play/Pause Control (`DrumPlaybackControl.tsx`)**: Replaced generic play/pause button with a miniature acoustic snare drum.
+  - Active playback animates dual hickory drumsticks realistically alternating strikes (0.88s CSS keyframes), emits acoustic ripples across the batter head, displays pause indicator bars, and radiates a subtle violet aura.
+  - Paused playback halts all animations, rests both drumsticks at a natural angle, and displays a crisp violet play triangle glyph.
+  - Full keyboard accessibility (`focus-visible:ring-2 focus-visible:ring-violet-500`, ARIA labels, `aria-pressed`) and `@media (prefers-reduced-motion: reduce)` support.
+- **Trumpet-Based Previous/Next Controls (`TrumpetTrackControl.tsx`)**: Refined to dark brushed champagne brass with muted antique gold highlights, charcoal-black shadows, and subtle violet reflections to harmonize with Harmoniq's interface.
+  - Previous trumpet is flipped horizontally (`scale-x-[-1]`) facing left towards earlier tracks.
+  - Next trumpet points forward facing right with matching dimensions, material, and visual weight.
+  - On hover: Metallic highlights subtly brighten with a soft violet contour glint; background remains unchanged.
+  - On click: Restrained mechanical recoil and piston valve press with tiny, delicate lavender/champagne acoustic wave arcs.
+- **Strict Functionality Preservation**: Zero disruption to audio engine DSP, playback handlers (`togglePlayPause`, `prevTrack`, `nextTrack`), timeline seeking, waveform volume control, or queue management.
+- **Test Suite**: 10 new regression tests in `src/test/instrument_controls.test.tsx` verified; full suite (70 test files, 795 tests) passing with 0 regressions.
+
 # Harmoniq – bug-fix pass
 
 ## Playback / audio engine
@@ -164,6 +179,75 @@
   - Created `src/test/universal_music_phase3.test.ts` (15 comprehensive unit and integration tests).
   - Full test suite: 33 test files, 331 tests passing, 0 failures.
   - Verified `tsc`, `npm run build:electron`, and `npm run build` with zero errors.
+
+### Harmoniq 2.0.1 — Security, Performance & UI Visual Refinement
+
+#### 1. Full Dependency Security Remediation
+- **music-metadata Upgrade**: Migrated to `music-metadata@11.16.1` resolving GHSA-5v7r-6r5c-r473 and GHSA-v6c2-xwv6-8xf7 with module-scoped cached native dynamic `import()` in CommonJS Electron runtime.
+- **Runtime & Toolchain Hardening**: Upgraded Electron to `45.4.1`, Vite to `6.4.6`, and Vitest to `5.1.1`. Resolved all 24 security audit vulnerabilities across production and developer dependencies.
+- **Audit Verification**: Verified `npm audit` and `npm audit --omit=dev` report exactly 0 vulnerabilities.
+
+#### 2. Search Index Multi-Field Consistency
+- **Corpus Architecture**: Migrated from a single space-concatenated string to pre-lowercased searchable field tuples (`title`, `artist`, `album`, `albumArtist`, `genre`, `codec`, `container`, `fileName`).
+- **Eliminated False Positives**: Resolved cross-field matching bugs (e.g. searching "Dark Knight" no longer matches title "Dark" + artist "Knight").
+- **Reactive Mutations**: Hardened all track update methods (`updateTrack`, `updateTracks`, `addTracks`, `clear`) to maintain synchronized search indices without stale entries.
+
+#### 3. Deep CPU & Memory Performance Optimization
+- **Zero-Allocation Typed Audio Buffers**: Replaced per-frame `new Uint8Array()` and `new Float32Array()` instantiations across all visualizers (`AudioVisualizer`, `MiniLiveVisualizer`, `RealTimeFrequencySpectrum`, `AdvancedVisualizer`, `CircularAudioVisualizer`, `FullScreenVisualizer`, `HarmoniqPulseOrb`) with persistent reusable typed arrays, eliminating GC thrashing.
+- **Window Lifecycle Service**: Introduced `windowLifecycleService` monitoring Electron window focus and minimize states. Automatically pauses `requestAnimationFrame` render loops and suspends audio graph rendering when the application is minimized or hidden.
+- **0% Idle CPU**: Reduced minimized/paused CPU utilization from ~9–13% to 0.0% with zero background battery drain.
+
+#### 4. UI Layout Repair & Premium Continuous SVG Volume Wave Redesign
+- **Eliminated Floating Waveform Collision**: Re-architected `NowPlayingView` into natural scrollable flow (`min-h-full flex flex-col gap-6`), items start-aligned, and established a dedicated, authoritative Playback Timeline row (`border-t border-[#272733]/80`) in normal document flow below the spectrum and lyrics grid, permanently eliminating collisions on displays $\le 800\text{px}$ in height.
+- **Removed Duplicate Volume Controls**: Completely removed the redundant inline volume wave from `NowPlayingView`, centralizing volume management into a single persistent control in `BottomPlayer`.
+- **Continuous Neon Waveform Volume Control**: Replaced segmented 5-bar controls with a smooth, flowing sinusoidal SVG wave ($\lambda = 60\text{px}$, $A = 3.2\text{px}$) animated via seamless CSS translation (`@keyframes volume-wave-flow` at $-60\text{px}$, 0% JS overhead) with restrained purple-to-lavender neon glow (`#A855F7` to `#C084FC`).
+- **Audiophile Knob Disc**: Engineered a solid circular white handle disc ($r = 5\text{px}$) with lavender rim, inner dot, and ambient halo. Mapped exact coordinate boundaries (`6 + effectiveVolume * 148`) and dynamic clip rect (`(isMuted || effectiveVolume === 0) ? 0 : handleX`) for 0% wave overshoot.
+- **BottomPlayer Layout Polish**: Sized volume control to `w-[110px]` with subtle vertical divider line separating action icons and volume wave.
+- **Comprehensive Test Suite**: Created `src/test/ui_layout_and_volume_wave.test.ts` (17 tests) and `src/test/cpu_memory_optimization.test.ts` (14 tests). All 66 test suites passing (749/749 tests).
+
+#### 5. UI Vertical Scroll, AI Orb History & Song Library Alignment Repair
+- **Main View Vertical Scroll Resolution**: Re-architected container constraints in `NowPlayingView.tsx` from `min-h-full` to `h-full w-full overflow-y-auto pb-10`, bounded within `App.tsx`'s `min-h-0` flex layout. Content extending below the viewport (such as Specs mode, Source File Stream, and Output Audio Pipeline) can now be smoothly scrolled down and back up with zero clipping by `main.overflow-hidden`.
+- **AI Orb History Scroll Stability**: Replaced un-gated `.scrollIntoView({ behavior: 'smooth' })` with an intelligent, user-aware auto-scroll controller in `HarmoniqAssistantPanel.tsx`. Manual upward scrolling through conversation history is now completely protected against resets, token stream jitter, and speech transcript fluctuations. Added CSS `overscroll-behavior: contain` and a floating "Latest" return button.
+- **Songs Library Favorite Action Alignment**: Redesigned `SongRow.tsx` and `SongTableHeader.tsx` CSS grids to 8 columns (with album) and 7 columns (no album) with an intentional, dedicated 36px Favorite column and 56px index/checkbox column. Sized the favorite action to a comfortable $28\times 28\text{px}$ clickable target (`w-7 h-7`), eliminated title collisions, and ensured graceful title truncation with ellipsis.
+- **Dedicated Regression Suite**: Created `src/test/ui_scroll_orb_history_library_alignment.test.ts` (13 tests). Full project suite: 67 test files, 762/762 passing tests.
+
+#### 6. Premium Equalizer & Audio Effects UI Redesign (Charcoal Black × Muted Violet)
+- **Strict Color System Architecture**: Implemented a disciplined, audiophile two-color design system:
+  - Charcoal Black: `#09090B` (main background), `#111116` (secondary surfaces), `#17171F` (elevated cards), `#20202C` (elevated surfaces), `#292936` and `#343443` (borders).
+  - Muted Violet: `#8B5CF6` (primary), `#A78BFA` (secondary), `#C4B5FD` (soft), `#62518A` (muted), `rgba(139, 92, 246, 0.10)` (subtle background), `rgba(139, 92, 246, 0.18)` (active glow).
+  - Eliminated all off-palette colors (orange, bright neon, blue, pink, high-saturation glows).
+- **Dedicated Six-Section Architecture**:
+  - **Section 1 (Equalizer Header & Tuned Presets)**: Refined title and subtitle, "32-Bit Float DSP" badge, "Reset Flat" button, and master "DSP: ACTIVE" toggle switch. Presets selector styled with 14 tuned acoustic response curves with active curves highlighted in muted violet.
+  - **Section 2 (10-Band Graphic Equalizer with Living Waveforms)**: Clean column layouts for all 10 ISO standard frequency bands (`31Hz`, `62Hz`, `125Hz`, `250Hz`, `500Hz`, `1kHz`, `2kHz`, `4kHz`, `8kHz`, `16kHz`). Each vertical column features frequency-specific sinusoidal wave tracks (from 2 cycles at 31 Hz to 34 cycles at 16 kHz), center 0 dB reference notch, active boost/cut fill, numeric dB readout above, and frequency/range label below. Live audio energy modulation via `audioEngine.getSubBandEnergies()` throttled to ~25fps with `windowLifecycleService.isRenderingSuspended()` protection. Includes interactive combined frequency response curve with Graphic/Parametric mode toggle.
+  - **Section 3 (Main Audio Enhancement Controls)**: Balanced 3-column layout (`grid-cols-1 md:grid-cols-3`):
+    - **Preamp Gain**: Range `-12 dB` to `+12 dB` with calibrated 13-segment studio VU ladder meter and one-click "Reset 0dB".
+    - **Bass Warmth**: Range `0 dB` to `+12 dB` with dynamic 50 Hz low-shelf acoustic resonance curve and subtle bloom gradient.
+    - **Treble Air**: Range `-6 dB` to `+12 dB` with dynamic 10 kHz high-shelf shimmer dispersion wave.
+  - **Section 4 (Advanced DSP Dynamics Processing)**: Dynamic Peak Limiter card with real soft-knee transfer function curve diagram, live gain reduction meter with dB readout (`-X.X dB`), and anti-clipping status.
+  - **Section 5 (Stereo & Spatial Audio Console)**: 12-column grid (`lg:grid-cols-12`):
+    - **Left 7 Columns (`lg:col-span-7`) — Realistic Miniature Vinyl Record Dial (`VinylAudioDial.tsx`)**: Physical miniature vinyl record disc with run-in margin, music tracks with separator gap, dead wax, spiral run-out groove, anisotropic specular light sheen reflections, vintage typography center paper label ("HARMONIQ", "33⅓ RPM • SIDE A", "STEREO", and digital readout), metallic spindle collar with hole, tone-arm pointer needle with violet dot, and 33⅓ RPM playback spin.
+    - **Right 5 Columns (`lg:col-span-5`) — Channel Routing & Balance Console**: Segmented routing buttons (`Stereo`, `Mono`, `Left`, `Right`), balance panning slider with center detent, and phase-aligned panning indicator.
+  - **Section 6 (Acoustic Profiles & Studio Signatures)**: 4 instant acoustic signature cards (`Audiophile Warmth`, `Late Night`, `Electronic Punch`, `Spatial Clarity`), "View All Profiles →" button, and 32-Bit Floating DSP badge.
+- **Studio Tab & Modal Harmonization**: Harmonized all 5 studio tabs (`Equalizer & Effects`, `Sound Profiles`, `Track EQ Memory`, `Audio Devices`, `Quality Transparency`) and modal dialogs with matching charcoal card surfaces, muted violet tab pills, and borders.
+- **Dedicated Test Suite & Verification**: Created `src/test/premium_equalizer_studio_redesign.test.tsx` (15 tests). Full project suite: 68 test files, 777/777 passing tests, 0 vulnerabilities, 0 whitespace errors.
+
+#### 7. Precision UI Alignment & Text Overflow Repair (Format Badges & Hotkey Profiles)
+- **Song Library Format Badge Alignment**:
+  - Re-allocated column 7 in `SongRow.tsx` (`SONG_TABLE_GRID_WITH_ALBUM` and `SONG_TABLE_GRID_NO_ALBUM`) from `105px` to `120px` to guarantee ample room for all audio quality badges.
+  - Centered table header cell `<span className="text-center min-w-0">Format</span>` in `SongTableHeader.tsx`.
+  - Upgraded badge cell container in `SongRow.tsx` from `min-w-0 pr-2 flex items-center justify-end overflow-hidden` to `min-w-0 flex items-center justify-center`. Eliminated left clipping, negative margin blowout, and overflow hiding.
+  - Symmetrically refined `QualityBadge.tsx` (size `sm`) to `px-2 h-[18px] text-[8.5px] tracking-wide gap-1.5`, ensuring all 4 quality tiers (`Hi-Res Lossless`, `Lossless`, `High Quality`, `Standard`) fit with generous symmetric padding (5px to 24px) inside the 120px column.
+- **Settings Hotkey Profile Card Text Overflow Resolution**:
+  - Upgraded grid in `HotkeyProfilesCard.tsx` from brittle `lg:grid-cols-5` to responsive `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3`, preventing severe card squeezing on screens like 1280×720 and 1366×768.
+  - Implemented strict boundaries on profile buttons (`min-w-0 w-full min-h-[94px] overflow-hidden`) with a structured 3-row layout: top row (scenario icon + tag + active pill badge or custom delete button), middle row (profile name with `min-w-0 break-words line-clamp-2 leading-snug`), and bottom row (built-in/custom classification tag).
+  - Ensured long profile titles (e.g. `Audiophile / Minimalist`, `Gaming / Background Friendly`) wrap gracefully onto 2 lines with zero horizontal overflow, zero neighbor collision, and uniform row height.
+  - Harmonized scenario icon and active card styling to strict Charcoal Black (`#181824`, `#272733`) and Violet (`#8B5CF6`, `#A78BFA`, `#C4B5FD`).
+  - Added lazy initial state to `useState(() => hotkeyProfileService.getProfiles())` and `useState(() => hotkeyProfileService.getActiveProfile())` for instantaneous, flash-free rendering.
+- **Dedicated Regression Suite & Visual Validation**:
+  - Created `src/test/ui_precision_alignment_and_overflow.test.tsx` (8 tests).
+  - All 69 test files (785/785 tests) passing with 100% success rate.
+  - Verified across 1920×1080, 1600×900, 1440×900, 1366×768, and 1280×720 viewports with zero overflow and zero clipping.
+  - Captured updated visual proof: `docs/assets/harmoniq-songs-format-badge-aligned.png` and `docs/assets/harmoniq-settings-hotkeys-wrapped.png`.
 
 ---
 

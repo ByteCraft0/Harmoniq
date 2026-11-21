@@ -19,6 +19,7 @@ import { trackAudioProfileService } from '../services/audio/trackAudioProfileSer
 import { audioDeviceProfileService } from '../services/audio/audioDeviceProfileService';
 import { AudioConfigurationResolver } from '../services/audio/audioConfigurationResolver';
 import { AudioQualityService } from '../services/audio/audioQualityService';
+import { windowLifecycleService } from '../services/windowLifecycleService';
 
 interface DSPContextType {
   settings: DSPSettings;
@@ -240,19 +241,68 @@ export const DSPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
-  // Poll limiter reduction metrics at 15Hz for smooth UI meter
+  // Event-driven limiter metrics polling: only polls during active playback when window is visible
   useEffect(() => {
-    const interval = setInterval(() => {
-      const metrics = audioEngine.getLimiterMetrics();
-      setLimiterMetrics((prev) =>
-        prev.isClippingPrevented === metrics.isClippingPrevented &&
-        Math.abs(prev.gainReductionDb - metrics.gainReductionDb) < 0.2
-          ? prev
-          : metrics
-      );
-    }, 66);
+    let interval: ReturnType<typeof setInterval> | null = null;
 
-    return () => clearInterval(interval);
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+      setLimiterMetrics((prev) =>
+        prev.isClippingPrevented === false && prev.gainReductionDb === 0
+          ? prev
+          : { isClippingPrevented: false, gainReductionDb: 0, peakLevel: 0 }
+      );
+    };
+
+    const startPolling = () => {
+      if (interval) return;
+      interval = setInterval(() => {
+        if (windowLifecycleService.isRenderingSuspended() || !audioEngine.isPlaying()) {
+          stopPolling();
+          return;
+        }
+
+        const metrics = audioEngine.getLimiterMetrics();
+        setLimiterMetrics((prev) =>
+          prev.isClippingPrevented === metrics.isClippingPrevented &&
+          Math.abs(prev.gainReductionDb - metrics.gainReductionDb) < 0.2
+            ? prev
+            : metrics
+        );
+      }, 66);
+    };
+
+    // Listen to playback status changes
+    const unsubStatus = audioEngine.subscribeStatus((status) => {
+      if (status.isPlaying && !windowLifecycleService.isRenderingSuspended()) {
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    });
+
+    // Listen to window lifecycle changes (minimize/restore, hide/show)
+    const unsubLifecycle = windowLifecycleService.subscribeSuspension((suspended) => {
+      if (!suspended && audioEngine.isPlaying()) {
+        startPolling();
+      } else {
+        stopPolling();
+      }
+    });
+
+    // Initial check
+    if (audioEngine.isPlaying() && !windowLifecycleService.isRenderingSuspended()) {
+      startPolling();
+    }
+
+    return () => {
+      if (interval) clearInterval(interval);
+      unsubStatus();
+      unsubLifecycle();
+    };
   }, []);
 
   const getEffectiveSettingsForEngine = useCallback(

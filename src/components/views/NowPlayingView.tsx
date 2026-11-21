@@ -45,6 +45,7 @@ import {
 import { MusicBookmarksModal } from '../audio/MusicBookmarksModal';
 import { WaveformSeekbar } from '../audio/WaveformSeekbar';
 
+
 export const NowPlayingView: React.FC = () => {
   const {
     currentTrack,
@@ -195,7 +196,7 @@ export const NowPlayingView: React.FC = () => {
   const timeRemaining = duration > currentTime ? duration - currentTime : 0;
 
   return (
-    <div className="h-full overflow-hidden px-8 py-6 flex flex-col justify-between max-w-6xl mx-auto relative select-none">
+    <div className="h-full w-full overflow-y-auto overflow-x-hidden px-6 sm:px-8 pt-5 pb-10 flex flex-col gap-6 max-w-6xl mx-auto relative select-none scrollbar-thin">
       {/* Ambient Mesh Glow Layers (Dynamic Colors) */}
       <div
         className="ambient-mesh-glow -top-24 -left-24 w-[500px] h-[500px] opacity-20 pointer-events-none"
@@ -313,7 +314,7 @@ export const NowPlayingView: React.FC = () => {
       </div>
 
       {/* Main Focus: Artwork / Visualizer (Left) + Interactive Karaoke Lyrics (Right) */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8 my-auto items-center z-10 py-3 flex-1 min-h-0">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 sm:gap-8 items-start relative z-10 w-full">
         {/* Left Column: Artwork Presentation & Live Spectrum */}
         <div className="md:col-span-5 flex flex-col items-center justify-center space-y-4 relative">
           {appearance.ambientLighting && (
@@ -632,18 +633,18 @@ export const NowPlayingView: React.FC = () => {
         </div>
       </div>
 
-      {/* Bottom Transport Controls */}
-      <div className="space-y-3 pt-3 border-t border-[#272733] z-10 shrink-0">
+      {/* Dedicated Playback Timeline & Transport Controls Row (Normal Flow, No Overlap) */}
+      <div className="w-full space-y-3 pt-4 border-t border-[#272733]/80 relative">
         {/* Progress Bar & Seek / Real Waveform Navigation */}
-        <div className="space-y-1">
+        <div className="space-y-1.5">
           {timelineMode === 'waveform' ? (
-            <div className="p-2 rounded-xl bg-[#14141B]/70 border border-[#272733] backdrop-blur-sm shadow-inner">
+            <div className="p-2.5 rounded-xl bg-[#14141B] border border-[#272733] shadow-card">
               <WaveformSeekbar
                 track={currentTrack}
                 currentTime={currentTime}
                 duration={duration}
                 onSeek={seekTo}
-                height={40}
+                height={42}
               />
             </div>
           ) : (
@@ -677,10 +678,10 @@ export const NowPlayingView: React.FC = () => {
           </div>
         </div>
 
-        {/* Buttons Row */}
+        {/* Buttons Row (Symmetrical Layout, Volume Exclusively in BottomPlayer) */}
         <div className="flex items-center justify-between">
           {/* Left: Shuffle & Repeat */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-1 justify-start">
             <button
               onClick={toggleShuffle}
               title="Shuffle"
@@ -707,7 +708,7 @@ export const NowPlayingView: React.FC = () => {
           </div>
 
           {/* Center: Playback Controls */}
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-5 shrink-0">
             <button
               onClick={prevTrack}
               title="Previous Track"
@@ -733,24 +734,8 @@ export const NowPlayingView: React.FC = () => {
             </button>
           </div>
 
-          {/* Right: Volume */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={toggleMute}
-              className="p-1.5 text-[#71717A] hover:text-[#F5F3FF] transition-colors"
-            >
-              {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
-            </button>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.01"
-              value={isMuted ? 0 : volume}
-              onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="w-24 accent-[var(--accent-dynamic)]"
-            />
-          </div>
+          {/* Right: Symmetrical Spacer to preserve centered playback controls */}
+          <div className="flex-1" />
         </div>
       </div>
 

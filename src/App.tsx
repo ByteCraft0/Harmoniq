@@ -305,13 +305,13 @@ const MainLayout: React.FC = () => {
         <TitleBar />
 
         {/* Main App Body */}
-        <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 flex min-h-0 overflow-hidden relative">
           {/* Left Fixed Navigation Sidebar (approx 240px) */}
           <Sidebar />
 
           {/* Dynamic Main Page Content with Fluid Page Transition */}
-          <main className="flex-1 overflow-hidden bg-[#09090B] relative">
-            <div key={activeView} className="h-full w-full animate-page-enter">
+          <main className="flex-1 min-h-0 min-w-0 overflow-hidden bg-[#09090B] relative">
+            <div key={activeView} className="h-full w-full min-h-0 animate-page-enter">
               <ErrorBoundary
                 key={activeView}
                 fallbackTitle="View Unavailable"

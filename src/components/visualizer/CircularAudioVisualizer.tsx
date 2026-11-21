@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../../services/audioEngine';
+import { windowLifecycleService } from '../../services/windowLifecycleService';
 import { usePlayer } from '../../context/PlayerContext';
 import {
   Disc,
@@ -74,7 +75,7 @@ export const CircularAudioVisualizer: React.FC<CircularAudioVisualizerProps> = (
 
     const render = () => {
       if (!isRunning) return;
-      animationFrameId.current = requestAnimationFrame(render);
+      if (windowLifecycleService.isRenderingSuspended()) return;
 
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
@@ -289,12 +290,35 @@ export const CircularAudioVisualizer: React.FC<CircularAudioVisualizerProps> = (
       ctx.beginPath();
       ctx.arc(cx, cy, dynamicRadius, 0, Math.PI * 2);
       ctx.stroke();
+
+      if (isPlaying && !windowLifecycleService.isRenderingSuspended()) {
+        animationFrameId.current = requestAnimationFrame(render);
+      }
     };
 
-    render();
+    const startRender = () => {
+      if (!isRunning) return;
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+      render();
+    };
+
+    startRender();
+
+    const unsubLifecycle = windowLifecycleService.subscribeSuspension((suspended) => {
+      if (!suspended && isPlaying) {
+        startRender();
+      } else if (suspended && animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+    });
 
     return () => {
       isRunning = false;
+      unsubLifecycle();
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
     };
   }, [isPlaying, style, sensitivity, intensity, scale]);

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../../services/audioEngine';
+import { windowLifecycleService } from '../../services/windowLifecycleService';
 import { usePlayer } from '../../context/PlayerContext';
 import { CircularAudioVisualizer } from './CircularAudioVisualizer';
 import {
@@ -61,6 +62,48 @@ export const AdvancedVisualizer: React.FC<AdvancedVisualizerProps> = ({
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationFrameId = useRef<number | null>(null);
+  const tabsContainerRef = useRef<HTMLDivElement | null>(null);
+  const tabButtonRefs = useRef<{ [key in VisualizerStyle]?: HTMLButtonElement | null }>({});
+
+  const visualizerStyles: { id: VisualizerStyle; label: string; icon: React.ReactNode; tooltip: string }[] = [
+    { id: 'bars', label: 'Bars', icon: <BarChart3 size={12} />, tooltip: 'Spectrum Bars' },
+    { id: 'waveform', label: 'Waveform', icon: <Activity size={12} />, tooltip: 'Oscilloscope Waveform' },
+    { id: 'particles', label: 'Particles', icon: <Sparkles size={12} />, tooltip: 'Kinetic Audio Particles' },
+    { id: 'circular', label: 'Circular', icon: <Disc3 size={12} />, tooltip: 'Circular Audio Visualizer' },
+    { id: 'wave-rings', label: 'Wave Rings', icon: <Waves size={12} />, tooltip: 'Liquid Ripple Rings' },
+  ];
+
+  // Auto-scroll selected style tab into view
+  useEffect(() => {
+    const el = tabButtonRefs.current[style];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+    }
+  }, [style]);
+
+  // Handle keyboard navigation between style tabs
+  const handleTabsKeyDown = (e: React.KeyboardEvent) => {
+    const currentIndex = visualizerStyles.findIndex((s) => s.id === style);
+    if (currentIndex < 0) return;
+
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      const nextIndex = (currentIndex + 1) % visualizerStyles.length;
+      setStyle(visualizerStyles[nextIndex].id);
+      tabButtonRefs.current[visualizerStyles[nextIndex].id]?.focus();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      const prevIndex = (currentIndex - 1 + visualizerStyles.length) % visualizerStyles.length;
+      setStyle(visualizerStyles[prevIndex].id);
+      tabButtonRefs.current[visualizerStyles[prevIndex].id]?.focus();
+    }
+  };
+
+  const handleTabsWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY || e.deltaX) {
+      e.currentTarget.scrollLeft += e.deltaY || e.deltaX;
+    }
+  };
 
   // Peak hold references for 'bars'
   const peaksRef = useRef<number[]>([]);
@@ -110,7 +153,7 @@ export const AdvancedVisualizer: React.FC<AdvancedVisualizerProps> = ({
 
     const render = () => {
       if (!isRunning) return;
-      animationFrameId.current = requestAnimationFrame(render);
+      if (windowLifecycleService.isRenderingSuspended()) return;
 
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
@@ -296,12 +339,35 @@ export const AdvancedVisualizer: React.FC<AdvancedVisualizerProps> = ({
         ctx.arc(cx, cy, coreRadius * 2, 0, Math.PI * 2);
         ctx.fill();
       }
+
+      if (isPlaying && !windowLifecycleService.isRenderingSuspended()) {
+        animationFrameId.current = requestAnimationFrame(render);
+      }
     };
 
-    render();
+    const startRender = () => {
+      if (!isRunning) return;
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+      render();
+    };
+
+    startRender();
+
+    const unsubLifecycle = windowLifecycleService.subscribeSuspension((suspended) => {
+      if (!suspended && isPlaying) {
+        startRender();
+      } else if (suspended && animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+    });
 
     return () => {
       isRunning = false;
+      unsubLifecycle();
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
     };
   }, [isEnabled, style, isPlaying, sensitivity]);
@@ -332,73 +398,45 @@ export const AdvancedVisualizer: React.FC<AdvancedVisualizerProps> = ({
     >
       {/* Top Header / Mode Switcher Bar */}
       {showControlsBar && (
-        <div className="flex items-center justify-between z-20 shrink-0 pb-2 mb-2 border-b border-[#1B1B24]/80 text-xs">
-          <div className="flex items-center gap-2">
-            <Sparkles size={14} className="text-[var(--accent-dynamic)]" />
-            <span className="font-bold text-[#F5F3FF]">Advanced Audio Visualizer</span>
+        <div className="flex items-center justify-between z-20 shrink-0 pb-2 mb-2 border-b border-[#1B1B24]/80 text-xs gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Sparkles size={14} className="text-[var(--accent-dynamic)] shrink-0" />
+            <span className="font-bold text-[#F5F3FF] hidden xl:inline shrink-0">Advanced Audio Visualizer</span>
+            <span className="font-bold text-[#F5F3FF] inline xl:hidden shrink-0">Visualizer</span>
 
-            {/* Visualizer Style Switcher */}
-            <div className="flex items-center bg-[#14141B] border border-[#272733] rounded-xl p-0.5 ml-2">
-              <button
-                onClick={() => setStyle('bars')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                  style === 'bars'
-                    ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
-                    : 'text-[#71717A] hover:text-[#A1A1AA]'
-                }`}
-                title="Spectrum Bars"
-              >
-                <BarChart3 size={12} />
-                <span>Bars</span>
-              </button>
-              <button
-                onClick={() => setStyle('waveform')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                  style === 'waveform'
-                    ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
-                    : 'text-[#71717A] hover:text-[#A1A1AA]'
-                }`}
-                title="Oscilloscope Waveform"
-              >
-                <Activity size={12} />
-                <span>Waveform</span>
-              </button>
-              <button
-                onClick={() => setStyle('particles')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                  style === 'particles'
-                    ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
-                    : 'text-[#71717A] hover:text-[#A1A1AA]'
-                }`}
-                title="Kinetic Audio Particles"
-              >
-                <Sparkles size={12} />
-                <span>Particles</span>
-              </button>
-              <button
-                onClick={() => setStyle('circular')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                  style === 'circular'
-                    ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
-                    : 'text-[#71717A] hover:text-[#A1A1AA]'
-                }`}
-                title="Circular Audio Visualizer"
-              >
-                <Disc3 size={12} />
-                <span>Circular</span>
-              </button>
-              <button
-                onClick={() => setStyle('wave-rings')}
-                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all ${
-                  style === 'wave-rings'
-                    ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
-                    : 'text-[#71717A] hover:text-[#A1A1AA]'
-                }`}
-                title="Liquid Ripple Rings"
-              >
-                <Waves size={12} />
-                <span>Wave Rings</span>
-              </button>
+            {/* Visualizer Style Switcher with Smooth Horizontal Scrolling & Keyboard Navigation */}
+            <div
+              ref={tabsContainerRef}
+              onWheel={handleTabsWheel}
+              onKeyDown={handleTabsKeyDown}
+              tabIndex={0}
+              role="tablist"
+              aria-label="Visualizer modes"
+              className="flex items-center bg-[#14141B] border border-[#272733] rounded-xl p-0.5 overflow-x-auto scrollbar-none scroll-smooth flex-1 min-w-0 max-w-full gap-0.5 focus:outline-none focus:ring-1 focus:ring-[var(--accent-dynamic)]/40"
+            >
+              {visualizerStyles.map((item) => {
+                const isSelected = style === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    ref={(el) => {
+                      tabButtonRefs.current[item.id] = el;
+                    }}
+                    role="tab"
+                    aria-selected={isSelected}
+                    onClick={() => setStyle(item.id)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all shrink-0 whitespace-nowrap focus:outline-none focus-visible:ring-1 focus-visible:ring-[var(--accent-dynamic)] ${
+                      isSelected
+                        ? 'bg-[var(--accent-dynamic)] text-white shadow-glow-sm'
+                        : 'text-[#71717A] hover:text-[#A1A1AA] hover:bg-white/5'
+                    }`}
+                    title={item.tooltip}
+                  >
+                    {item.icon}
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
 

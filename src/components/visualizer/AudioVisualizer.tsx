@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../../services/audioEngine';
+import { windowLifecycleService } from '../../services/windowLifecycleService';
 import { BarChart3, Activity } from 'lucide-react';
 
 interface AudioVisualizerProps {
@@ -37,8 +38,11 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
       peakDecayRef.current = new Array(bufferLength).fill(0);
     }
 
+    let isRunning = true;
+
     const render = () => {
-      animationFrameId.current = requestAnimationFrame(render);
+      if (!isRunning) return;
+      if (windowLifecycleService.isRenderingSuspended()) return;
 
       const width = canvas.width;
       const h = canvas.height;
@@ -119,11 +123,42 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
         ctx.lineTo(width, h / 2);
         ctx.stroke();
       }
+
+      if (audioEngine.isPlaying() && !windowLifecycleService.isRenderingSuspended()) {
+        animationFrameId.current = requestAnimationFrame(render);
+      }
     };
 
-    render();
+    const startRender = () => {
+      if (!isRunning) return;
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+      render();
+    };
+
+    startRender();
+
+    const unsubAudio = audioEngine.subscribeStatus((status) => {
+      if (status.isPlaying) {
+        startRender();
+      }
+    });
+
+    const unsubLifecycle = windowLifecycleService.subscribeSuspension((suspended) => {
+      if (!suspended && audioEngine.isPlaying()) {
+        startRender();
+      } else if (suspended && animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+    });
 
     return () => {
+      isRunning = false;
+      unsubAudio();
+      unsubLifecycle();
       if (animationFrameId.current) {
         cancelAnimationFrame(animationFrameId.current);
       }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { audioEngine } from '../../services/audioEngine';
+import { windowLifecycleService } from '../../services/windowLifecycleService';
 import { usePlayer } from '../../context/PlayerContext';
 import { Activity, Tag, Sparkles } from 'lucide-react';
 
@@ -51,7 +52,7 @@ export const RealTimeFrequencySpectrum: React.FC<RealTimeFrequencySpectrumProps>
 
     const render = () => {
       if (!isRunning) return;
-      animationFrameId.current = requestAnimationFrame(render);
+      if (windowLifecycleService.isRenderingSuspended()) return;
 
       const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth;
@@ -149,12 +150,35 @@ export const RealTimeFrequencySpectrum: React.FC<RealTimeFrequencySpectrumProps>
           ctx.fillText(BANDS[i].range, barX + barWidth / 2, h - 6);
         }
       }
+
+      if (isPlaying && !windowLifecycleService.isRenderingSuspended()) {
+        animationFrameId.current = requestAnimationFrame(render);
+      }
     };
 
-    render();
+    const startRender = () => {
+      if (!isRunning) return;
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+      render();
+    };
+
+    startRender();
+
+    const unsubLifecycle = windowLifecycleService.subscribeSuspension((suspended) => {
+      if (!suspended && isPlaying) {
+        startRender();
+      } else if (suspended && animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+    });
 
     return () => {
       isRunning = false;
+      unsubLifecycle();
       if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
     };
   }, [isPlaying, showLabels, compact]);

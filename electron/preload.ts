@@ -1,5 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+try {
+  if (process.env.HARMONIQ_SCREENSHOT_OUT) {
+    localStorage.setItem('harmoniq_onboarding_completed', 'true');
+  }
+} catch {}
+
 // NOTE: intentionally no import from ../src so tsc emits a flat dist-electron/ layout.
 // The matching renderer-side type lives in src/types/electron.ts (HarmoniqApi).
 const subscribe = (channel: string, callback: (...args: any[]) => void) => {
@@ -17,6 +23,7 @@ const harmoniqApi = {
   windowClose: () => ipcRenderer.invoke('window:close'),
   quitApp: () => ipcRenderer.invoke('app:quit'),
   isWindowMaximized: () => ipcRenderer.invoke('window:isMaximized'),
+  isWindowMinimized: () => ipcRenderer.invoke('window:isMinimized'),
   isMiniPlayer: () => ipcRenderer.invoke('window:isMiniPlayer'),
   setMiniPlayer: (enable: boolean) => ipcRenderer.invoke('window:setMiniPlayer', enable),
   toggleMiniPlayer: () => ipcRenderer.invoke('window:toggleMiniPlayer'),
@@ -90,6 +97,8 @@ const harmoniqApi = {
   onScanProgress: (callback: (progress: any) => void) => subscribe('scan:progress', callback),
   onMediaCommand: (callback: (command: string) => void) => subscribe('media:command', callback),
   onWindowMaximizedChange: (callback: (isMaximized: boolean) => void) => subscribe('window:maximized-changed', callback),
+  onWindowMinimizedChange: (callback: (isMinimized: boolean) => void) => subscribe('window:minimized-changed', callback),
+  onWindowVisibilityChange: (callback: (isVisible: boolean) => void) => subscribe('window:visibility-changed', callback),
   onMiniPlayerChange: (callback: (isMini: boolean) => void) => subscribe('window:mini-player-changed', callback),
   onWatcherFileAddedOrUpdated: (callback: (track: any) => void) => subscribe('watcher:fileAddedOrUpdated', callback),
   onWatcherFileRemoved: (callback: (filePath: string) => void) => subscribe('watcher:fileRemoved', callback),

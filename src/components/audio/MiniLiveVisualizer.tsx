@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { audioEngine } from '../../services/audioEngine';
+import { windowLifecycleService } from '../../services/windowLifecycleService';
 
 export interface MiniLiveVisualizerProps {
   isPlaying: boolean;
@@ -27,42 +28,74 @@ export const MiniLiveVisualizer: React.FC<MiniLiveVisualizerProps> = ({
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (!isPlaying || isMuted) {
+    if (!isPlaying || isMuted || windowLifecycleService.isRenderingSuspended()) {
       // Resting static state
       setLevels(new Array(barCount).fill(0.18));
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-      return;
+      if (!isPlaying || isMuted) return;
     }
 
     const freqArray = new Uint8Array(64);
+    let lastRender = 0;
 
-    const updateFrame = () => {
-      audioEngine.getFrequencyData(freqArray);
+    const updateFrame = (now: number) => {
+      if (windowLifecycleService.isRenderingSuspended()) {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+        return;
+      }
 
-      // Sample logarithmic bins corresponding to Bass, Low-Mid, High-Mid, Treble
-      const sampleIndices =
-        barCount === 4
-          ? [2, 6, 14, 28]
-          : barCount === 5
-          ? [1, 4, 9, 18, 32]
-          : [2, 5, 10, 18, 28, 40];
+      // Throttle visual level recalculation and React state update to ~30 FPS (~33ms)
+      if (now - lastRender >= 33) {
+        lastRender = now;
+        audioEngine.getFrequencyData(freqArray);
 
-      const newLevels = sampleIndices.map((idx) => {
-        const val = freqArray[idx] || 0;
-        // Normalize 0..255 to 0.15..1.0
-        return Math.max(0.15, Math.min(1.0, val / 255));
-      });
+        // Sample logarithmic bins corresponding to Bass, Low-Mid, High-Mid, Treble
+        const sampleIndices =
+          barCount === 4
+            ? [2, 6, 14, 28]
+            : barCount === 5
+            ? [1, 4, 9, 18, 32]
+            : [2, 5, 10, 18, 28, 40];
 
-      setLevels(newLevels);
+        const newLevels = sampleIndices.map((idx) => {
+          const val = freqArray[idx] || 0;
+          // Normalize 0..255 to 0.15..1.0
+          return Math.max(0.15, Math.min(1.0, val / 255));
+        });
+
+        setLevels(newLevels);
+      }
+
       rafRef.current = requestAnimationFrame(updateFrame);
     };
 
-    rafRef.current = requestAnimationFrame(updateFrame);
+    const startRaf = () => {
+      if (!rafRef.current && isPlaying && !isMuted && !windowLifecycleService.isRenderingSuspended()) {
+        rafRef.current = requestAnimationFrame(updateFrame);
+      }
+    };
+
+    startRaf();
+
+    const unsubLifecycle = windowLifecycleService.subscribeSuspension((suspended) => {
+      if (suspended) {
+        if (rafRef.current) {
+          cancelAnimationFrame(rafRef.current);
+          rafRef.current = null;
+        }
+      } else {
+        startRaf();
+      }
+    });
 
     return () => {
+      unsubLifecycle();
       if (rafRef.current) {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;

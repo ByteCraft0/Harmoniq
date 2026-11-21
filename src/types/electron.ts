@@ -48,6 +48,7 @@ export interface HarmoniqApi {
   windowClose: () => Promise<void>;
   quitApp: () => Promise<void>;
   isWindowMaximized: () => Promise<boolean>;
+  isWindowMinimized?: () => Promise<boolean>;
   isMiniPlayer: () => Promise<boolean>;
   setMiniPlayer: (enable: boolean) => Promise<boolean>;
   toggleMiniPlayer: () => Promise<boolean>;
@@ -167,6 +168,8 @@ export interface HarmoniqApi {
   // Events
   onMediaCommand?: (callback: (command: 'prev' | 'playpause' | 'next' | 'volumeup' | 'volumedown' | 'togglemute') => void) => () => void;
   onWindowMaximizedChange?: (callback: (isMaximized: boolean) => void) => () => void;
+  onWindowMinimizedChange?: (callback: (isMinimized: boolean) => void) => () => void;
+  onWindowVisibilityChange?: (callback: (isVisible: boolean) => void) => () => void;
   onMiniPlayerChange?: (callback: (isMini: boolean) => void) => () => void;
   onScanProgress?: (callback: (progress: { current: number; total: number; currentFile: string }) => void) => () => void;
   onWatcherFileAddedOrUpdated?: (callback: (track: TrackMetadata) => void) => () => void;

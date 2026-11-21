@@ -792,12 +792,130 @@ function createMainWindow() {
         mainWindow?.webContents.send('app:openExternalFile', fileToOpen);
       }, 500);
     }
+
+    if (process.env.HARMONIQ_SCREENSHOT_OUT) {
+      setTimeout(async () => {
+        if (!mainWindow) return;
+        try {
+          const outDir = path.dirname(process.env.HARMONIQ_SCREENSHOT_OUT.trim());
+
+          // 1. Capture Songs Library View with newly aligned Favorite Heart column
+          await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const buttons = Array.from(document.querySelectorAll('button'));
+              const songsBtn = buttons.find(b => b.innerText && b.innerText.includes('Songs'));
+              if (songsBtn) songsBtn.click();
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 1200));
+
+          const songsImg = await mainWindow.webContents.capturePage();
+          const songsPath = path.join(outDir, 'harmoniq-songs-favorite-aligned.png');
+          fs.writeFileSync(songsPath, songsImg.toPNG());
+          console.log('[HARMONIQ_SCREENSHOT] Saved songs screenshot to:', songsPath);
+
+          // 2. Start playback and navigate to Now Playing View
+          await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const row = Array.from(document.querySelectorAll('div')).find(d => d.style && d.style.gridTemplateColumns && d.classList.contains('group'));
+              if (row) row.click();
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 1500));
+
+          await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const art = document.querySelector('footer img') || document.querySelector('footer .cursor-pointer');
+              if (art) art.click();
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 2000));
+
+          // Switch spectrum to specs mode to demonstrate full vertical content extension
+          await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const specsBtn = Array.from(document.querySelectorAll('button')).find(b => b.innerText && b.innerText.trim() === 'Specs');
+              if (specsBtn) specsBtn.click();
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 800));
+
+          // Scroll down NowPlayingView container to reveal lower sections
+          await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const scrollable = document.querySelector('main .overflow-y-auto');
+              if (scrollable) {
+                scrollable.scrollTop = 380;
+              }
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 1000));
+
+          const scrolledImg = await mainWindow.webContents.capturePage();
+          const scrolledPath = path.join(outDir, 'harmoniq-now-playing-scrolled.png');
+          fs.writeFileSync(scrolledPath, scrolledImg.toPNG());
+          console.log('[HARMONIQ_SCREENSHOT] Saved scrolled Now Playing screenshot to:', scrolledPath);
+
+          // 3. Open AI Assistant Orb and test conversation scroll
+          await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const orb = document.querySelector('div[aria-label="Harmoniq AI Companion Container"] [role="button"]') ||
+                          document.querySelector('div[aria-label="Harmoniq Assistant Window"]');
+              if (orb) orb.click();
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 1500));
+
+          // Click a suggested question if available to add to conversation history
+          await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const suggestedBtn = document.querySelector('div[aria-label="Harmoniq Assistant Window"] button');
+              if (suggestedBtn) suggestedBtn.click();
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 1500));
+
+          // Scroll up inside assistant conversation history container
+          await mainWindow.webContents.executeJavaScript(`
+            (() => {
+              const chatScroll = document.querySelector('div[aria-label="Harmoniq Assistant Window"] .overflow-y-auto');
+              if (chatScroll) {
+                chatScroll.scrollTop = 0;
+              }
+            })()
+          `);
+          await new Promise((r) => setTimeout(r, 1000));
+
+          const orbImg = await mainWindow.webContents.capturePage();
+          const orbPath = path.join(outDir, 'harmoniq-ai-orb-history.png');
+          fs.writeFileSync(orbPath, orbImg.toPNG());
+          console.log('[HARMONIQ_SCREENSHOT] Saved AI Orb history screenshot to:', orbPath);
+
+          isQuitting = true;
+          app.quit();
+        } catch (e) {
+          console.error('[HARMONIQ_SCREENSHOT] Error:', e);
+          isQuitting = true;
+          app.quit();
+        }
+      }, 2500);
+    }
   });
 
   mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximized-changed', true));
   mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximized-changed', false));
-  mainWindow.on('show', () => updateTrayMenu());
-  mainWindow.on('hide', () => updateTrayMenu());
+  mainWindow.on('minimize', () => mainWindow?.webContents.send('window:minimized-changed', true));
+  mainWindow.on('restore', () => mainWindow?.webContents.send('window:minimized-changed', false));
+  mainWindow.on('show', () => {
+    mainWindow?.webContents.send('window:visibility-changed', true);
+    mainWindow?.webContents.send('window:minimized-changed', false);
+    updateTrayMenu();
+  });
+  mainWindow.on('hide', () => {
+    mainWindow?.webContents.send('window:visibility-changed', false);
+    mainWindow?.webContents.send('window:minimized-changed', true);
+    updateTrayMenu();
+  });
 
   mainWindow.on('close', (event) => {
     if (!isQuitting && closeToTray) {
@@ -999,6 +1117,10 @@ function setupIpc() {
 
   ipcMain.handle('window:isMaximized', () => {
     return mainWindow?.isMaximized() ?? false;
+  });
+
+  ipcMain.handle('window:isMinimized', () => {
+    return mainWindow?.isMinimized() ?? false;
   });
 
   // Mini-player controls

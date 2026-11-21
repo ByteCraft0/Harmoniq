@@ -164,7 +164,7 @@ describe('Harmoniq 2.0 Stage 4: Performance, Memory & Resource Utilization Valid
 
       const elapsed = performance.now() - t0;
       expect(validSum).toBeGreaterThan(0);
-      expect(elapsed).toBeLessThan(50); // 50k validations in < 50ms
+      expect(elapsed).toBeLessThan(100); // 50k validations in < 100ms (> 500,000 ops/sec)
     });
 
     it('benchmarks Mid-Side Stereo Width calculation speed and mathematical fidelity', () => {

@@ -5,10 +5,6 @@ import { QualityBadge } from '../inspector/QualityBadge';
 import { AudioQualityInspectorService } from '../../services/inspectorService';
 import { ABRepeatControls } from '../audio/ABRepeatControls';
 import {
-  Play,
-  Pause,
-  SkipBack,
-  SkipForward,
   Shuffle,
   Repeat,
   Repeat1,
@@ -27,6 +23,9 @@ import {
   X,
   Bookmark,
 } from 'lucide-react';
+
+import { DrumPlaybackControl } from '../audio/DrumPlaybackControl';
+import { TrumpetTrackControl } from '../audio/TrumpetTrackControl';
 import { MusicBookmarksModal } from '../audio/MusicBookmarksModal';
 import { WaveformVolumeControl } from '../audio/WaveformVolumeControl';
 
@@ -150,7 +149,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
   };
 
   return (
-    <footer className="h-[86px] min-h-[86px] glass-panel border-t border-white/10 px-5 flex items-center justify-between select-none relative z-40">
+    <footer className="h-[86px] min-h-[86px] shrink-0 glass-panel border-t border-white/10 px-5 flex items-center justify-between select-none relative z-40">
       {/* Subtle dynamic ambient glow behind player */}
       <div className="ambient-mesh-glow opacity-25" />
 
@@ -219,8 +218,13 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
         {/* Floating Timestamp Tooltip */}
         {isHoveringBar && hoverSeekTime !== null && (
           <div
-            style={{ left: `${tooltipPos}px` }}
-            className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#14141B]/95 border border-white/15 backdrop-blur-md text-[10px] font-mono-numbers text-white shadow-xl pointer-events-none"
+            style={{
+              left: `${Math.max(
+                24,
+                Math.min(progressBarRef.current ? progressBarRef.current.clientWidth - 24 : 500, tooltipPos)
+              )}px`,
+            }}
+            className="absolute -top-7 -translate-x-1/2 px-2 py-0.5 rounded-md bg-[#14141B]/95 border border-white/15 backdrop-blur-md text-[10px] font-mono-numbers text-white shadow-xl pointer-events-none z-30"
           >
             {formatTime(hoverSeekTime)}
           </div>
@@ -228,7 +232,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
       </div>
 
       {/* LEFT: Track Info, Artwork & Quality Badge */}
-      <div className="flex items-center gap-3.5 w-1/4 min-w-[220px] z-10">
+      <div className="flex items-center gap-3.5 w-1/4 min-w-[190px] max-w-[280px] shrink-0 z-10">
         {currentTrack ? (
           <>
             <div
@@ -295,7 +299,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
       </div>
 
       {/* CENTER: Transport Controls & Seek Timer */}
-      <div className="flex flex-col items-center justify-center w-2/4 max-w-lg z-10">
+      <div className="flex flex-col items-center justify-center flex-1 min-w-0 max-w-lg mx-2 z-10">
         <div className="flex items-center gap-4 mb-1">
           <button
             onClick={toggleShuffle}
@@ -308,29 +312,20 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
             {isShuffle && <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[var(--accent-dynamic)]" />}
           </button>
 
-          <button
+          <TrumpetTrackControl
+            direction="previous"
             onClick={prevTrack}
-            title="Previous Track"
-            className="p-1.5 text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
-          >
-            <SkipBack size={19} />
-          </button>
+          />
 
-          <button
+          <DrumPlaybackControl
+            isPlaying={isPlaying}
             onClick={togglePlayPause}
-            title={isPlaying ? 'Pause' : 'Play'}
-            className="p-3 rounded-full bg-gradient-to-tr from-[#7C3AED] to-[var(--accent-dynamic)] text-[#F5F3FF] shadow-glow-sm hover:shadow-glow-md hover:scale-105 active:scale-95 transition-all"
-          >
-            {isPlaying ? <Pause size={18} /> : <Play size={18} className="ml-0.5" />}
-          </button>
+          />
 
-          <button
+          <TrumpetTrackControl
+            direction="next"
             onClick={nextTrack}
-            title="Next Track"
-            className="p-1.5 text-[#A1A1AA] hover:text-[#F5F3FF] transition-colors"
-          >
-            <SkipForward size={19} />
-          </button>
+          />
 
           <button
             onClick={cycleRepeatMode}
@@ -385,7 +380,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
       </div>
 
       {/* RIGHT: Mini-Player Toggle, Output Device, Speed, Sleep, EQ, Queue, Volume */}
-      <div className="flex items-center justify-end gap-2 w-1/4 min-w-[260px] z-10">
+      <div className="flex items-center justify-end gap-1.5 shrink-0 z-10">
         {/* Floating Mini-Player Mode Button */}
         <button
           onClick={handleToggleMini}
@@ -406,7 +401,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
         </button>
 
         {/* Playback Speed selector */}
-        <div className="relative">
+        <div className="relative hidden sm:block">
           <button
             onClick={() => setShowSpeedMenu(!showSpeedMenu)}
             title="Playback Speed"
@@ -676,7 +671,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
         <button
           onClick={() => setActiveView(activeView === 'immersive_album' ? 'home' : 'immersive_album')}
           title="Immersive Full-Screen Album Mode"
-          className={`p-1.5 rounded-lg transition-colors ${
+          className={`p-1.5 rounded-lg transition-colors hidden xl:block ${
             activeView === 'immersive_album'
               ? 'text-[var(--accent-dynamic)] bg-white/10 shadow-glow-sm'
               : 'text-[#71717A] hover:text-[#F5F3FF]'
@@ -689,7 +684,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
         <button
           onClick={() => setActiveView(activeView === 'lyrics' ? 'now_playing' : 'lyrics')}
           title="Synced Lyrics (Key: L)"
-          className={`p-1.5 rounded-lg transition-colors ${
+          className={`p-1.5 rounded-lg transition-colors hidden lg:block ${
             activeView === 'lyrics'
               ? 'text-[var(--accent-dynamic)] bg-white/10'
               : 'text-[#71717A] hover:text-[#F5F3FF]'
@@ -711,7 +706,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
         <button
           onClick={() => setShowBookmarksModal(true)}
           title="Music Bookmarks (Timestamp Markers)"
-          className="p-1.5 text-[#71717A] hover:text-[var(--accent-dynamic)] hover:bg-white/10 rounded-lg transition-colors"
+          className="p-1.5 text-[#71717A] hover:text-[var(--accent-dynamic)] hover:bg-white/10 rounded-lg transition-colors hidden md:block"
         >
           <Bookmark size={16} />
         </button>
@@ -729,8 +724,11 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
           <ListMusic size={16} />
         </button>
 
-        {/* Signature Waveform Volume Control */}
-        <div className="flex items-center ml-1">
+        {/* Subtle Vertical Divider */}
+        <div className="h-4 w-[1px] bg-white/10 mx-1.5 hidden sm:block" />
+
+        {/* Signature Waveform Volume Control (Authoritative Control) */}
+        <div className="flex items-center shrink-0">
           <WaveformVolumeControl
             volume={volume}
             isMuted={isMuted}
@@ -739,7 +737,7 @@ export const BottomPlayer: React.FC<BottomPlayerProps> = ({ onToggleQueue, isQue
             onVolumeChange={setVolume}
             showSlider={true}
             size="md"
-            sliderWidth="w-[72px]"
+            sliderWidth="w-[110px]"
           />
         </div>
       </div>

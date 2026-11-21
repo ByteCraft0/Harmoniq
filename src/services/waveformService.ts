@@ -10,7 +10,7 @@ export class WaveformService {
   private cache: Map<string, WaveformData> = new Map();
   private pendingPromises: Map<string, Promise<WaveformData>> = new Map();
   private listeners: Set<(trackId: string, data: WaveformData) => void> = new Set();
-  private offlineAudioCtx: AudioContext | null = null;
+  private offlineAudioCtx: AudioContext | OfflineAudioContext | null = null;
 
   constructor() {
     this.loadCache();
@@ -197,13 +197,32 @@ export class WaveformService {
 
       const arrayBuffer = await res.arrayBuffer();
 
-      // Lazy init AudioContext for decoding
-      if (!this.offlineAudioCtx) {
-        const AudioCtxClass = window.AudioContext || (window as any).webkitAudioContext;
-        this.offlineAudioCtx = new AudioCtxClass();
-      }
+      // Use OfflineAudioContext for decoding to avoid opening an active OS audio hardware device
+      const OfflineCtxClass =
+        (typeof window !== 'undefined' ? (window.OfflineAudioContext || (window as any).webkitOfflineAudioContext) : null) ||
+        (globalThis as any).OfflineAudioContext;
 
-      const audioBuffer = await this.offlineAudioCtx.decodeAudioData(arrayBuffer);
+      let audioBuffer: AudioBuffer;
+      if (OfflineCtxClass) {
+        if (!this.offlineAudioCtx) {
+          this.offlineAudioCtx = new OfflineCtxClass(1, 100, 44100);
+        }
+        const ctx = this.offlineAudioCtx;
+        if (!ctx) throw new Error('OfflineAudioContext unavailable');
+        audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      } else {
+        const AudioCtxClass =
+          (typeof window !== 'undefined' ? (window.AudioContext || (window as any).webkitAudioContext) : null) ||
+          (globalThis as any).AudioContext;
+        if (!this.offlineAudioCtx && AudioCtxClass) {
+          this.offlineAudioCtx = new AudioCtxClass();
+        }
+        const ctx = this.offlineAudioCtx;
+        if (!ctx) {
+          throw new Error('Web Audio decoding unavailable in current environment');
+        }
+        audioBuffer = await ctx.decodeAudioData(arrayBuffer);
+      }
       const channelData = audioBuffer.getChannelData(0);
 
       const { peaks, rms } = this.downsampleChannel(channelData, barCount);

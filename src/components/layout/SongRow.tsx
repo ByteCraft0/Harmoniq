@@ -12,10 +12,10 @@ import {
 } from 'lucide-react';
 
 export const SONG_TABLE_GRID_WITH_ALBUM =
-  '48px minmax(130px, 3fr) minmax(110px, 2fr) minmax(100px, 1.8fr) 52px 105px 76px';
+  '56px minmax(140px, 3fr) minmax(120px, 2fr) minmax(100px, 1.8fr) 36px 52px 120px 76px';
 
 export const SONG_TABLE_GRID_NO_ALBUM =
-  '48px minmax(160px, 3.5fr) minmax(130px, 2.5fr) 52px 105px 76px';
+  '56px minmax(180px, 3.5fr) minmax(140px, 2.5fr) 36px 52px 120px 76px';
 
 interface SongTableHeaderProps {
   showAlbum?: boolean;
@@ -35,8 +35,11 @@ export const SongTableHeader: React.FC<SongTableHeaderProps> = ({ showAlbum = tr
       <span className="truncate pr-4 min-w-0">Title</span>
       <span className="truncate pr-4 min-w-0">Artist</span>
       {showAlbum && <span className="truncate pr-4 min-w-0">Album</span>}
+      <span className="text-center min-w-0 flex items-center justify-center">
+        <Heart size={11} className="text-[#52525B]" />
+      </span>
       <span className="text-right pr-3 min-w-0">Time</span>
-      <span className="text-right pr-2 min-w-0">Format</span>
+      <span className="text-center min-w-0">Format</span>
       <span className="min-w-0" />
     </div>
   );
@@ -102,8 +105,8 @@ const SongRowComponent: React.FC<SongRowProps> = ({
           : 'border border-transparent hover:bg-[#14141B] text-[#A1A1AA]'
       }`}
     >
-      {/* 1. # & Favorite (48px) */}
-      <div className="flex items-center gap-1 min-w-0">
+      {/* 1. Selection Checkbox & Track Number / Play Indicator (56px) */}
+      <div className="flex items-center gap-1.5 min-w-0">
         {onToggleSelect ? (
           <div
             onClick={(e) => {
@@ -111,6 +114,7 @@ const SongRowComponent: React.FC<SongRowProps> = ({
               onToggleSelect();
             }}
             className="w-4 h-4 flex items-center justify-center shrink-0 cursor-pointer"
+            title={isSelected ? 'Deselect song' : 'Select song'}
           >
             <input
               type="checkbox"
@@ -119,7 +123,9 @@ const SongRowComponent: React.FC<SongRowProps> = ({
               className="rounded border-zinc-700 bg-zinc-900 text-violet-600 focus:ring-0 cursor-pointer w-3.5 h-3.5"
             />
           </div>
-        ) : null}
+        ) : (
+          <div className="w-1 shrink-0" />
+        )}
         <div className="w-6 h-6 relative flex items-center justify-center shrink-0">
           <button
             onClick={(e) => {
@@ -145,23 +151,9 @@ const SongRowComponent: React.FC<SongRowProps> = ({
             )}
           </div>
         </div>
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleFavorite(track.id);
-          }}
-          title={track.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
-          className="p-0.5 text-[#71717A] hover:text-red-400 transition-colors shrink-0"
-        >
-          <Heart
-            size={12}
-            className={track.isFavorite ? 'fill-red-500 text-red-500' : ''}
-          />
-        </button>
       </div>
 
-      {/* 2. Title */}
+      {/* 2. Title (Truncates gracefully with zero overlap) */}
       <div className="min-w-0 pr-4 truncate" title={track.title}>
         <span
           className={`truncate block ${
@@ -184,17 +176,39 @@ const SongRowComponent: React.FC<SongRowProps> = ({
         </div>
       )}
 
-      {/* 5. Duration */}
+      {/* 5. Favorite Heart Action (Dedicated 36px column, unobstructed & aligned) */}
+      <div className="min-w-0 flex items-center justify-center">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleFavorite(track.id);
+          }}
+          title={track.isFavorite ? 'Remove Favorite' : 'Add to Favorites'}
+          aria-label={track.isFavorite ? 'Remove from Favorites' : 'Add to Favorites'}
+          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors shrink-0 group/fav"
+        >
+          <Heart
+            size={14}
+            className={
+              track.isFavorite
+                ? 'fill-red-500 text-red-500 drop-shadow-[0_0_6px_rgba(239,68,68,0.4)]'
+                : 'text-[#52525B] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity'
+            }
+          />
+        </button>
+      </div>
+
+      {/* 6. Duration */}
       <div className="min-w-0 pr-3 text-right font-mono-numbers text-[11px] text-[#71717A] truncate">
         {formatDuration(track.duration)}
       </div>
 
-      {/* 6. Format Quality Badge */}
-      <div className="min-w-0 pr-2 flex items-center justify-end overflow-hidden">
+      {/* 7. Format Quality Badge (Centered within dedicated 120px column, zero clipping) */}
+      <div className="min-w-0 flex items-center justify-center">
         <QualityBadge tier={tier} size="sm" />
       </div>
 
-      {/* 7. Action Buttons (smooth opacity fade, invariant dimensions) */}
+      {/* 8. Action Buttons (smooth opacity fade, invariant dimensions) */}
       <div className="min-w-0 flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
         <button
           onClick={(e) => {

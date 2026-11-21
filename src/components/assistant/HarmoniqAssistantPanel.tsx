@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   X,
   Send,
@@ -13,6 +13,7 @@ import {
   Sparkles,
   ExternalLink,
   RotateCcw,
+  ChevronDown,
 } from 'lucide-react';
 import { useAssistant } from '../../hooks/useAssistant';
 import { useLibrary } from '../../context/LibraryContext';
@@ -71,8 +72,13 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
   const [inputVal, setInputVal] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const isNearBottomRef = useRef(true);
+  const userScrolledUpRef = useRef(false);
+  const prevMessagesLengthRef = useRef(messages.length);
 
   // Register natural language playback handler with assistantService (Phase 5A.2)
   useEffect(() => {
@@ -173,12 +179,81 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
     setActiveView('playlists');
   };
 
-  // Auto-scroll chat to bottom
+  // Stable Scroll Detection: track user scroll position to prevent forced jumping
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    const nearBottom = distanceFromBottom <= 48;
+    isNearBottomRef.current = nearBottom;
+
+    if (nearBottom) {
+      userScrolledUpRef.current = false;
+      setShowScrollBottomBtn(false);
+    } else if (distanceFromBottom > 80) {
+      userScrolledUpRef.current = true;
+      setShowScrollBottomBtn(true);
+    }
+  }, []);
+
+  const scrollToBottom = useCallback((smooth = false) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (smooth) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
+    isNearBottomRef.current = true;
+    userScrolledUpRef.current = false;
+    setShowScrollBottomBtn(false);
+  }, []);
+
+  // Intelligent Auto-scroll:
+  // 1. User sends message -> always scroll to latest
+  // 2. Assistant finishes / streams -> only keep pinned if user is already near bottom
+  // 3. User scrolled upward to inspect history -> preserve reading position, NEVER jerk scroll down
+  useEffect(() => {
+    if (!isPanelOpen) return;
+
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const isNewMessage = messages.length > prevMessagesLengthRef.current;
+    const lastMessage = messages[messages.length - 1];
+    prevMessagesLengthRef.current = messages.length;
+
+    if (isNewMessage) {
+      if (lastMessage?.role === 'user') {
+        scrollToBottom(true);
+        return;
+      }
+      if (isNearBottomRef.current && !userScrolledUpRef.current) {
+        scrollToBottom(false);
+      }
+      return;
+    }
+
+    // Keep pinned to bottom during live streaming ONLY if user is already at the bottom
+    if (isNearBottomRef.current && !userScrolledUpRef.current) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [messages, interimTranscript, isPanelOpen, scrollToBottom]);
+
+  // Initial scroll on open so recent conversation is visible immediately without smooth animation jitter
   useEffect(() => {
     if (isPanelOpen) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      const timer = setTimeout(() => {
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+          isNearBottomRef.current = true;
+          userScrolledUpRef.current = false;
+        }
+      }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [messages, interimTranscript, isPanelOpen]);
+  }, [isPanelOpen]);
 
   // Focus input on panel open & handle Escape key
   useEffect(() => {
@@ -331,8 +406,13 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
         </div>
       )}
 
-      {/* Messages Thread */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3.5 scrollbar-thin scrollbar-thumb-violet-500/20 scrollbar-track-transparent">
+      {/* Messages Thread (Stable Scroll Container with Overscroll Containment) */}
+      <div
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        style={{ overscrollBehavior: 'contain' }}
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-3.5 scrollbar-thin scrollbar-thumb-violet-500/20 scrollbar-track-transparent relative"
+      >
         {messages.map((msg) => (
           <div
             key={msg.id}
@@ -493,6 +573,19 @@ export const HarmoniqAssistantPanel: React.FC<HarmoniqAssistantPanelProps> = ({
 
         <div ref={messagesEndRef} />
       </div>
+
+      {/* Floating Return to Latest Messages Button */}
+      {showScrollBottomBtn && (
+        <button
+          onClick={() => scrollToBottom(true)}
+          aria-label="Scroll to latest messages"
+          title="Scroll to latest messages"
+          className="absolute bottom-[72px] right-6 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-violet-600/90 hover:bg-violet-500 text-white text-[11px] font-medium shadow-[0_4px_14px_rgba(139,92,246,0.6)] border border-violet-400/50 backdrop-blur-md transition-all active:scale-95 animate-in fade-in slide-in-from-bottom-2 duration-150"
+        >
+          <ChevronDown className="w-3.5 h-3.5" />
+          <span>Latest</span>
+        </button>
+      )}
 
       {/* Suggested Questions Carousel / Chips */}
       {messages.length <= 3 && suggestedQuestions.length > 0 && (
