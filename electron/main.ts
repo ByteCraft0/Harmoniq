@@ -917,12 +917,10 @@ function createMainWindow() {
     updateTrayMenu();
   });
 
-  mainWindow.on('close', (event) => {
-    if (!isQuitting && closeToTray) {
-      event.preventDefault();
-      mainWindow?.hide();
-      updateTrayMenu();
-      return false;
+  mainWindow.on('close', () => {
+    if (!isQuitting) {
+      isQuitting = true;
+      app.quit();
     }
   });
 
@@ -1058,12 +1056,8 @@ function setupIpc() {
   });
 
   ipcMain.handle('window:close', () => {
-    if (closeToTray && !isQuitting) {
-      mainWindow?.hide();
-      updateTrayMenu();
-    } else {
-      mainWindow?.close();
-    }
+    isQuitting = true;
+    app.quit();
   });
 
   ipcMain.handle('tray:setCloseToTray', (_e, enabled: boolean) => {

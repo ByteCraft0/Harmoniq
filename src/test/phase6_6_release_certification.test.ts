@@ -10,11 +10,11 @@ describe('Phase 6.6 Final Release Certification Test Matrix', () => {
   const rootDir = path.resolve(__dirname, '../../');
 
   describe('1. Version Consistency & Release Identity', () => {
-    it('verifies package.json version target is exactly 2.0.0', () => {
+    it('verifies package.json version target is exactly 2.0.1', () => {
       const pkgPath = path.join(rootDir, 'package.json');
       const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
       expect(pkg.name).toBe('harmoniq');
-      expect(pkg.version).toBe('2.0.0');
+      expect(pkg.version).toBe('2.0.1');
       expect(pkg.build.productName).toBe('Harmoniq');
       expect(pkg.build.appId).toBe('com.harmoniq.player');
     });

@@ -19,8 +19,11 @@ describe('Harmoniq 2.0 Stage 1: Installation & Lifecycle Validation', () => {
 
   describe('STEP 1: Release Artifact Inventory & Metadata', () => {
     it('verifies that both NSIS installer and portable executable exist in release/', () => {
-      const nsisPath = path.join(rootDir, 'release/Harmoniq Setup 2.0.0.exe');
-      const portablePath = path.join(rootDir, 'release/Harmoniq 2.0.0.exe');
+      const pkgPath = path.join(rootDir, 'package.json');
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+      const version = pkg.version;
+      const nsisPath = path.join(rootDir, `release/Harmoniq Setup ${version}.exe`);
+      const portablePath = path.join(rootDir, `release/Harmoniq ${version}.exe`);
       expect(fs.existsSync(nsisPath)).toBe(true);
       expect(fs.existsSync(portablePath)).toBe(true);
 
@@ -48,7 +51,7 @@ describe('Harmoniq 2.0 Stage 1: Installation & Lifecycle Validation', () => {
       expect(portableHeader.toString('ascii')).toBe('MZ');
 
       // Verify companion delta blockmap artifact exists and is non-empty
-      const blockmapPath = path.join(rootDir, 'release/Harmoniq Setup 2.0.0.exe.blockmap');
+      const blockmapPath = path.join(rootDir, `release/Harmoniq Setup ${version}.exe.blockmap`);
       expect(fs.existsSync(blockmapPath)).toBe(true);
       expect(fs.statSync(blockmapPath).size).toBeGreaterThan(10000);
 
@@ -56,13 +59,13 @@ describe('Harmoniq 2.0 Stage 1: Installation & Lifecycle Validation', () => {
       const latestYmlPath = path.join(rootDir, 'release/latest.yml');
       expect(fs.existsSync(latestYmlPath)).toBe(true);
       const latestYml = fs.readFileSync(latestYmlPath, 'utf8');
-      expect(latestYml).toContain('version: 2.0.0');
+      expect(latestYml).toContain(`version: ${version}`);
       expect(latestYml).toContain(`size: ${nsisStats.size}`);
     });
 
-    it('verifies package.json version matches target version 2.0.0', () => {
+    it('verifies package.json version matches target version 2.0.1', () => {
       const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
-      expect(pkg.version).toBe('2.0.0');
+      expect(pkg.version).toBe('2.0.1');
       expect(pkg.build.productName).toBe('Harmoniq');
     });
   });
