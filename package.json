@@ -1,6 +1,6 @@
 {
   "name": "harmoniq",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "HARMONIQ - Premium High-Fidelity Audio Player for Windows",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -124,5 +124,9 @@
   },
   "overrides": {
     "minimatch": "^11.0.9"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "electron-winstaller@5.4.0": true
   }
 }
