@@ -427,111 +427,112 @@ public class HarmoniqMediaScannerPlugin extends Plugin {
         if (files == null) return;
 
         MediaMetadataRetriever mmr = new MediaMetadataRetriever();
+        try {
+            for (DocumentFile file : files) {
+                if (file.isDirectory()) {
+                    scanDocumentFileRecursively(context, file, tracks, visited, depth + 1);
+                } else if (file.isFile() && isAudioDocument(file)) {
+                    String uriStr = file.getUri().toString();
+                    if (visited.contains(uriStr)) continue;
+                    visited.add(uriStr);
 
-        for (DocumentFile file : files) {
-            if (file.isDirectory()) {
-                scanDocumentFileRecursively(context, file, tracks, visited, depth + 1);
-            } else if (file.isFile() && isAudioDocument(file)) {
-                String uriStr = file.getUri().toString();
-                if (visited.contains(uriStr)) continue;
-                visited.add(uriStr);
-
-                try {
-                    mmr.setDataSource(context, file.getUri());
-
-                    String title = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
-                    String artist = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
-                    String album = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
-                    String durStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
-                    String yearStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR);
-                    String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
-                    String mimeType = file.getType();
-
-                    String fileName = file.getName() != null ? file.getName() : "AudioFile";
-                    if (title == null || title.trim().isEmpty()) {
-                        title = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
-                    }
-                    if (artist == null || artist.trim().isEmpty()) artist = "Unknown Artist";
-                    if (album == null || album.trim().isEmpty()) album = "Unknown Album";
-
-                    long durationMs = 0;
-                    if (durStr != null) {
-                        try { durationMs = Long.parseLong(durStr); } catch (Exception ignored) {}
-                    }
-                    int year = 0;
-                    if (yearStr != null) {
-                        try { year = Integer.parseInt(yearStr); } catch (Exception ignored) {}
-                    }
-                    int trackNumber = 0;
-                    if (trackStr != null) {
-                        try {
-                            if (trackStr.contains("/")) {
-                                trackStr = trackStr.substring(0, trackStr.indexOf('/'));
-                            }
-                            trackNumber = Integer.parseInt(trackStr.trim());
-                        } catch (Exception ignored) {}
-                    }
-
-                    String codec = determineCodec(mimeType, fileName);
-                    boolean isLossless = isLosslessCodec(codec);
-                    String uniqueId = "saf_" + Math.abs(uriStr.hashCode());
-
-                    byte[] embeddedPic = null;
                     try {
-                        embeddedPic = mmr.getEmbeddedPicture();
-                    } catch (Exception ignored) {}
+                        mmr.setDataSource(context, file.getUri());
 
-                    String safArtPath = null;
-                    if (embeddedPic != null && embeddedPic.length > 0) {
-                        try {
-                            File cacheDir = new File(context.getCacheDir(), "album_art");
-                            if (!cacheDir.exists()) cacheDir.mkdirs();
-                            File artFile = new File(cacheDir, "saf_" + Math.abs(uriStr.hashCode()) + ".jpg");
-                            if (!artFile.exists() || artFile.length() == 0) {
-                                try (FileOutputStream fos = new FileOutputStream(artFile)) {
-                                    fos.write(embeddedPic);
-                                    fos.flush();
+                        String title = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_TITLE);
+                        String artist = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ARTIST);
+                        String album = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_ALBUM);
+                        String durStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                        String yearStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_YEAR);
+                        String trackStr = mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CD_TRACK_NUMBER);
+                        String mimeType = file.getType();
+
+                        String fileName = file.getName() != null ? file.getName() : "AudioFile";
+                        if (title == null || title.trim().isEmpty()) {
+                            title = fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+                        }
+                        if (artist == null || artist.trim().isEmpty()) artist = "Unknown Artist";
+                        if (album == null || album.trim().isEmpty()) album = "Unknown Album";
+
+                        long durationMs = 0;
+                        if (durStr != null) {
+                            try { durationMs = Long.parseLong(durStr); } catch (Exception ignored) {}
+                        }
+                        int year = 0;
+                        if (yearStr != null) {
+                            try { year = Integer.parseInt(yearStr); } catch (Exception ignored) {}
+                        }
+                        int trackNumber = 0;
+                        if (trackStr != null) {
+                            try {
+                                if (trackStr.contains("/")) {
+                                    trackStr = trackStr.substring(0, trackStr.indexOf('/'));
                                 }
-                            }
-                            safArtPath = artFile.getAbsolutePath();
+                                trackNumber = Integer.parseInt(trackStr.trim());
+                            } catch (Exception ignored) {}
+                        }
+
+                        String codec = determineCodec(mimeType, fileName);
+                        boolean isLossless = isLosslessCodec(codec);
+                        String uniqueId = "saf_" + Math.abs(uriStr.hashCode());
+
+                        byte[] embeddedPic = null;
+                        try {
+                            embeddedPic = mmr.getEmbeddedPicture();
                         } catch (Exception ignored) {}
-                    }
 
-                    JSObject track = new JSObject();
-                    track.put("id", uniqueId);
-                    track.put("filePath", uriStr);
-                    track.put("fileName", fileName);
-                    track.put("fileSize", file.length());
-                    track.put("dateModified", file.lastModified() > 0 ? file.lastModified() : System.currentTimeMillis());
-                    track.put("title", title);
-                    track.put("artist", artist);
-                    track.put("album", album);
-                    if (year > 0) track.put("year", year);
-                    if (trackNumber > 0) track.put("trackNumber", trackNumber);
-                    track.put("hasArtwork", safArtPath != null);
-                    if (safArtPath != null) {
-                        track.put("artworkDataUrl", safArtPath);
-                    }
-                    track.put("codec", codec);
-                    track.put("container", codec.toLowerCase());
-                    track.put("duration", durationMs > 0 ? durationMs / 1000.0 : 0.0);
-                    track.put("sampleRate", 44100);
-                    track.put("bitrate", isLossless ? 920 : 320);
-                    track.put("channels", 2);
-                    track.put("isLossless", isLossless);
-                    track.put("playCount", 0);
-                    track.put("isFavorite", false);
+                        String safArtPath = null;
+                        if (embeddedPic != null && embeddedPic.length > 0) {
+                            try {
+                                File cacheDir = new File(context.getCacheDir(), "album_art");
+                                if (!cacheDir.exists()) cacheDir.mkdirs();
+                                File artFile = new File(cacheDir, "saf_" + Math.abs(uriStr.hashCode()) + ".jpg");
+                                if (!artFile.exists() || artFile.length() == 0) {
+                                    try (FileOutputStream fos = new FileOutputStream(artFile)) {
+                                        fos.write(embeddedPic);
+                                        fos.flush();
+                                    }
+                                }
+                                safArtPath = artFile.getAbsolutePath();
+                            } catch (Exception ignored) {}
+                        }
 
-                    tracks.add(track);
-                } catch (Exception ignored) {
-                    // Skip unreadable audio file without crashing scan
+                        JSObject track = new JSObject();
+                        track.put("id", uniqueId);
+                        track.put("filePath", uriStr);
+                        track.put("fileName", fileName);
+                        track.put("fileSize", file.length());
+                        track.put("dateModified", file.lastModified() > 0 ? file.lastModified() : System.currentTimeMillis());
+                        track.put("title", title);
+                        track.put("artist", artist);
+                        track.put("album", album);
+                        if (year > 0) track.put("year", year);
+                        if (trackNumber > 0) track.put("trackNumber", trackNumber);
+                        track.put("hasArtwork", safArtPath != null);
+                        if (safArtPath != null) {
+                            track.put("artworkDataUrl", safArtPath);
+                        }
+                        track.put("codec", codec);
+                        track.put("container", codec.toLowerCase());
+                        track.put("duration", durationMs > 0 ? durationMs / 1000.0 : 0.0);
+                        track.put("sampleRate", 44100);
+                        track.put("bitrate", isLossless ? 920 : 320);
+                        track.put("channels", 2);
+                        track.put("isLossless", isLossless);
+                        track.put("playCount", 0);
+                        track.put("isFavorite", false);
+
+                        tracks.add(track);
+                    } catch (Exception ignored) {
+                        // Skip unreadable audio file without crashing scan
+                    }
                 }
             }
+        } finally {
+            try {
+                mmr.release();
+            } catch (Exception ignored) {}
         }
-
-        try {
-            mmr.release();
-        } catch (Exception ignored) {}
     }
 
     private boolean isAudioDocument(DocumentFile file) {

@@ -658,6 +658,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       });
 
       const unsubError = driver.audio.onError?.((err) => {
+        const isRadio = mobileRadioService.isRadioTrack(err.track || currentTrackRef.current);
+        if (isRadio) {
+          setIsPlaying(false);
+          errorStreakRef.current = 0;
+          showToast('Internet radio stream unavailable or network disconnected.', 'warning');
+          return;
+        }
         showToast(`${err.track ? err.track.title + ': ' : ''}${err.message}`, 'warning');
         errorStreakRef.current += 1;
         if (errorStreakRef.current < Math.max(1, Math.min(queueRef.current.length, 3))) {
@@ -725,6 +732,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     });
 
     const unsubscribeError = audioEngine.subscribeError((message, track) => {
+      const isRadio = mobileRadioService.isRadioTrack(track || currentTrackRef.current);
+      if (isRadio) {
+        setIsPlaying(false);
+        errorStreakRef.current = 0;
+        showToast('Internet radio stream unavailable or network disconnected.', 'warning');
+        return;
+      }
       showToast(`${track ? track.title + ': ' : ''}${message}`, 'warning');
       errorStreakRef.current += 1;
       // Skip to the next track, but never loop forever through a queue of broken files
@@ -782,6 +796,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   onEndedRef.current = () => {
     commitListeningSession();
     if (sleepTimerRef.current.stopAfterCurrentTrack) {
+      if (getPlatformDriver().isAndroid) {
+        getPlatformDriver().audio.setStopAfterCurrentTrack?.(false).catch(() => {});
+      }
       executeSleepEndAction();
       return;
     }
@@ -1316,16 +1333,24 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   // Extended Sleep Timer & Auto Shutdown Logic
   const executeSleepEndAction = () => {
     const endAction = sleepTimerRef.current.endAction || 'pause';
-    audioEngine.pause();
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.pause().catch(() => {});
+    } else {
+      audioEngine.pause();
+    }
     setIsPlaying(false);
     cancelSleepTimer();
 
     if (endAction === 'closeApp') {
-      if (typeof window !== 'undefined' && window.harmoniqApi?.windowClose) {
+      if (getPlatformDriver().isAndroid) {
+        App.exitApp().catch(() => {});
+      } else if (typeof window !== 'undefined' && window.harmoniqApi?.windowClose) {
         window.harmoniqApi.windowClose().catch(() => {});
       }
     } else if (endAction === 'exitApp') {
-      if (typeof window !== 'undefined' && (window.harmoniqApi as any)?.quitApp) {
+      if (getPlatformDriver().isAndroid) {
+        App.exitApp().catch(() => {});
+      } else if (typeof window !== 'undefined' && (window.harmoniqApi as any)?.quitApp) {
         (window.harmoniqApi as any).quitApp().catch(() => {});
       } else if (typeof window !== 'undefined' && window.harmoniqApi?.windowClose) {
         window.harmoniqApi.windowClose().catch(() => {});
@@ -1398,6 +1423,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     if (mode === 'stopAfterTrack') {
+      if (getPlatformDriver().isAndroid) {
+        getPlatformDriver().audio.setStopAfterCurrentTrack?.(true).catch(() => {});
+      }
       setSleepTimerState({
         isActive: true,
         mode: 'stopAfterTrack',
@@ -1413,6 +1441,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     if (mode === 'stopAfterQueue') {
+      if (getPlatformDriver().isAndroid) {
+        getPlatformDriver().audio.setStopAfterCurrentTrack?.(false).catch(() => {});
+      }
       setSleepTimerState({
         isActive: true,
         mode: 'stopAfterQueue',
@@ -1430,8 +1461,11 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const totalSecs = Math.round(minutes * 60);
     let remaining = totalSecs;
 
-    if (getPlatformDriver().isAndroid && minutes > 0) {
-      getPlatformDriver().audio.startSleepTimer?.(minutes).catch(() => {});
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setStopAfterCurrentTrack?.(false).catch(() => {});
+      if (minutes > 0) {
+        getPlatformDriver().audio.startSleepTimer?.(minutes).catch(() => {});
+      }
     }
 
     setSleepTimerState({
@@ -1487,6 +1521,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const cancelSleepTimer = () => {
     if (getPlatformDriver().isAndroid) {
       getPlatformDriver().audio.cancelSleepTimer?.().catch(() => {});
+      getPlatformDriver().audio.setStopAfterCurrentTrack?.(false).catch(() => {});
     }
     if (sleepTimerIntervalRef.current) {
       clearInterval(sleepTimerIntervalRef.current);

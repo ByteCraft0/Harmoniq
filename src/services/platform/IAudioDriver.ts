@@ -49,6 +49,7 @@ export interface IAudioDriver {
   startSleepTimer?(minutes: number): Promise<void>;
   cancelSleepTimer?(): Promise<void>;
   getSleepTimerStatus?(): Promise<NativeSleepTimerStatus>;
+  setStopAfterCurrentTrack?(enabled: boolean): Promise<void>;
 
   // Device Routing
   setOutputDevice?(deviceId: string): Promise<boolean>;
@@ -73,4 +74,5 @@ export interface IAudioDriver {
   onMediaCommand?(listener: MediaCommandListener): () => void;
   onError(listener: PlaybackErrorListener): () => void;
   onSleepTimerExpired?(listener: SleepTimerExpiredListener): () => void;
+  destroy?(): void;
 }

@@ -294,9 +294,10 @@ export class AndroidAudioDriver implements IAudioDriver {
           if (typeof snap.currentTime === 'number') this.currentState.currentTime = snap.currentTime;
           if (typeof snap.duration === 'number' && snap.duration > 0) this.currentState.duration = snap.duration;
           if (snap.trackId) this.currentState.trackId = snap.trackId;
-          if (snap.track) {
-            this.currentTrack = snap.track;
-            this.currentState.currentTrack = snap.track;
+          const trk = snap.track || snap.currentTrack;
+          if (trk) {
+            this.currentTrack = trk;
+            this.currentState.currentTrack = trk;
           }
           if (Array.isArray(snap.queue) && snap.queue.length > 0) {
             this.queue = snap.queue;
@@ -468,6 +469,17 @@ export class AndroidAudioDriver implements IAudioDriver {
     return () => this.sleepTimerExpiredListeners.delete(listener);
   }
 
+  public async setStopAfterCurrentTrack(enabled: boolean): Promise<void> {
+    const cap = this.getCapacitor();
+    if (cap?.Plugins?.HarmoniqAudioPlayer?.setStopAfterCurrentTrack) {
+      try {
+        await cap.Plugins.HarmoniqAudioPlayer.setStopAfterCurrentTrack({ enabled });
+      } catch (err) {
+        console.warn('[AndroidAudioDriver] setStopAfterCurrentTrack error:', err);
+      }
+    }
+  }
+
   public async checkNotificationPermission(): Promise<{ granted: boolean; shouldShowRationale?: boolean }> {
     const cap = this.getCapacitor();
     if (cap?.Plugins?.HarmoniqAudioPlayer?.checkNotificationPermission) {
@@ -539,5 +551,14 @@ export class AndroidAudioDriver implements IAudioDriver {
   public onError(listener: PlaybackErrorListener): () => void {
     this.errorListeners.add(listener);
     return () => this.errorListeners.delete(listener);
+  }
+
+  public destroy(): void {
+    this.stateListeners.clear();
+    this.trackEndedListeners.clear();
+    this.mediaCommandListeners.clear();
+    this.errorListeners.clear();
+    this.sleepTimerExpiredListeners.clear();
+    this.listenersAttached = false;
   }
 }

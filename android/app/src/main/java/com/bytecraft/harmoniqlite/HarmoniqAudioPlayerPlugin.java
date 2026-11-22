@@ -73,11 +73,16 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
         public void onServiceConnected(ComponentName name, IBinder binder) {
             HarmoniqMediaService service = HarmoniqMediaService.getInstance();
             if (service != null && service.getPlayer() != null) {
-                if (mPlayer != service.getPlayer()) {
-                    mPlayer = service.getPlayer();
-                    mListenersAttached = false;
-                    attachPlayerListeners();
+                if (mPlayer != null && mPlayer != service.getPlayer()) {
+                    try {
+                        mPlayer.stop();
+                        mPlayer.release();
+                    } catch (Exception ignored) {}
                 }
+                mPlayer = service.getPlayer();
+                mListenersAttached = false;
+                attachPlayerListeners();
+                notifyState();
             }
         }
 
@@ -114,9 +119,14 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
     private synchronized void initPlayer() {
         HarmoniqMediaService service = HarmoniqMediaService.getInstance();
         if (service != null && service.getPlayer() != null) {
-            if (mPlayer != service.getPlayer()) {
-                mPlayer = service.getPlayer();
-                mListenersAttached = false;
+            if (mPlayer != null && mPlayer != service.getPlayer()) {
+                try {
+                    mPlayer.stop();
+                    mPlayer.release();
+                } catch (Exception ignored) {}
+            }
+            mPlayer = service.getPlayer();
+            if (!mListenersAttached) {
                 attachPlayerListeners();
             }
             return;
@@ -131,15 +141,22 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
 
         service = HarmoniqMediaService.getInstance();
         if (service != null && service.getPlayer() != null) {
+            if (mPlayer != null && mPlayer != service.getPlayer()) {
+                try {
+                    mPlayer.stop();
+                    mPlayer.release();
+                } catch (Exception ignored) {}
+            }
             mPlayer = service.getPlayer();
-            mListenersAttached = false;
-            attachPlayerListeners();
+            if (!mListenersAttached) {
+                attachPlayerListeners();
+            }
             return;
         }
 
         if (mPlayer != null) return;
 
-        // Fallback immediate player initialization
+        // Fallback temporary player initialization if service startup is delayed
         AudioAttributes audioAttributes = new AudioAttributes.Builder()
                 .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                 .setUsage(C.USAGE_MEDIA)
@@ -377,16 +394,6 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
                             if (qArt != null && !qArt.isEmpty()) {
                                 try {
                                     qMeta.setArtworkUri(parseMediaUri(qArt));
-                                    File qArtFile = new File(qArt);
-                                    if (qArtFile.exists() && qArtFile.length() > 0 && qArtFile.length() < 1000000) {
-                                        try (FileInputStream fis = new FileInputStream(qArtFile)) {
-                                            byte[] data = new byte[(int) qArtFile.length()];
-                                            int read = fis.read(data);
-                                            if (read > 0) {
-                                                qMeta.setArtworkData(data, MediaMetadata.PICTURE_TYPE_FRONT_COVER);
-                                            }
-                                        }
-                                    }
                                 } catch (Exception ignored) {}
                             }
                             qb.setMediaMetadata(qMeta.build());
@@ -413,6 +420,7 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
 
             HarmoniqMediaService service = HarmoniqMediaService.getInstance();
             if (service != null) {
+                service.setUserExplicitlyPaused(false);
                 service.updatePlaybackQueue(trackJson, queueJsonList, startIndex);
             }
 
@@ -429,6 +437,10 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
     @PluginMethod
     public void pause(PluginCall call) {
         mHandler.post(() -> {
+            HarmoniqMediaService service = HarmoniqMediaService.getInstance();
+            if (service != null) {
+                service.setUserExplicitlyPaused(true);
+            }
             if (mPlayer != null) {
                 mPlayer.pause();
             }
@@ -441,6 +453,10 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
     @PluginMethod
     public void resume(PluginCall call) {
         mHandler.post(() -> {
+            HarmoniqMediaService service = HarmoniqMediaService.getInstance();
+            if (service != null) {
+                service.setUserExplicitlyPaused(false);
+            }
             if (mPlayer != null) {
                 mPlayer.play();
             }
@@ -510,16 +526,6 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
                         if (qArt != null && !qArt.isEmpty()) {
                             try {
                                 qMeta.setArtworkUri(parseMediaUri(qArt));
-                                File qArtFile = new File(qArt);
-                                if (qArtFile.exists() && qArtFile.length() > 0 && qArtFile.length() < 1000000) {
-                                    try (FileInputStream fis = new FileInputStream(qArtFile)) {
-                                        byte[] data = new byte[(int) qArtFile.length()];
-                                        int read = fis.read(data);
-                                        if (read > 0) {
-                                            qMeta.setArtworkData(data, MediaMetadata.PICTURE_TYPE_FRONT_COVER);
-                                        }
-                                    }
-                                }
                             } catch (Exception ignored) {}
                         }
                         qb.setMediaMetadata(qMeta.build());
@@ -602,6 +608,32 @@ public class HarmoniqAudioPlayerPlugin extends Plugin {
             ret.put("status", "expired");
             notifyListeners("sleepTimerExpired", ret);
             notifyState();
+        });
+    }
+
+    public void notifyNativePlayerError(PlaybackException error) {
+        mHandler.post(() -> {
+            JSObject ret = new JSObject();
+            ret.put("errorCode", error != null ? error.errorCode : -1);
+            ret.put("errorCodeName", error != null ? error.getErrorCodeName() : "UNKNOWN");
+            ret.put("message", error != null && error.getMessage() != null ? error.getMessage() : "Playback failed");
+            ret.put("trackId", mCurrentTrackId);
+            notifyListeners("playbackError", ret);
+            notifyState();
+        });
+    }
+
+    @PluginMethod
+    public void setStopAfterCurrentTrack(PluginCall call) {
+        boolean enabled = call.getBoolean("enabled", false);
+        mHandler.post(() -> {
+            HarmoniqMediaService service = HarmoniqMediaService.getInstance();
+            if (service != null) {
+                service.setStopAfterCurrentTrack(enabled);
+            }
+            JSObject ret = new JSObject();
+            ret.put("enabled", enabled);
+            call.resolve(ret);
         });
     }
 

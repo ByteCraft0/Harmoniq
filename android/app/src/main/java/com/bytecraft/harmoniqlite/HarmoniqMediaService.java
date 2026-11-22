@@ -16,6 +16,7 @@ import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.session.DefaultMediaNotificationProvider;
@@ -38,12 +39,17 @@ import java.util.Map;
 public class HarmoniqMediaService extends MediaSessionService {
     public static final String CHANNEL_ID = "harmoniq_playback_channel";
     public static final String PREFS_NAME = "CapacitorStorage";
+    public static final String PREFS_NAME_LEGACY = "HarmoniqLitePreferences";
     public static final String PREF_KEY_STOP_ON_TASK_REMOVED = "harmoniq_stop_on_task_removed";
 
     private static HarmoniqMediaService sInstance = null;
     private MediaSession mMediaSession = null;
     private ExoPlayer mPlayer = null;
     private Boolean mStopOnTaskRemovedOverride = null;
+
+    private boolean mUserExplicitlyPaused = false;
+    private boolean mStopAfterCurrentTrack = false;
+    private int mConsecutiveErrorCount = 0;
 
     private JSONObject mCurrentTrack = null;
     private List<JSONObject> mCurrentQueue = new ArrayList<>();
@@ -97,6 +103,11 @@ public class HarmoniqMediaService extends MediaSessionService {
                     if (mCurrentQueue != null && index >= 0 && index < mCurrentQueue.size()) {
                         mCurrentTrack = mCurrentQueue.get(index);
                     }
+                    if (mStopAfterCurrentTrack) {
+                        mStopAfterCurrentTrack = false;
+                        mPlayer.pause();
+                        triggerSleepTimerExpiration();
+                    }
                 }
             }
 
@@ -106,6 +117,38 @@ public class HarmoniqMediaService extends MediaSessionService {
                     if (mEqualizer == null) {
                         attachEqualizer();
                     }
+                }
+            }
+
+            @Override
+            public void onIsPlayingChanged(boolean isPlaying) {
+                if (isPlaying) {
+                    mConsecutiveErrorCount = 0;
+                    mUserExplicitlyPaused = false;
+                }
+            }
+
+            @Override
+            public void onPlaybackSuppressionReasonChanged(int playbackSuppressionReason) {
+                if (playbackSuppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
+                    // If audio focus returned, but user explicitly paused, preserve user intent!
+                    if (mUserExplicitlyPaused && mPlayer != null && mPlayer.isPlaying()) {
+                        mPlayer.pause();
+                    }
+                }
+            }
+
+            @Override
+            public void onPlayerError(PlaybackException error) {
+                mConsecutiveErrorCount++;
+                if (mPlayer != null && mPlayer.hasNextMediaItem() && mConsecutiveErrorCount < 5) {
+                    mPlayer.seekToNextMediaItem();
+                    mPlayer.prepare();
+                    mPlayer.play();
+                }
+                HarmoniqAudioPlayerPlugin plugin = HarmoniqAudioPlayerPlugin.getInstance();
+                if (plugin != null) {
+                    plugin.notifyNativePlayerError(error);
                 }
             }
         });
@@ -153,9 +196,10 @@ public class HarmoniqMediaService extends MediaSessionService {
     public void onTaskRemoved(Intent rootIntent) {
         super.onTaskRemoved(rootIntent);
 
-        // When the user deliberately swipes Harmoniq Lite away from Android Recent Apps,
-        // respect user's explicit intention to terminate playback and release resources.
-        if (isStopOnTaskRemovedEnabled()) {
+        // When the user deliberately swipes the app away from Recent Apps:
+        // If stop-on-task-removed is enabled OR if playback is already paused/idle,
+        // terminate the service and release foreground resources cleanly.
+        if (isStopOnTaskRemovedEnabled() || (mPlayer != null && !mPlayer.isPlaying())) {
             stopPlaybackAndService();
         }
     }
@@ -169,15 +213,46 @@ public class HarmoniqMediaService extends MediaSessionService {
             return mStopOnTaskRemovedOverride;
         }
         try {
+            // Check primary CapacitorStorage
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
             String val = prefs.getString(PREF_KEY_STOP_ON_TASK_REMOVED, null);
             if (val != null) {
                 return Boolean.parseBoolean(val);
             }
-            return prefs.getBoolean(PREF_KEY_STOP_ON_TASK_REMOVED, true);
+            if (prefs.contains(PREF_KEY_STOP_ON_TASK_REMOVED)) {
+                return prefs.getBoolean(PREF_KEY_STOP_ON_TASK_REMOVED, true);
+            }
+
+            // Check legacy preferences group
+            SharedPreferences legacyPrefs = getSharedPreferences(PREFS_NAME_LEGACY, Context.MODE_PRIVATE);
+            String legVal = legacyPrefs.getString(PREF_KEY_STOP_ON_TASK_REMOVED, null);
+            if (legVal != null) {
+                return Boolean.parseBoolean(legVal);
+            }
+            if (legacyPrefs.contains(PREF_KEY_STOP_ON_TASK_REMOVED)) {
+                return legacyPrefs.getBoolean(PREF_KEY_STOP_ON_TASK_REMOVED, true);
+            }
+
+            return true; // Default: Enabled
         } catch (Exception e) {
             return true; // Default: Enabled
         }
+    }
+
+    public synchronized void setUserExplicitlyPaused(boolean paused) {
+        this.mUserExplicitlyPaused = paused;
+    }
+
+    public synchronized boolean isUserExplicitlyPaused() {
+        return this.mUserExplicitlyPaused;
+    }
+
+    public synchronized void setStopAfterCurrentTrack(boolean enabled) {
+        this.mStopAfterCurrentTrack = enabled;
+    }
+
+    public synchronized boolean isStopAfterCurrentTrack() {
+        return this.mStopAfterCurrentTrack;
     }
 
     /**
@@ -333,6 +408,10 @@ public class HarmoniqMediaService extends MediaSessionService {
             }
             ret.put("isShuffle", getShuffleMode());
             ret.put("repeatMode", getRepeatModeString());
+            ret.put("userExplicitlyPaused", mUserExplicitlyPaused);
+            ret.put("playbackSuppressionReason", mPlayer.getPlaybackSuppressionReason());
+            ret.put("playWhenReady", mPlayer.getPlayWhenReady());
+            ret.put("stopAfterCurrentTrack", mStopAfterCurrentTrack);
         } else {
             ret.put("isPlaying", false);
             ret.put("currentTime", 0.0);
@@ -341,6 +420,10 @@ public class HarmoniqMediaService extends MediaSessionService {
             ret.put("volume", 1.0);
             ret.put("isShuffle", false);
             ret.put("repeatMode", "off");
+            ret.put("userExplicitlyPaused", false);
+            ret.put("playbackSuppressionReason", 0);
+            ret.put("playWhenReady", false);
+            ret.put("stopAfterCurrentTrack", false);
         }
         return ret;
     }
