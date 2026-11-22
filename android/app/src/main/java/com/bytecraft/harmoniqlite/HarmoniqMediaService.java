@@ -239,10 +239,10 @@ public class HarmoniqMediaService extends MediaSessionService {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             NotificationChannel channel = new NotificationChannel(
                     CHANNEL_ID,
-                    "Harmoniq Lite Playback",
+                    "HARMONIQ Playback",
                     NotificationManager.IMPORTANCE_LOW
             );
-            channel.setDescription("Harmoniq Lite background music playback controls");
+            channel.setDescription("HARMONIQ background music playback controls");
             channel.setShowBadge(false);
             channel.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
             NotificationManager manager = getSystemService(NotificationManager.class);

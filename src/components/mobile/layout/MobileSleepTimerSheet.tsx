@@ -213,7 +213,7 @@ export const MobileSleepTimerSheet: React.FC<MobileSleepTimerSheetProps> = ({ is
               <div className="p-3.5 rounded-xl bg-[#181822] border border-[#272733] text-zinc-400 text-xs leading-relaxed space-y-1">
                 <p className="font-medium text-zinc-300">Native Android Service Support</p>
                 <p>
-                  The sleep timer runs in Harmoniq Lite's foreground media service. It remains active when the screen locks or when switching to other apps.
+                  The sleep timer runs in HARMONIQ's foreground media service. It remains active when the screen locks or when switching to other apps.
                 </p>
               </div>
             </>

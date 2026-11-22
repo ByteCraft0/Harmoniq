@@ -68,7 +68,7 @@ export const MobilePlaylistModal: React.FC<MobilePlaylistModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-white tracking-tight">{title}</h3>
-              <p className="text-[11px] text-zinc-400">Harmoniq Lite Playlist</p>
+              <p className="text-[11px] text-zinc-400">HARMONIQ Playlist</p>
             </div>
           </div>
           <button

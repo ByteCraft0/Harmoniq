@@ -313,7 +313,7 @@ export const MobileLibraryView: React.FC = () => {
                 <p className="text-xs text-zinc-400 max-w-xs mx-auto leading-relaxed">
                   {searchQuery
                     ? `No songs found matching "${searchQuery}".`
-                    : 'Harmoniq Lite discovers high-fidelity audio from your device storage and added music folders.'}
+                    : 'HARMONIQ discovers high-fidelity audio from your device storage and added music folders.'}
                 </p>
               </div>
 
@@ -543,7 +543,7 @@ export const MobileLibraryView: React.FC = () => {
       <MobileConfirmDialog
         isOpen={Boolean(folderToRemove)}
         title="Remove Folder"
-        message={`Remove "${getFolderName(folderToRemove || '')}" from your Harmoniq Lite library? Audio files on device will not be deleted.`}
+        message={`Remove "${getFolderName(folderToRemove || '')}" from your HARMONIQ library? Audio files on device will not be deleted.`}
         confirmLabel="Remove"
         isDestructive
         onConfirm={() => {

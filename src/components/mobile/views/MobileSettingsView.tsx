@@ -23,6 +23,7 @@ import {
   LayoutList,
   Bell,
   ExternalLink,
+  Disc,
 } from 'lucide-react';
 import { MobileConfirmDialog } from '../common/MobileConfirmDialog';
 import {
@@ -109,7 +110,7 @@ export const MobileSettingsView: React.FC = () => {
     <div className="space-y-6 pb-40">
       <div>
         <h2 className="text-lg font-bold text-white tracking-tight">Settings</h2>
-        <p className="text-xs text-zinc-500">Harmoniq Lite system configuration</p>
+        <p className="text-xs text-zinc-500">HARMONIQ Android system configuration</p>
       </div>
 
       {/* Appearance & Themes Card */}
@@ -361,7 +362,7 @@ export const MobileSettingsView: React.FC = () => {
           </div>
           <div className="flex justify-between py-1.5">
             <span className="text-zinc-400">Application Version</span>
-            <span className="font-mono text-violet-300">Harmoniq Lite 1.0.0 (Phase 4.2)</span>
+            <span className="font-mono text-violet-300">HARMONIQ 1.0.0</span>
           </div>
         </div>
       </div>
@@ -417,7 +418,7 @@ export const MobileSettingsView: React.FC = () => {
       <MobileConfirmDialog
         isOpen={Boolean(folderToRemove)}
         title="Remove Folder"
-        message={`Remove "${getFolderName(folderToRemove || '')}" from your Harmoniq Lite library? Audio files on device will not be deleted.`}
+        message={`Remove "${getFolderName(folderToRemove || '')}" from your HARMONIQ library? Audio files on device will not be deleted.`}
         confirmLabel="Remove"
         isDestructive
         onConfirm={() => {
@@ -460,14 +461,68 @@ export const MobileSettingsView: React.FC = () => {
         </button>
       </div>
 
-      {/* Phase 2 Architecture Notice */}
+      {/* High-Fidelity Audio Architecture Notice */}
       <div className="p-3.5 rounded-xl bg-violet-950/20 border border-violet-800/30 text-xs text-violet-300/80 space-y-1">
         <div className="flex items-center space-x-2 text-violet-400 font-medium">
           <Info className="w-4 h-4" />
-          <span>Harmoniq Lite Phase 2 Engine</span>
+          <span>HARMONIQ High-Fidelity Audio Engine</span>
         </div>
         <p className="text-[11px] leading-relaxed text-zinc-400">
           Native Android MediaStore and Storage Access Framework (SAF) folder picker are fully integrated. Playback is driven by AndroidX Media3 ExoPlayer and HarmoniqMediaService with background audio focus and lockscreen transport controls.
+        </p>
+      </div>
+
+      {/* About HARMONIQ Card */}
+      <div className="rounded-xl bg-[#14141b] border border-[#272733] p-4 space-y-4">
+        <div className="flex items-center space-x-2.5 text-violet-400">
+          <Info className="w-4 h-4" />
+          <h3 className="text-xs font-semibold uppercase tracking-wider">About HARMONIQ</h3>
+        </div>
+
+        <div className="flex items-center space-x-3.5 pb-2 border-b border-white/5">
+          <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center shadow-lg shadow-violet-950/50 flex-shrink-0">
+            <Disc className="w-6 h-6 text-white" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <h4 className="text-sm font-bold text-white tracking-wider">HARMONIQ</h4>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-violet-600/20 text-violet-300 border border-violet-500/30">
+                v1.0.0
+              </span>
+            </div>
+            <p className="text-[11px] text-zinc-400">High-Fidelity Audiophile Player</p>
+          </div>
+        </div>
+
+        <div className="space-y-2 text-xs">
+          <div className="flex justify-between py-1 border-b border-white/5">
+            <span className="text-zinc-400">Architecture</span>
+            <span className="text-zinc-200">Android Native + AndroidX Media3</span>
+          </div>
+          <div className="flex justify-between py-1 border-b border-white/5">
+            <span className="text-zinc-400">Attribution</span>
+            <span className="text-zinc-200 font-medium">Developed by ByteCraft</span>
+          </div>
+          <div className="flex justify-between py-1 border-b border-white/5">
+            <span className="text-zinc-400">License</span>
+            <span className="text-zinc-200">Open Source (MIT)</span>
+          </div>
+          <div className="flex justify-between py-1">
+            <span className="text-zinc-400">Source Code</span>
+            <a
+              href="https://github.com/ByteCraft0/Harmoniq"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-violet-400 hover:text-violet-300 flex items-center space-x-1 font-mono text-[11px]"
+            >
+              <span>ByteCraft0/Harmoniq</span>
+              <ExternalLink className="w-3 h-3" />
+            </a>
+          </div>
+        </div>
+
+        <p className="text-[11px] text-zinc-500 leading-relaxed pt-1">
+          HARMONIQ delivers local-first, bit-perfect audio playback engineered for audiophiles. No tracking, no cloud dependencies, pure lossless sound.
         </p>
       </div>
     </div>

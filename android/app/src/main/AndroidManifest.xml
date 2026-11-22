@@ -44,7 +44,7 @@
         </service>
     </application>
 
-    <!-- Harmoniq Lite Core Permissions -->
+    <!-- HARMONIQ Core Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />

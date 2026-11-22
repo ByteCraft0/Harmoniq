@@ -118,7 +118,7 @@ export const MobileNowPlayingSheet: React.FC<MobileNowPlayingSheetProps> = ({ is
             {isRadio ? 'Live Internet Radio' : 'Now Playing'}
           </span>
           <p className="text-xs text-zinc-400 truncate max-w-[200px]">
-            {currentTrack?.album || (isRadio ? 'Global Radio Broadcast' : 'Harmoniq Lite Audio')}
+            {currentTrack?.album || (isRadio ? 'Global Radio Broadcast' : 'HARMONIQ High-Fidelity Audio')}
           </p>
         </div>
         <button

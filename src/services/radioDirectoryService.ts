@@ -43,7 +43,7 @@ export class RadioDirectoryService {
           ...options,
           signal: controller.signal,
           headers: {
-            'User-Agent': 'HarmoniqLite/1.0.0 (https://harmoniq.audio)',
+            'User-Agent': 'Harmoniq/1.0.0 (https://harmoniq.audio)',
             Accept: 'application/json',
             ...(options?.headers || {}),
           },

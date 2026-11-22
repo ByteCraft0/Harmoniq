@@ -48,8 +48,8 @@ const MobileShellContent: React.FC = () => {
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-violet-600 to-fuchsia-600 flex items-center justify-center shadow-md shadow-violet-900/40">
             <Disc className="w-4 h-4 text-white" />
           </div>
-          <span className="text-sm font-bold tracking-tight bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
-            HARMONIQ <span className="text-violet-400 font-medium text-xs">LITE</span>
+          <span className="text-sm font-bold tracking-wider bg-gradient-to-r from-white via-zinc-200 to-zinc-400 bg-clip-text text-transparent">
+            HARMONIQ
           </span>
         </div>
       </header>

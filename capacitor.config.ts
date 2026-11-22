@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'com.bytecraft.harmoniqlite',
-  appName: 'Harmoniq Lite',
+  appName: 'HARMONIQ',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

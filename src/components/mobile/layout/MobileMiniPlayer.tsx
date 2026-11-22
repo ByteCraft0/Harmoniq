@@ -45,7 +45,7 @@ export const MobileMiniPlayer: React.FC<MobileMiniPlayerProps> = ({ onExpand }) 
               </span>
             )}
             <span className="text-sm font-medium text-white truncate">
-              {currentTrack?.title || 'Harmoniq Lite'}
+              {currentTrack?.title || 'HARMONIQ'}
             </span>
           </div>
           <span className="text-xs text-zinc-400 truncate">

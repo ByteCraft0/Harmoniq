@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Harmoniq Lite</string>
-    <string name="title_activity_main">Harmoniq Lite</string>
+    <string name="app_name">HARMONIQ</string>
+    <string name="title_activity_main">HARMONIQ</string>
     <string name="package_name">com.bytecraft.harmoniqlite</string>
     <string name="custom_url_scheme">com.bytecraft.harmoniqlite</string>
 </resources>
