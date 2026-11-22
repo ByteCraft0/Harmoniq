@@ -5,7 +5,9 @@ import { WatcherSyncStatus } from '../types/electron';
 import { libraryService } from '../services/libraryService';
 import { playlistFolderService } from '../services/playlistFolderService';
 import { favoritesService } from '../services/favoritesService';
+import { historyService } from '../services/historyService';
 import { useToast } from './ToastContext';
+import { getPlatformDriver } from '../services/platform';
 
 export type AppView =
   | 'home'
@@ -59,6 +61,7 @@ interface LibraryContextType {
   genres: { name: string; trackCount: number; tracks: TrackMetadata[] }[];
   folderTree: FolderNode[];
   playlists: Playlist[];
+  folders: string[];
   stats: LibraryStats;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
@@ -66,6 +69,7 @@ interface LibraryContextType {
 
   // Library Management Actions
   addMusicFolders: () => Promise<void>;
+  removeMusicFolder: (folderPathOrUri: string) => Promise<void>;
   openAudioFiles: () => Promise<void>;
   scanFolder: (path: string) => Promise<void>;
   toggleFavorite: (trackOrId: TrackMetadata | string) => void;
@@ -80,6 +84,7 @@ interface LibraryContextType {
   showFileInFolder: (filePath: string) => void;
   rescanLibrary: () => Promise<void>;
   updateTrackMetadataInLibrary: (track: TrackMetadata) => void;
+  clearHistory: () => void;
   watcherStatus: WatcherSyncStatus;
 }
 
@@ -100,6 +105,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [genres, setGenres] = useState<{ name: string; trackCount: number; tracks: TrackMetadata[] }[]>([]);
   const [folderTree, setFolderTree] = useState<FolderNode[]>([]);
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
+  const [folders, setFolders] = useState<string[]>([]);
   const [stats, setStats] = useState<LibraryStats>(libraryService.getStats());
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<TrackMetadata[]>([]);
@@ -114,11 +120,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     saveTimerRef.current = null;
     const data = libraryService.serialize();
     try {
-      if (window.harmoniqApi?.savePersistentData) {
-        await window.harmoniqApi.savePersistentData(STORAGE_LIBRARY_KEY, data);
-      } else {
-        localStorage.setItem(STORAGE_LIBRARY_KEY, JSON.stringify(data));
-      }
+      await getPlatformDriver().storage.set(STORAGE_LIBRARY_KEY, data);
     } catch (e) {
       console.warn('Failed to save library:', e);
     }
@@ -142,6 +144,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setFolderTree(libraryService.getFolderTree());
     const allPlaylists = libraryService.getPlaylists();
     setPlaylists(allPlaylists);
+    setFolders(libraryService.getFolders());
     setSelectedPlaylist((prev) => {
       if (!prev) return null;
       return allPlaylists.find((p) => p.id === prev.id) || null;
@@ -184,12 +187,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const loadSaved = async () => {
       let savedData: any = null;
       try {
-        if (window.harmoniqApi?.loadPersistentData) {
-          savedData = await window.harmoniqApi.loadPersistentData(STORAGE_LIBRARY_KEY);
-        } else {
-          const raw = localStorage.getItem(STORAGE_LIBRARY_KEY);
-          if (raw) savedData = JSON.parse(raw);
-        }
+        savedData = await getPlatformDriver().storage.get(STORAGE_LIBRARY_KEY);
       } catch (e) {
         console.warn('Failed to load saved library:', e);
       }
@@ -202,6 +200,27 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const savedFolders = libraryService.getFolders();
         if (savedFolders.length > 0 && window.harmoniqApi?.startFolderWatcher) {
           window.harmoniqApi.startFolderWatcher(savedFolders);
+        }
+      }
+
+      // Also ensure custom playlists stored in preferences are loaded
+      await libraryService.loadSavedPlaylistsAsync();
+      refreshLibraryState();
+
+      // If on Android, automatically populate or sync device media if permission is already granted
+      if (getPlatformDriver().isAndroid) {
+        const driver = getPlatformDriver().library;
+        if (driver.checkPermissions) {
+          try {
+            const perm = await driver.checkPermissions();
+            if (perm.granted) {
+              const result = await driver.scanLibrary();
+              if (result && result.tracks && result.tracks.length > 0) {
+                libraryService.addTracks(result.tracks);
+                refreshLibraryState();
+              }
+            }
+          } catch {}
         }
       }
     };
@@ -263,16 +282,34 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Folder scanning
   const addMusicFolders = async () => {
-    if (window.harmoniqApi?.openFolderDialog) {
-      const paths = await window.harmoniqApi.openFolderDialog();
-      if (paths && paths.length > 0) {
-        for (const p of paths) {
-          await scanFolder(p);
-        }
+    const driver = getPlatformDriver().library;
+    let paths: string[] | null = null;
+    if (driver.pickFolder) {
+      paths = await driver.pickFolder();
+    } else if (window.harmoniqApi?.openFolderDialog) {
+      paths = await window.harmoniqApi.openFolderDialog();
+    }
+
+    if (paths && paths.length > 0) {
+      for (const p of paths) {
+        await scanFolder(p);
       }
-    } else {
+    } else if (!paths) {
       showToast('Opening native folder picker...', 'info');
     }
+  };
+
+  const removeMusicFolder = async (folderPathOrUri: string) => {
+    const driver = getPlatformDriver().library;
+    if (driver.removeFolder) {
+      await driver.removeFolder(folderPathOrUri);
+    }
+    const currentFolders = libraryService.getFolders();
+    const nextFolders = currentFolders.filter((f) => f !== folderPathOrUri);
+    libraryService.setFolders(nextFolders);
+    libraryService.pruneFolder(folderPathOrUri, new Set());
+    refreshLibraryState();
+    showToast('Folder removed from library', 'info');
   };
 
   const openAudioFiles = async () => {
@@ -292,37 +329,54 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const scanFolder = async (folderPath: string) => {
-    if (window.harmoniqApi?.scanFolder) {
-      libraryService.setScanning(true);
-      setStats(libraryService.getStats());
-      try {
-        const result = await window.harmoniqApi.scanFolder(folderPath);
-        if (result && result.tracks) {
-          libraryService.addTracks(result.tracks);
-          // Drop tracks whose files disappeared (only when the folder itself was readable, e.g. not an unplugged drive)
-          let removedNote = '';
-          if (result.folderAccessible !== false) {
-            const removed = libraryService.pruneFolder(folderPath, new Set(result.tracks.map((t) => t.id)));
-            if (removed > 0) removedNote = `, removed ${removed} missing`;
-          }
-          const currentFolders = libraryService.getFolders();
-          if (!currentFolders.includes(folderPath)) {
-            const nextFolders = [...currentFolders, folderPath];
-            libraryService.setFolders(nextFolders);
-            if (window.harmoniqApi?.startFolderWatcher) {
-              window.harmoniqApi.startFolderWatcher(nextFolders);
-            }
-          }
-          showToast(`Indexed ${result.tracks.length} tracks from ${folderPath.split(/[\\/]/).pop()}${removedNote}`, 'success');
-        }
-      } catch (err) {
-        console.error('Scan folder failed:', err);
-        showToast('Error scanning folder', 'warning');
-      } finally {
-        libraryService.setScanning(false);
-        refreshLibraryState();
+    const driver = getPlatformDriver().library;
+    libraryService.setScanning(true);
+    setStats(libraryService.getStats());
+    try {
+      let result: any = null;
+      if (driver.scanFolder) {
+        result = await driver.scanFolder(folderPath);
+      } else if (window.harmoniqApi?.scanFolder) {
+        result = await window.harmoniqApi.scanFolder(folderPath);
+      } else {
+        result = await driver.scanLibrary({ folderPaths: [folderPath] });
       }
+
+      if (result && result.tracks) {
+        libraryService.addTracks(result.tracks);
+        // Drop tracks whose files disappeared (only when the folder itself was readable, e.g. not an unplugged drive)
+        let removedNote = '';
+        if (result.folderAccessible !== false) {
+          const removed = libraryService.pruneFolder(folderPath, new Set(result.tracks.map((t: TrackMetadata) => t.id)));
+          if (removed > 0) removedNote = `, removed ${removed} missing`;
+        }
+        const currentFolders = libraryService.getFolders();
+        if (!currentFolders.includes(folderPath)) {
+          const nextFolders = [...currentFolders, folderPath];
+          libraryService.setFolders(nextFolders);
+          if (driver.startWatcher) {
+            driver.startWatcher(nextFolders);
+          } else if (window.harmoniqApi?.startFolderWatcher) {
+            window.harmoniqApi.startFolderWatcher(nextFolders);
+          }
+        }
+        const displayName = folderPath.includes('/') ? folderPath.split('/').pop() : folderPath.split('\\').pop();
+        showToast(`Indexed ${result.tracks.length} tracks from ${decodeURIComponent(displayName || 'folder')}${removedNote}`, 'success');
+      }
+    } catch (err) {
+      console.error('Scan folder failed:', err);
+      showToast('Error scanning folder', 'warning');
+    } finally {
+      libraryService.setScanning(false);
+      refreshLibraryState();
     }
+  };
+
+  const clearHistory = () => {
+    libraryService.clearRecentlyPlayed();
+    historyService.clearHistory();
+    refreshLibraryState();
+    showToast('Listening history cleared', 'info');
   };
 
   const updateTrackMetadataInLibrary = (updatedTrack: TrackMetadata) => {
@@ -331,14 +385,47 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const rescanLibrary = async () => {
+    const driver = getPlatformDriver().library;
+    const isAndroid = getPlatformDriver().isAndroid;
     const folders = libraryService.getFolders();
-    if (folders.length === 0) {
+
+    if (!isAndroid && folders.length === 0) {
       showToast('No folders added yet. Click "Add Music Folder"', 'info');
       return;
     }
+
     showToast('Rescanning music library...', 'info');
-    for (const f of folders) {
-      await scanFolder(f);
+    libraryService.setScanning(true);
+    setStats(libraryService.getStats());
+
+    try {
+      if (isAndroid) {
+        const scanRes = await driver.scanLibrary();
+        if (scanRes && scanRes.tracks && scanRes.tracks.length > 0) {
+          libraryService.addTracks(scanRes.tracks);
+        }
+      }
+
+      for (const f of folders) {
+        let result: any = null;
+        if (driver.scanFolder) {
+          result = await driver.scanFolder(f);
+        } else if (window.harmoniqApi?.scanFolder) {
+          result = await window.harmoniqApi.scanFolder(f);
+        } else {
+          result = await driver.scanLibrary({ folderPaths: [f] });
+        }
+        if (result && result.tracks) {
+          libraryService.addTracks(result.tracks);
+        }
+      }
+      showToast('Library scan complete', 'success');
+    } catch (err) {
+      console.error('Rescan library failed:', err);
+      showToast('Scan completed with warnings', 'warning');
+    } finally {
+      libraryService.setScanning(false);
+      refreshLibraryState();
     }
   };
 
@@ -543,11 +630,13 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         genres,
         folderTree,
         playlists,
+        folders,
         stats,
         searchQuery,
         setSearchQuery,
         searchResults,
         addMusicFolders,
+        removeMusicFolder,
         openAudioFiles,
         scanFolder,
         toggleFavorite,
@@ -562,6 +651,7 @@ export const LibraryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         showFileInFolder,
         rescanLibrary,
         updateTrackMetadataInLibrary,
+        clearHistory,
         watcherStatus,
       }}
     >

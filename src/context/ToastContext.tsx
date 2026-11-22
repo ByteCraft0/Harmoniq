@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 interface Toast {
@@ -15,10 +15,21 @@ const ToastContext = createContext<ToastContextType | null>(null);
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const lastToastMap = useRef<Map<string, number>>(new Map());
 
   const showToast = useCallback((message: string, type: 'success' | 'info' | 'warning' = 'success') => {
-    const id = `${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
-    setToasts((prev) => [...prev, { id, message, type }]);
+    if (!message) return;
+    const now = Date.now();
+    const lastTime = lastToastMap.current.get(message);
+    // Deduplicate identical toasts within 2500ms
+    if (lastTime && now - lastTime < 2500) {
+      return;
+    }
+    lastToastMap.current.set(message, now);
+
+    const id = `${now}_${Math.random().toString(36).substring(2, 6)}`;
+    // Keep max 2 active toasts on screen to prevent viewport flooding
+    setToasts((prev) => [...prev.slice(-1), { id, message, type }]);
 
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
@@ -32,8 +43,11 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <ToastContext.Provider value={{ showToast }}>
       {children}
-      {/* Toast Render Container */}
-      <div className="fixed top-12 right-6 z-[9999] flex flex-col gap-2 pointer-events-none select-none">
+      {/* Responsive Toast Container: centered top on mobile with safe-area, top-right on desktop */}
+      <div
+        className="fixed left-1/2 -translate-x-1/2 sm:translate-x-0 sm:left-auto sm:top-12 sm:right-6 z-[9999] flex flex-col gap-2 pointer-events-none select-none max-w-[92vw] sm:max-w-md w-full px-2 sm:px-0 items-center sm:items-end"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}
+      >
         {toasts.map((toast) => (
           <div
             key={toast.id}
@@ -42,7 +56,7 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             {toast.type === 'success' && <CheckCircle2 size={16} className="text-[#A78BFA] shrink-0" />}
             {toast.type === 'warning' && <AlertCircle size={16} className="text-amber-400 shrink-0" />}
             {toast.type === 'info' && <Info size={16} className="text-sky-400 shrink-0" />}
-            <span>{toast.message}</span>
+            <span className="truncate max-w-[280px] sm:max-w-xs">{toast.message}</span>
             <button
               onClick={() => removeToast(toast.id)}
               className="ml-2 text-[#71717A] hover:text-[#F5F3FF]"

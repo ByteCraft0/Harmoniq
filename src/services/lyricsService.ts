@@ -1,5 +1,6 @@
 import { LyricLine, LyricsData } from '../types/lyrics';
 import { TrackMetadata } from '../types/audio';
+import { getPlatformDriver } from './platform';
 
 export class LyricsService {
   private static cache: Map<string, LyricsData> = new Map();
@@ -219,10 +220,9 @@ export class LyricsService {
     }
 
     // 1. Try companion .lrc file in folder
-    if (window.harmoniqApi?.readLrcFile && track.filePath) {
+    if (track.filePath) {
       try {
-        const lrcResult: any = await window.harmoniqApi.readLrcFile(track.filePath);
-        const content = typeof lrcResult === 'string' ? lrcResult : (lrcResult?.content || lrcResult?.plainText || '');
+        const content = await getPlatformDriver().library.readCompanionLrc(track.filePath);
         if (content && content.trim()) {
           const parsed = this.parseLrc(content, 'lrc_file');
           this.cache.set(track.id, parsed);

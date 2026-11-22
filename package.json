@@ -10,7 +10,10 @@
     "start": "npm run build && npm run build:electron && electron .",
     "electron": "npm run build:electron && electron .",
     "dist": "npm run build && npm run build:electron && electron-builder --win",
-    "test": "vitest run"
+    "test": "vitest run",
+    "mobile:build": "vite build && npx cap sync android",
+    "mobile:sync": "npx cap sync android",
+    "mobile:open": "npx cap open android"
   },
   "build": {
     "appId": "com.harmoniq.player",
@@ -99,6 +102,10 @@
   "author": "Harmoniq Audio Systems",
   "license": "UNLICENSED",
   "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/app": "^8.1.2",
+    "@capacitor/core": "^8.6.2",
+    "@capacitor/preferences": "^8.0.1",
     "chokidar": "^6.0.0",
     "colorthief": "^3.5.0",
     "flac-tagger": "^2.1.0",
@@ -109,6 +116,7 @@
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.6.2",
     "@types/node": "^22.10.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

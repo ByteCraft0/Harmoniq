@@ -1,5 +1,6 @@
 import { TrackMetadata } from '../types/audio';
 import { libraryService } from './libraryService';
+import { getPlatformDriver } from './platform';
 
 const STORAGE_FAVORITES_KEY = 'harmoniq_favorites_v2';
 const MAX_FAVORITES = 5000;
@@ -65,6 +66,32 @@ export class FavoritesService {
     } catch (e) {
       console.warn('Failed to load favorites:', e);
     }
+
+    // Also sync from platform storage driver (Native Android SharedPreferences via Preferences plugin)
+    try {
+      getPlatformDriver().storage.get<TrackMetadata[]>(STORAGE_FAVORITES_KEY).then((storedList) => {
+        if (Array.isArray(storedList) && storedList.length > 0) {
+          let updated = false;
+          for (const item of storedList) {
+            if (item && item.id && !this.favorites.has(item.id)) {
+              const track: TrackMetadata = {
+                ...item,
+                isFavorite: true,
+              };
+              this.favorites.set(track.id, track);
+              const rKey = recordingKey(track);
+              if (rKey !== ':::') {
+                this.recordingIndex.set(rKey, track.id);
+              }
+              updated = true;
+            }
+          }
+          if (updated) {
+            this.emit();
+          }
+        }
+      }).catch(() => {});
+    } catch {}
   }
 
   public save(): void {
@@ -73,6 +100,10 @@ export class FavoritesService {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(STORAGE_FAVORITES_KEY, JSON.stringify(list));
       }
+      // Persist to native Android SharedPreferences
+      try {
+        getPlatformDriver().storage.set(STORAGE_FAVORITES_KEY, list).catch(() => {});
+      } catch {}
       if (typeof window !== 'undefined' && (window as any).harmoniqApi?.savePersistentData) {
         (window as any).harmoniqApi
           .savePersistentData(STORAGE_FAVORITES_KEY, list.slice(0, 1000))

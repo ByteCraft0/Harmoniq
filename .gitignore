@@ -7,3 +7,42 @@ release
 *.exe
 *.lnk
 
+
+# Android / Gradle
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/.cxx/
+.gradle/
+*.apk
+*.aab
+*.jks
+*.keystore
+*.hprof
+
+# Electron runtime artifacts
+chrome_100_percent.pak
+chrome_200_percent.pak
+d3dcompiler_47.dll
+dxcompiler.dll
+electron_wer.dll
+ffmpeg.dll
+icudtl.dat
+resources.pak
+snapshot_blob.bin
+v8_context_snapshot.bin
+vk_swiftshader.dll
+vk_swiftshader_icd.json
+vulkan-1.dll
+uninstallerIcon.ico
+LICENSE.electron.txt
+LICENSES.chromium.html
+/locales/
+/resources/
+
+# Local configuration
+.env
+.env.local
+.env.*.local

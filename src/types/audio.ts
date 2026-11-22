@@ -94,6 +94,8 @@ export interface PlaybackState {
   isShuffle: boolean;
   crossfadeDuration: number; // 0 to 10 seconds
   replayGainMode: ReplayGainMode;
+  isLive?: boolean;
+  isBuffering?: boolean;
 }
 
 export interface AudioOutputDeviceInfo {

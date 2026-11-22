@@ -40,6 +40,8 @@ import { useDSP } from './context/DSPContext';
 import { audioEngine } from './services/audioEngine';
 import { buildAssistantContext } from './services/assistantContextService';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { detectPlatform } from './services/platform';
+import { MobileShell } from './components/mobile/MobileShell';
 
 const MainLayout: React.FC = () => {
   const {
@@ -349,12 +351,16 @@ const MainLayout: React.FC = () => {
 };
 
 export const App: React.FC = () => {
+  const isMobile =
+    detectPlatform() === 'android' ||
+    (typeof window !== 'undefined' && window.location.search.includes('mobile=1'));
+
   return (
     <ToastProvider>
       <LibraryProvider>
         <PlayerProvider>
           <DSPProvider>
-            <MainLayout />
+            {isMobile ? <MobileShell /> : <MainLayout />}
           </DSPProvider>
         </PlayerProvider>
       </LibraryProvider>

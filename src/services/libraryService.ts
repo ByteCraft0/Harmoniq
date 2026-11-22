@@ -1,5 +1,6 @@
 import { TrackMetadata } from '../types/audio';
 import { Album, Artist, Playlist, FolderNode, LibraryStats } from '../types/library';
+import { getPlatformDriver } from './platform';
 
 const normPath = (p: string): string => p.replace(/\\/g, '/').toLowerCase();
 const albumKeyOf = (t: TrackMetadata): string => `${(t.album || '').toLowerCase()}:::${(t.albumArtist || t.artist || '').toLowerCase()}`;
@@ -19,10 +20,86 @@ export class LibraryService {
   private isScanning = false;
   private scanProgress = { current: 0, total: 0, currentFile: '' };
   private static readonly STORAGE_PLAYLISTS_KEY = 'harmoniq_custom_playlists_v1';
+  private static readonly STORAGE_TRACK_STATS_KEY = 'harmoniq_track_stats_v2';
+  private trackStats: Map<string, { playCount: number; lastPlayed: number }> = new Map();
 
   constructor() {
     this.initializeDefaultSmartPlaylists();
     this.loadSavedPlaylists();
+    this.loadSavedTrackStats();
+  }
+
+  private loadSavedTrackStats(): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const raw = localStorage.getItem(LibraryService.STORAGE_TRACK_STATS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            for (const [id, stats] of Object.entries(parsed)) {
+              if (stats && typeof stats === 'object') {
+                this.trackStats.set(id, {
+                  playCount: (stats as any).playCount || 0,
+                  lastPlayed: (stats as any).lastPlayed || 0,
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load saved track stats:', e);
+    }
+    this.loadSavedTrackStatsAsync().catch(() => {});
+  }
+
+  public async loadSavedTrackStatsAsync(): Promise<void> {
+    try {
+      const stored = await getPlatformDriver().storage.get<Record<string, { playCount: number; lastPlayed: number }>>(
+        LibraryService.STORAGE_TRACK_STATS_KEY
+      );
+      if (stored && typeof stored === 'object') {
+        let changed = false;
+        for (const [id, stats] of Object.entries(stored)) {
+          if (stats && !this.trackStats.has(id)) {
+            this.trackStats.set(id, {
+              playCount: stats.playCount || 0,
+              lastPlayed: stats.lastPlayed || 0,
+            });
+            const track = this.tracks.get(id);
+            if (track) {
+              track.playCount = stats.playCount || 0;
+              track.lastPlayed = stats.lastPlayed || 0;
+              changed = true;
+            }
+          }
+        }
+        if (changed) {
+          this.emit('data');
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load async track stats:', e);
+    }
+  }
+
+  public saveTrackStats(): void {
+    try {
+      const obj: Record<string, { playCount: number; lastPlayed: number }> = {};
+      for (const [id, s] of this.trackStats.entries()) {
+        if (s && (s.playCount > 0 || s.lastPlayed > 0)) {
+          obj[id] = s;
+        }
+      }
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(LibraryService.STORAGE_TRACK_STATS_KEY, JSON.stringify(obj));
+      }
+      try {
+        getPlatformDriver().storage.set(LibraryService.STORAGE_TRACK_STATS_KEY, obj).catch(() => {});
+      } catch {}
+    } catch (e) {
+      console.warn('Failed to persist track stats:', e);
+    }
   }
 
   private loadSavedPlaylists(): void {
@@ -51,11 +128,34 @@ export class LibraryService {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(LibraryService.STORAGE_PLAYLISTS_KEY, JSON.stringify(custom));
       }
+      try {
+        getPlatformDriver().storage.set(LibraryService.STORAGE_PLAYLISTS_KEY, custom).catch(() => {});
+      } catch {}
       if (typeof window !== 'undefined' && (window as any).harmoniqApi?.savePersistentData) {
         (window as any).harmoniqApi.savePersistentData(LibraryService.STORAGE_PLAYLISTS_KEY, custom).catch(() => {});
       }
     } catch (e) {
       console.warn('Failed to persist custom playlists:', e);
+    }
+  }
+
+  public async loadSavedPlaylistsAsync(): Promise<void> {
+    try {
+      const custom = await getPlatformDriver().storage.get<Playlist[]>(LibraryService.STORAGE_PLAYLISTS_KEY);
+      if (Array.isArray(custom)) {
+        let changed = false;
+        for (const pl of custom) {
+          if (pl && pl.id && !pl.isSmart && !this.playlists.has(pl.id)) {
+            this.playlists.set(pl.id, pl);
+            changed = true;
+          }
+        }
+        if (changed) {
+          this.emit('data');
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load async saved custom playlists:', e);
     }
   }
 
@@ -155,20 +255,30 @@ export class LibraryService {
     for (const track of newTracks) {
       if (!track || !track.id) continue;
       const existing = this.tracks.get(track.id);
+      const savedStats = this.trackStats.get(track.id);
       const toStore: TrackMetadata = existing
         ? {
             ...track,
-            playCount: existing.playCount,
-            isFavorite: existing.isFavorite,
-            lastPlayed: existing.lastPlayed,
+            playCount: existing.playCount ?? savedStats?.playCount ?? track.playCount,
+            isFavorite: existing.isFavorite ?? track.isFavorite,
+            lastPlayed: existing.lastPlayed ?? savedStats?.lastPlayed ?? track.lastPlayed,
             resumePosition: existing.resumePosition,
             customPlaybackSpeed: existing.customPlaybackSpeed,
             dateAdded: existing.dateAdded ?? now,
           }
         : {
             ...track,
+            playCount: savedStats?.playCount ?? track.playCount,
+            lastPlayed: savedStats?.lastPlayed ?? track.lastPlayed,
             dateAdded: track.dateAdded ?? now,
           };
+
+      if (toStore.playCount || toStore.lastPlayed) {
+        this.trackStats.set(toStore.id, {
+          playCount: toStore.playCount || 0,
+          lastPlayed: toStore.lastPlayed || 0,
+        });
+      }
 
       // Share identical artwork strings between tracks of one album (big memory/disk saving)
       if (toStore.artworkDataUrl) {
@@ -305,11 +415,53 @@ export class LibraryService {
     }
   }
 
+  private lastPlaybackStartTrackId: string | null = null;
+  private lastPlaybackStartTime: number = 0;
+
+  public recordPlaybackStart(trackId: string): void {
+    const track = this.tracks.get(trackId);
+    if (!track) return;
+    const now = Date.now();
+    if (this.lastPlaybackStartTrackId === trackId && Math.abs(now - this.lastPlaybackStartTime) < 3000) {
+      return;
+    }
+    this.lastPlaybackStartTrackId = trackId;
+    this.lastPlaybackStartTime = now;
+    track.lastPlayed = now;
+    this.trackStats.set(trackId, {
+      playCount: track.playCount || 0,
+      lastPlayed: now,
+    });
+    this.saveTrackStats();
+    this.emit('data');
+  }
+
   public recordPlay(trackId: string): void {
     const track = this.tracks.get(trackId);
     if (!track) return;
+    const now = Date.now();
     track.playCount = (track.playCount || 0) + 1;
-    track.lastPlayed = Date.now();
+    track.lastPlayed = now;
+    this.trackStats.set(trackId, {
+      playCount: track.playCount,
+      lastPlayed: now,
+    });
+    this.saveTrackStats();
+    this.emit('data');
+  }
+
+  public clearRecentlyPlayed(): void {
+    for (const track of this.tracks.values()) {
+      track.lastPlayed = undefined;
+    }
+    for (const [id, stats] of this.trackStats.entries()) {
+      if (stats.playCount > 0) {
+        this.trackStats.set(id, { playCount: stats.playCount, lastPlayed: 0 });
+      } else {
+        this.trackStats.delete(id);
+      }
+    }
+    this.saveTrackStats();
     this.emit('data');
   }
 
@@ -477,6 +629,15 @@ export class LibraryService {
     this.emit('data');
   }
 
+  public reloadTrackStats(): void {
+    this.loadSavedTrackStats();
+  }
+
+  public clearTrackStats(): void {
+    this.trackStats.clear();
+    this.saveTrackStats();
+  }
+
   public rebuildSearchIndex(): void {
     this.searchFields.clear();
     for (const [id, track] of this.tracks) {
@@ -528,8 +689,12 @@ export class LibraryService {
     if (recPlayedSmart) {
       recPlayedSmart.trackIds = all
         .filter((t) => !!t.lastPlayed)
-        .sort((a, b) => (b.lastPlayed || 0) - (a.lastPlayed || 0))
-        .slice(0, 50)
+        .sort((a, b) => {
+          const timeDiff = (b.lastPlayed || 0) - (a.lastPlayed || 0);
+          if (timeDiff !== 0) return timeDiff;
+          return a.title.localeCompare(b.title);
+        })
+        .slice(0, 100)
         .map((t) => t.id);
     }
 
@@ -546,8 +711,14 @@ export class LibraryService {
     if (mostPlayedSmart) {
       mostPlayedSmart.trackIds = all
         .filter((t) => (t.playCount || 0) > 0)
-        .sort((a, b) => (b.playCount || 0) - (a.playCount || 0))
-        .slice(0, 50)
+        .sort((a, b) => {
+          const countDiff = (b.playCount || 0) - (a.playCount || 0);
+          if (countDiff !== 0) return countDiff;
+          const timeDiff = (b.lastPlayed || 0) - (a.lastPlayed || 0);
+          if (timeDiff !== 0) return timeDiff;
+          return a.title.localeCompare(b.title);
+        })
+        .slice(0, 100)
         .map((t) => t.id);
     }
 

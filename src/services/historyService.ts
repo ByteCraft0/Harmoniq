@@ -5,6 +5,7 @@ import {
   HistoryQueryOptions,
 } from '../types/history';
 import { TrackMetadata } from '../types/audio';
+import { getPlatformDriver } from './platform';
 
 const STORAGE_HISTORY_KEY = 'harmoniq_listening_history_v2';
 const STORAGE_HISTORY_ENABLED_KEY = 'harmoniq_history_recording_enabled';
@@ -17,6 +18,7 @@ export class HistoryService {
 
   constructor() {
     this.load();
+    this.loadAsync().catch(() => {});
   }
 
   private load(): void {
@@ -36,6 +38,20 @@ export class HistoryService {
       }
     } catch (e) {
       console.warn('Failed to load listening history:', e);
+    }
+  }
+
+  public async loadAsync(): Promise<void> {
+    try {
+      const stored = await getPlatformDriver().storage.get<HistoryEntry[]>(STORAGE_HISTORY_KEY);
+      if (Array.isArray(stored) && stored.length > 0) {
+        if (this.entries.length === 0) {
+          this.entries = stored;
+          this.emit();
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load async listening history:', e);
     }
   }
 
@@ -60,6 +76,9 @@ export class HistoryService {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem(STORAGE_HISTORY_KEY, JSON.stringify(this.entries.slice(0, MAX_HISTORY_ENTRIES)));
       }
+      try {
+        getPlatformDriver().storage.set(STORAGE_HISTORY_KEY, this.entries.slice(0, MAX_HISTORY_ENTRIES)).catch(() => {});
+      } catch {}
       if (typeof window !== 'undefined' && (window as any).harmoniqApi?.savePersistentData) {
         (window as any).harmoniqApi
           .savePersistentData(STORAGE_HISTORY_KEY, this.entries.slice(0, 1000))
@@ -255,6 +274,10 @@ export class HistoryService {
   public clearHistory(): void {
     this.entries = [];
     this.save();
+    try {
+      getPlatformDriver().storage.remove(STORAGE_HISTORY_KEY).catch(() => {});
+    } catch {}
+    this.emit();
   }
 
   public getStatsSummary() {

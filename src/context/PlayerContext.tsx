@@ -14,7 +14,11 @@ import { trackMetadataToUnifiedTrack, unifiedTrackToTrackMetadata } from '../typ
 import { MusicBookmark } from '../types/bookmark';
 import { bookmarkService } from '../services/bookmarkService';
 import { ListeningSession, sessionTrackingService } from '../services/sessionTrackingService';
+import { RadioStation } from '../types/radio';
+import { mobileRadioService } from '../services/mobileRadioService';
 import { useToast } from './ToastContext';
+import { getPlatformDriver } from '../services/platform';
+import { App } from '@capacitor/app';
 
 const PREFS_KEY = 'harmoniq_player_prefs';
 
@@ -82,6 +86,7 @@ interface PlayerContextType {
 
   // Actions
   playTrack: (track: TrackMetadata, newQueue?: TrackMetadata[]) => Promise<void>;
+  playRadioStation: (station: RadioStation) => Promise<void>;
   playNow: (track: TrackMetadata) => Promise<void>;
   togglePlayPause: () => Promise<void>;
   pause: () => void;
@@ -262,12 +267,14 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const onEndedRef = useRef<() => void>(() => {});
   const listeningDurationRef = useRef(0);
   const lastPlaybackTimestampRef = useRef<number | null>(null);
+  const activePlayCountedRef = useRef<string | null>(null);
 
   const commitListeningSession = useCallback(() => {
     const track = currentTrackRef.current;
     const elapsed = listeningDurationRef.current;
     listeningDurationRef.current = 0;
     lastPlaybackTimestampRef.current = null;
+    activePlayCountedRef.current = null;
     if (track && elapsed > 0) {
       const { isCompleted } = historyService.recordSession(track, elapsed);
       if (isCompleted) {
@@ -463,8 +470,213 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [currentTime, volume]);
 
+  // Android Background / Screen-Lock State Restoration & Lifecycle Synchronization
+  useEffect(() => {
+    const driver = getPlatformDriver();
+    if (!driver.isAndroid) return;
+
+    let isSubscribed = true;
+
+    const restoreNativePlaybackState = async () => {
+      try {
+        const snapshot = await (driver.audio as any).getPlaybackSnapshot?.();
+        if (!isSubscribed || !snapshot) return;
+
+        if (snapshot.currentTrack) {
+          setCurrentTrack(snapshot.currentTrack);
+          currentTrackRef.current = snapshot.currentTrack;
+        } else if (snapshot.trackId) {
+          const match = (snapshot.queue || queueRef.current).find((t: TrackMetadata) => t.id === snapshot.trackId);
+          if (match) {
+            setCurrentTrack(match);
+            currentTrackRef.current = match;
+          }
+        }
+
+        if (snapshot.queue && snapshot.queue.length > 0) {
+          setQueue(snapshot.queue);
+          queueRef.current = snapshot.queue;
+        }
+
+        if (typeof snapshot.currentTime === 'number') {
+          setCurrentTime(snapshot.currentTime);
+        }
+        if (typeof snapshot.duration === 'number' && snapshot.duration > 0) {
+          setDuration(snapshot.duration);
+        }
+        if (typeof snapshot.isPlaying === 'boolean') {
+          setIsPlaying(snapshot.isPlaying);
+        }
+        if (typeof snapshot.isShuffle === 'boolean') {
+          setIsShuffle(snapshot.isShuffle);
+        }
+        if (snapshot.repeatMode) {
+          setRepeatModeState(snapshot.repeatMode);
+        }
+        if (driver.audio.getSleepTimerStatus) {
+          const sleepStatus = await driver.audio.getSleepTimerStatus();
+          if (sleepStatus && sleepStatus.isActive) {
+            setSleepTimerState((prev) => ({
+              ...prev,
+              isActive: true,
+              totalSeconds: sleepStatus.totalSeconds,
+              secondsRemaining: sleepStatus.secondsRemaining,
+            }));
+          }
+        }
+      } catch (err) {
+        console.warn('[PlayerContext] Failed to restore native state on foreground transition:', err);
+      }
+    };
+
+    // 1. Initial snapshot restoration on PlayerContext mount
+    restoreNativePlaybackState();
+
+    // 2. Capacitor App lifecycle listener for foreground/resume transitions
+    let appStateHandle: any = null;
+    try {
+      const cap = (window as any).Capacitor;
+      const appPlugin = cap?.Plugins?.App || App;
+      if (appPlugin?.addListener) {
+        appPlugin.addListener('appStateChange', (state: { isActive: boolean }) => {
+          if (state?.isActive) {
+            restoreNativePlaybackState();
+          }
+        }).then((handle: any) => {
+          appStateHandle = handle;
+        }).catch(() => {});
+      }
+    } catch {}
+
+    // 3. Document visibilitychange & window focus fallback
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        restoreNativePlaybackState();
+      }
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    if (typeof window !== 'undefined') {
+      window.addEventListener('focus', restoreNativePlaybackState);
+    }
+
+    return () => {
+      isSubscribed = false;
+      if (appStateHandle?.remove) {
+        appStateHandle.remove();
+      }
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', restoreNativePlaybackState);
+      }
+    };
+  }, []);
+
   // Subscribe to audio engine status updates (handlers read through refs, so no stale closures)
   useEffect(() => {
+    const driver = getPlatformDriver();
+    if (driver.isAndroid) {
+      const unsubStatus = driver.audio.onPlaybackStateChange((status) => {
+        setCurrentTime(status.currentTime);
+        if (status.duration > 0) {
+          setDuration(status.duration);
+        }
+        setIsPlaying(status.isPlaying);
+
+        // Sync active track: prefer status.currentTrack from native snapshot, then lookup in queue
+        const nextTrack = status.currentTrack ||
+          (status.trackId ? (status.queue || queueRef.current).find((t) => t.id === status.trackId) : null);
+
+        if (nextTrack) {
+          if (nextTrack.id !== currentTrackRef.current?.id) {
+            commitListeningSession();
+            activePlayCountedRef.current = null;
+            setCurrentTrack(nextTrack);
+            currentTrackRef.current = nextTrack;
+            setHistory((prev) => [nextTrack, ...prev.filter((t) => t.id !== nextTrack.id)].slice(0, 50));
+            if (status.isPlaying) {
+              libraryService.recordPlaybackStart(nextTrack.id);
+            }
+          } else if (!currentTrackRef.current) {
+            // Restore currentTrack if it was null in React state (e.g. after screen unlock/remount)
+            setCurrentTrack(nextTrack);
+            currentTrackRef.current = nextTrack;
+          }
+        }
+
+        if (status.queue && status.queue.length > 0 && queueRef.current.length === 0) {
+          setQueue(status.queue);
+          queueRef.current = status.queue;
+        }
+
+        if (typeof status.isShuffle === 'boolean' && status.isShuffle !== isShuffleRef.current) {
+          setIsShuffle(status.isShuffle);
+        }
+        if (status.repeatMode && status.repeatMode !== repeatModeRef.current) {
+          setRepeatModeState(status.repeatMode);
+        }
+
+        if (status.isPlaying) {
+          errorStreakRef.current = 0;
+          const now = Date.now();
+          if (lastPlaybackTimestampRef.current !== null) {
+            const delta = (now - lastPlaybackTimestampRef.current) / 1000;
+            if (delta > 0 && delta < 2.0) {
+              listeningDurationRef.current += delta;
+              sessionTrackingService.onPlaybackProgress(delta);
+
+              // Play count threshold: at least 30s (or 50% for shorter tracks)
+              const curTrack = currentTrackRef.current;
+              if (curTrack && activePlayCountedRef.current !== curTrack.id) {
+                const threshold = curTrack.duration && curTrack.duration > 0
+                  ? Math.min(30, curTrack.duration * 0.5)
+                  : 30;
+                if (listeningDurationRef.current >= threshold) {
+                  activePlayCountedRef.current = curTrack.id;
+                  libraryService.recordPlay(curTrack.id);
+                }
+              }
+            }
+          }
+          lastPlaybackTimestampRef.current = now;
+        } else {
+          lastPlaybackTimestampRef.current = null;
+        }
+      });
+
+      const unsubEnded = driver.audio.onTrackEnded(() => {
+        onEndedRef.current();
+      });
+
+      const unsubSleep = driver.audio.onSleepTimerExpired?.(() => {
+        setIsPlaying(false);
+        cancelSleepTimer();
+        showToast('Sleep timer expired. Playback paused.', 'info');
+      });
+
+      const unsubError = driver.audio.onError?.((err) => {
+        showToast(`${err.track ? err.track.title + ': ' : ''}${err.message}`, 'warning');
+        errorStreakRef.current += 1;
+        if (errorStreakRef.current < Math.max(1, Math.min(queueRef.current.length, 3))) {
+          setTimeout(() => {
+            nextTrack();
+          }, 600);
+        } else {
+          errorStreakRef.current = 0;
+        }
+      });
+
+      return () => {
+        unsubStatus();
+        unsubEnded();
+        if (unsubSleep) unsubSleep();
+        if (unsubError) unsubError();
+      };
+    }
+
     const unsubscribe = audioEngine.subscribeStatus((status) => {
       setCurrentTime(status.currentTime);
       if (status.duration > 0) {
@@ -516,8 +728,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       showToast(`${track ? track.title + ': ' : ''}${message}`, 'warning');
       errorStreakRef.current += 1;
       // Skip to the next track, but never loop forever through a queue of broken files
-      if (errorStreakRef.current < Math.max(1, Math.min(queueRef.current.length, 10))) {
-        nextTrack();
+      if (errorStreakRef.current < Math.max(1, Math.min(queueRef.current.length, 3))) {
+        setTimeout(() => {
+          nextTrack();
+        }, 600);
       } else {
         errorStreakRef.current = 0;
       }
@@ -550,6 +764,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   // Preload and prepare upcoming track on standby deck whenever queue, track or mode changes
   useEffect(() => {
+    if (getPlatformDriver().isAndroid) return;
     if (currentTrack) {
       const next = getNextTrackInQueue(
         currentTrack,
@@ -581,8 +796,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
 
     if (repeatModeRef.current === 'one' && currentTrackRef.current) {
-      audioEngine.seek(0);
-      audioEngine.play();
+      if (getPlatformDriver().isAndroid) {
+        getPlatformDriver().audio.seekTo(0);
+        getPlatformDriver().audio.resume();
+      } else {
+        audioEngine.seek(0);
+        audioEngine.play();
+      }
       return;
     }
 
@@ -644,12 +864,41 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       isFavorite: favoritesService.isFavorite(playableTrack),
     };
 
+    activePlayCountedRef.current = null;
+    libraryService.recordPlaybackStart(playableTrack.id);
     setCurrentTrack(playableTrack);
-    await audioEngine.loadAndPlay(playableTrack, startPos);
+    if (getPlatformDriver().isAndroid) {
+      await getPlatformDriver().audio.play(playableTrack, newQueue || queueRef.current);
+    } else {
+      await audioEngine.loadAndPlay(playableTrack, startPos);
+    }
     sessionTrackingService.onPlaybackStarted(playableTrack);
 
     // Add to history
     setHistory((prev) => [playableTrack, ...prev.filter((t) => t.id !== playableTrack.id)].slice(0, 50));
+  };
+
+  const playRadioStation = async (station: RadioStation) => {
+    if (currentTrackRef.current && currentTrackRef.current.id !== `radio_${station.id}`) {
+      commitListeningSession();
+    }
+    playNextCountRef.current = 0;
+
+    const radioTrack = mobileRadioService.stationToTrackMetadata(station);
+    mobileRadioService.recordPlay(station);
+
+    activePlayCountedRef.current = null;
+    setCurrentTrack(radioTrack);
+    currentTrackRef.current = radioTrack;
+    setCurrentTime(0);
+    setDuration(0);
+
+    const driver = getPlatformDriver();
+    if (driver.isAndroid) {
+      await driver.audio.play(radioTrack, [radioTrack]);
+    } else {
+      await audioEngine.loadAndPlay(radioTrack, 0);
+    }
   };
 
   const playNow = async (track: TrackMetadata) => {
@@ -670,6 +919,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const togglePlayPause = async () => {
+    if (getPlatformDriver().isAndroid) {
+      if (isPlaying) {
+        await getPlatformDriver().audio.pause();
+      } else {
+        if (currentTrack) {
+          await getPlatformDriver().audio.resume();
+        } else if (queue.length > 0) {
+          await playTrack(queue[0]);
+        }
+      }
+      return;
+    }
+
     if (isPlaying) {
       audioEngine.pause();
     } else {
@@ -682,10 +944,19 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const pause = () => {
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.pause();
+      return;
+    }
     audioEngine.pause();
   };
 
   const seekTo = (seconds: number) => {
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.seekTo(seconds);
+      setCurrentTime(seconds);
+      return;
+    }
     audioEngine.seek(seconds);
     setCurrentTime(seconds);
   };
@@ -719,7 +990,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     } else if (repeatModeRef.current === 'all' && curQueue.length > 0) {
       playTrack(curQueue[0]);
     } else {
-      audioEngine.pause();
+      pause();
     }
   };
 
@@ -746,23 +1017,37 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   const setVolume = (val: number) => {
     const clamped = Math.max(0, Math.min(1, val));
     setVolumeState(clamped);
-    audioEngine.setVolume(clamped);
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setVolume(clamped);
+    } else {
+      audioEngine.setVolume(clamped);
+    }
     if (clamped > 0 && isMuted) {
       setIsMuted(false);
-      audioEngine.setMute(false);
+      if (!getPlatformDriver().isAndroid) {
+        audioEngine.setMute(false);
+      }
     }
   };
 
   const toggleMute = () => {
     const nextMuted = !isMuted;
     setIsMuted(nextMuted);
-    audioEngine.setMute(nextMuted);
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setMuted(nextMuted);
+    } else {
+      audioEngine.setMute(nextMuted);
+    }
   };
 
   const setPlaybackRate = (rate: number) => {
     const clamped = Math.max(0.5, Math.min(3.0, rate));
     setPlaybackRateState(clamped);
-    audioEngine.setPlaybackRate(clamped, preservesPitch);
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setPlaybackRate(clamped);
+    } else {
+      audioEngine.setPlaybackRate(clamped, preservesPitch);
+    }
   };
 
   const togglePreservePitch = () => {
@@ -773,16 +1058,25 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
   const setRepeatMode = (mode: RepeatMode) => {
     setRepeatModeState(mode);
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setRepeatMode?.(mode).catch(() => {});
+    }
   };
 
   const cycleRepeatMode = () => {
-    if (repeatMode === 'off') setRepeatModeState('all');
-    else if (repeatMode === 'all') setRepeatModeState('one');
-    else setRepeatModeState('off');
+    const nextMode: RepeatMode = repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off';
+    setRepeatModeState(nextMode);
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setRepeatMode?.(nextMode).catch(() => {});
+    }
   };
 
   const toggleShuffle = () => {
-    setIsShuffle(!isShuffle);
+    const nextShuffle = !isShuffle;
+    setIsShuffle(nextShuffle);
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setShuffle?.(nextShuffle).catch(() => {});
+    }
   };
 
   const setReplayGainMode = (mode: ReplayGainMode) => {
@@ -938,11 +1232,13 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     }
     setQueue((prev) => {
       const curTrack = currentTrackRef.current;
-      if (prev.length === 0 && curTrack) {
-        return [curTrack, track];
+      const nextQueue = prev.length === 0 && curTrack ? [curTrack, track] : [...prev, track];
+      if (getPlatformDriver().isAndroid) {
+        getPlatformDriver().audio.setQueue(nextQueue).catch(() => {});
       }
-      return [...prev, track];
+      return nextQueue;
     });
+    showToast(`Added "${track.title}" to queue`, 'info');
   };
 
   const playNext = (track: TrackMetadata) => {
@@ -964,17 +1260,25 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       const insertIndex = Math.min(copy.length, baseIndex + playNextCountRef.current);
       copy.splice(insertIndex, 0, track);
       playNextCountRef.current += 1;
+      if (getPlatformDriver().isAndroid) {
+        getPlatformDriver().audio.setQueue(copy).catch(() => {});
+      }
       return copy;
     });
+    showToast(`Playing "${track.title}" next`, 'info');
   };
 
   const removeFromQueue = (index: number) => {
     setQueue((prev) => {
       const copy = [...prev];
       copy.splice(index, 1);
+      if (getPlatformDriver().isAndroid) {
+        getPlatformDriver().audio.setQueue(copy).catch(() => {});
+      }
       return copy;
     });
     playNextCountRef.current = Math.max(0, playNextCountRef.current - 1);
+    showToast('Removed track from queue', 'info');
   };
 
   const reorderQueue = (fromIndex: number, toIndex: number) => {
@@ -983,18 +1287,30 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       if (fromIndex < 0 || fromIndex >= copy.length) return prev;
       const [moved] = copy.splice(fromIndex, 1);
       copy.splice(Math.max(0, Math.min(toIndex, copy.length)), 0, moved);
+      if (getPlatformDriver().isAndroid) {
+        getPlatformDriver().audio.setQueue(copy).catch(() => {});
+      }
       return copy;
     });
   };
 
   const clearQueue = () => {
-    setQueue(currentTrackRef.current ? [currentTrackRef.current] : []);
+    const nextQueue = currentTrackRef.current ? [currentTrackRef.current] : [];
+    setQueue(nextQueue);
     playNextCountRef.current = 0;
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setQueue(nextQueue).catch(() => {});
+    }
+    showToast('Upcoming queue cleared', 'info');
   };
 
   const replaceQueue = (tracks: TrackMetadata[]) => {
-    setQueue(tracks.filter(isPlayableAudioTrack));
+    const filtered = tracks.filter(isPlayableAudioTrack);
+    setQueue(filtered);
     playNextCountRef.current = 0;
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.setQueue(filtered).catch(() => {});
+    }
   };
 
   // Extended Sleep Timer & Auto Shutdown Logic
@@ -1114,6 +1430,10 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const totalSecs = Math.round(minutes * 60);
     let remaining = totalSecs;
 
+    if (getPlatformDriver().isAndroid && minutes > 0) {
+      getPlatformDriver().audio.startSleepTimer?.(minutes).catch(() => {});
+    }
+
     setSleepTimerState({
       isActive: true,
       mode: 'duration',
@@ -1165,6 +1485,9 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const cancelSleepTimer = () => {
+    if (getPlatformDriver().isAndroid) {
+      getPlatformDriver().audio.cancelSleepTimer?.().catch(() => {});
+    }
     if (sleepTimerIntervalRef.current) {
       clearInterval(sleepTimerIntervalRef.current);
       sleepTimerIntervalRef.current = null;
@@ -1300,25 +1623,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   }, [toggleMute]);
 
   useEffect(() => {
-    if (currentTrack) {
-      window.harmoniqApi
-        ?.updateSMTC?.({
-          title: currentTrack.title,
-          artist: currentTrack.artist,
-          album: currentTrack.album,
-          isPlaying,
-        })
-        ?.catch?.(() => {});
-    } else {
-      window.harmoniqApi
-        ?.updateSMTC?.({
-          title: '',
-          artist: '',
-          album: '',
-          isPlaying: false,
-        })
-        ?.catch?.(() => {});
-    }
+    getPlatformDriver().audio.updateMetadata(currentTrack, isPlaying).catch(() => {});
   }, [currentTrack, isPlaying]);
 
   // Windows File Association (double-click in Explorer or CLI argument)
@@ -1371,6 +1676,7 @@ export const PlayerProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         history,
         sleepTimer,
         playTrack,
+        playRadioStation,
         playNow,
         togglePlayPause,
         pause,
